@@ -28,11 +28,10 @@ const (
 // Note types. Every run ends with exactly one of done, failed, or cancelled;
 // a run with none of them was killed.
 const (
-	NoteDone         = "done"
-	NoteFailed       = "failed"
-	NoteCancelled    = "cancelled"
-	NoteRetry        = "retry"
-	NoteChecksPassed = "checks_passed"
+	NoteDone      = "done"
+	NoteFailed    = "failed"
+	NoteCancelled = "cancelled"
+	NoteRetry     = "retry"
 )
 
 // System is the system prompt and tool declarations in force from this entry
@@ -77,7 +76,7 @@ type ToolResult struct {
 }
 
 // Note records something that happened in a run and is not part of the
-// conversation: how the run ended, a retried request, checks that passed.
+// conversation: how the run ended, or a retried request.
 // Notes are never sent to the model.
 type Note struct {
 	Type string `json:"type"`

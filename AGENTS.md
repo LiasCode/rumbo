@@ -30,12 +30,26 @@ the ones a change must not break.
   never an edit to an earlier one.
 - **Settings are read once**, in `internal/cli/config.go`, and passed down.
 
+## What the harness is not
+
+rumbo is a general agent harness. These are decisions, not gaps:
+
+- **It knows no kind of work.** Nothing in the host is about programming or
+  any other domain: no project detection, no language-specific behaviour.
+  What a task needs comes from the user and the user's instruction files.
+- **It does not judge the model's work.** A run ends when the model stops
+  calling tools. The host runs no checks and sends the model back for
+  nothing. Measured over the evaluation set, checks never changed an outcome
+  and cost a great deal of machinery.
+- **It sends no context unasked** beyond the environment and the user's
+  instructions. The model looks at the project with its tools when it needs
+  to.
+
 ## Minimalism
 
 A new tool, setting, entry kind, or protocol field must pay for itself: every
-tool and every line of system prompt is paid for in tokens on each request.
-Prefer giving the model context through a collector over giving it a tool to
-fetch that context.
+tool and every line of system prompt is paid for in tokens on each request,
+by every task, whether it helps that task or not.
 
 ## Commands
 

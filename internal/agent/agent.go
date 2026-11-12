@@ -1,6 +1,6 @@
 // Package agent runs the loop that drives a model to finish an objective:
-// record the request, ask the provider, execute the tool calls, and verify
-// the work before accepting that it is done.
+// record the request, ask the provider, execute the tool calls, and repeat
+// until the model stops.
 package agent
 
 import (
@@ -14,12 +14,10 @@ import (
 	"time"
 
 	"rumbo/internal/ambient"
-	"rumbo/internal/project"
 	"rumbo/internal/provider"
 	"rumbo/internal/store"
 	"rumbo/internal/tool"
 	"rumbo/internal/transcript"
-	"rumbo/internal/verify"
 	"rumbo/protocol"
 )
 
@@ -30,7 +28,6 @@ type Observer interface {
 	Text(delta string)
 	ToolStarted(name string, args json.RawMessage)
 	ToolFinished(name, result string, failed bool)
-	Verified(checks []string, result verify.Result)
 	TurnFinished(usage protocol.Usage)
 	// Notice reports something the loop did on its own, such as a retry.
 	Notice(text string)
@@ -75,14 +72,6 @@ type Agent struct {
 	Model        string
 	MaxTokens    int
 
-	// Checks run when the agent stops after changing the project. The agent
-	// is sent back to work at most MaxVerifyRounds times per run. ChecksDir
-	// is where they run; empty means the session's directory.
-	Checks          []string
-	ChecksDir       string
-	CheckTimeout    time.Duration
-	MaxVerifyRounds int
-
 	// CompactAt is the context size, in tokens, at which the conversation is
 	// replaced by a summary. Zero never compacts.
 	CompactAt int64
@@ -92,8 +81,8 @@ type Agent struct {
 	RetryWaits []time.Duration
 }
 
-// Run works on objective in the given session until the model stops and the
-// checks pass, a limit is reached, or ctx is cancelled.
+// Run works on objective in the given session until the model stops, a
+// limit is reached, or ctx is cancelled.
 func (a *Agent) Run(ctx context.Context, session store.Session, objective string) error {
 	err := a.prepare(ctx, session)
 
@@ -102,7 +91,7 @@ func (a *Agent) Run(ctx context.Context, session store.Session, objective string
 	}
 
 	if err == nil {
-		err = a.loop(ctx, session, objective, false)
+		err = a.loop(ctx, session, objective)
 	}
 
 	return a.finish(ctx, session, err)
@@ -127,29 +116,17 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 		err = a.append(session, transcript.KindHarness, transcript.Text{Text: resumed})
 	}
 
-	// What the interrupted run changed is unknown, so the checks must run.
 	if err == nil {
-		err = a.loop(ctx, session, state.Objective, true)
+		err = a.loop(ctx, session, state.Objective)
 	}
 
 	return a.finish(ctx, session, err)
 }
 
-// loop asks the model and runs its tool calls until it stops, then verifies
-// the work. owed says the checks must run whether or not this loop changes
-// anything, because the project may already have been modified.
-func (a *Agent) loop(ctx context.Context, session store.Session, objective string, owed bool) error {
-	rounds := 0
+// loop asks the model and runs its tool calls until it stops calling them,
+// which is how the model says the work is done.
+func (a *Agent) loop(ctx context.Context, session store.Session, objective string) error {
 	cuts := 0
-
-	// What the project looks like before the work. Comparing against it is
-	// how the harness knows whether there is anything to verify, whichever
-	// tools or commands the model used.
-	before := ""
-
-	if len(a.Checks) > 0 && !owed {
-		before = project.Snapshot(ctx, session.Project)
-	}
 
 	for turns := 1; ; turns++ {
 		if a.MaxTurns > 0 && turns > a.MaxTurns {
@@ -194,35 +171,7 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 			continue
 		}
 
-		if len(a.Checks) == 0 || (!owed && project.Snapshot(ctx, session.Project) == before) {
-			return nil
-		}
-
-		result := verify.Run(ctx, a.checksDir(session), a.Checks, a.CheckTimeout)
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		a.Observer.Verified(a.Checks, result)
-
-		if result.Passed {
-			return a.note(session, transcript.NoteChecksPassed, strings.Join(a.Checks, "\n"))
-		}
-
-		if rounds >= a.MaxVerifyRounds {
-			return fmt.Errorf("the checks still fail after %d attempt(s) to fix them", rounds)
-		}
-
-		// After a failure the checks run again at the next stop even if no
-		// project file changes: the fix may be outside it, such as installing
-		// a dependency.
-		rounds++
-		owed = true
-
-		if err := a.append(session, transcript.KindHarness, transcript.Text{Text: feedback(objective, result)}); err != nil {
-			return err
-		}
+		return nil
 	}
 }
 
@@ -484,14 +433,6 @@ func (a *Agent) execute(ctx context.Context, session store.Session, calls []prot
 	return ctx.Err()
 }
 
-func (a *Agent) checksDir(session store.Session) string {
-	if a.ChecksDir != "" {
-		return a.ChecksDir
-	}
-
-	return session.Dir
-}
-
 func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text string, failed bool) {
 	for _, candidate := range a.Tools {
 		if candidate.Def().Name != call.Name {
@@ -556,13 +497,4 @@ func toolCalls(message protocol.Message) []protocol.Block {
 	}
 
 	return calls
-}
-
-// feedback is what the model is told when the checks fail. It restates the
-// objective so a long run is pulled back to what the user asked for.
-func feedback(objective string, result verify.Result) string {
-	return fmt.Sprintf(
-		"[harness] The project's checks fail after your changes. Fix what your changes broke, then finish. If a failure was already there before your work and is unrelated to the objective, leave it, and say so in your report.\n\n%s\n\nObjective, for reference:\n%s",
-		result.Report, objective,
-	)
 }

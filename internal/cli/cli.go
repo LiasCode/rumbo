@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"time"
 
 	"rumbo/internal/agent"
 	"rumbo/internal/ambient"
@@ -233,7 +232,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		dir, created.root = created.session.Dir, created.session.Project
 	}
 
-	if created.settings, err = loadConfig(database, dir, created.root, *model, *frontendName); err != nil {
+	if created.settings, err = loadConfig(database, created.root, *model, *frontendName); err != nil {
 		return nil, err
 	}
 
@@ -343,21 +342,17 @@ func (h *host) start() error {
 	h.process = process
 
 	h.worker = &agent.Agent{
-		Store:           h.database,
-		Provider:        process,
-		Observer:        h.conn,
-		Tools:           tool.Defaults(),
-		Collectors:      append(ambient.Defaults(), checksCollector(h.settings.Checks)),
-		ProviderName:    h.settings.Provider,
-		Model:           h.settings.Model,
-		MaxTokens:       h.settings.MaxTokens,
-		Checks:          h.settings.Checks,
-		ChecksDir:       h.settings.ChecksDir,
-		CheckTimeout:    time.Duration(h.settings.CheckTimeout) * time.Second,
-		MaxVerifyRounds: h.settings.MaxVerifyRounds,
-		MaxTurns:        h.settings.MaxTurns,
-		CompactAt:       int64(h.settings.CompactAt),
-		RetryWaits:      agent.DefaultRetryWaits,
+		Store:        h.database,
+		Provider:     process,
+		Observer:     h.conn,
+		Tools:        tool.Defaults(),
+		Collectors:   ambient.Defaults(),
+		ProviderName: h.settings.Provider,
+		Model:        h.settings.Model,
+		MaxTokens:    h.settings.MaxTokens,
+		MaxTurns:     h.settings.MaxTurns,
+		CompactAt:    int64(h.settings.CompactAt),
+		RetryWaits:   agent.DefaultRetryWaits,
 	}
 
 	return nil
@@ -371,17 +366,6 @@ func (h *host) close() {
 	if h.unlock != nil {
 		h.unlock()
 	}
-}
-
-// checksCollector tells the model which checks the harness runs for it.
-func checksCollector(checks []string) ambient.Collector {
-	return ambient.Func("checks", func(context.Context, string) string {
-		if len(checks) == 0 {
-			return ""
-		}
-
-		return "The harness runs these when you stop and returns any failure to you:\n- " + strings.Join(checks, "\n- ")
-	})
 }
 
 func isTerminal(file *os.File) bool {

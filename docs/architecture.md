@@ -9,30 +9,33 @@ reaches the model.
 ```
  front end process  (built-in tui or plain, or written by the user)
    ^
-   |  Agent Frontend Protocol: JSON-RPC, objectives in, events out
+   |  Agent Frontend Protocol: JSON-RPC, tasks in, events out
    v
- +--------------------- host process (rumbo) ----------------------+
- |  Observer                                                       |
- |     ^                                                           |
- |  +--+---------- agent loop (internal/agent) ------------+       |
- |  |             |              |             |           |       |
- | Provider      Tool         Collector       Store      verify    |
- |  |          (actions)  (ambient context) (history)   (checks)   |
- +--+--------------------------------------------------------------+
+ +------------------- host process (rumbo) --------------------+
+ |  Observer                                                   |
+ |     ^                                                       |
+ |  +--+-------- agent loop (internal/agent) -----------+      |
+ |  |              |               |                    |      |
+ | Provider       Tool         Collector              Store    |
+ |  |           (actions)   (ambient context)       (history)  |
+ +--+----------------------------------------------------------+
     |  Agent Provider Protocol: JSON-RPC, conversation in, message out
     v
  provider process  (built-in anthropic or openai, or written by the user)
 ```
 
 The host is the only part that is always rumbo. It owns the session, the
-tools, and the loop; it shows nothing and knows no model API.
+tools, and the loop; it shows nothing and knows no model API. It is not tied
+to one kind of work: what a task is about comes from the user and from the
+user's instructions, not from the host.
 
 ## The parts
 
 **Agent loop** (`internal/agent`). Records the objective, asks the provider
-for a message, runs the tool calls in it, and repeats. When the model stops
-calling tools, the loop runs the checks; a failure goes back to the model with
-the objective restated. The loop knows only interfaces.
+for a message, runs the tool calls in it, and repeats until the model stops
+calling tools. Around that it retries requests that fail for a passing
+reason, continues responses cut by the output limit, compacts a full context,
+and records how the run ended. The loop knows only interfaces.
 
 **Provider** (`internal/provider`, `protocol`). The only way to reach a model.
 The host starts a provider process and speaks the Agent Provider Protocol to
@@ -41,28 +44,24 @@ binary through `rumbo provide <name>` and get no shortcut: they cross the same
 protocol as a provider a user writes. Credentials belong to the provider; the
 host never sees them.
 
-**Tools** (`internal/tool`). What the model can do. The set is small because
-every declared tool costs tokens on every request, and bash already reaches
-everything else.
+**Tools** (`internal/tool`). What the model can do: read, write, and edit
+files, and run commands. The set is small because every declared tool costs
+tokens on every request, and a shell already reaches everything else.
 
-**Ambient context** (`internal/ambient`). What the harness gathers without
-being asked: environment, project instructions, directory tree, git state, and
-the checks. Programming always needs these, so the harness collects them with
-plain tools instead of letting the model spend turns on it. Each collector
-produces a named section.
+**Ambient context** (`internal/ambient`). The little the model is told
+without asking: the environment it runs in, and the user's instruction files.
+Each collector produces a named section. Everything else about a task the
+model finds out with its tools, when it needs it.
 
-**Store** (`internal/store`). Settings, registered providers, sessions, and
+**Store** (`internal/store`). Settings, registered programs, sessions, and
 entries, in one SQLite file.
 
 **Transcript** (`internal/transcript`). Defines what entries mean and rebuilds
 the model request from them. This is the single place that decides what the
 model sees.
 
-**Verify** (`internal/verify`). Detects and runs the project's checks.
-
-**Project** (`internal/project`). Says what the project is: its root, its
-files, and a snapshot of them. The tree shown to the model and the decision
-to verify both come from the same file list.
+**Project** (`internal/project`). Says where the project a directory belongs
+to starts.
 
 **Front end** (`internal/frontend`, `protocol`). The only way a person
 reaches the loop. The host sends it events and receives objectives and
@@ -91,6 +90,11 @@ are deterministic, and ambient context is sent once and then only as changed
 sections. Each request therefore extends the previous one, which is what lets
 providers cache the prefix.
 
+**The harness adds as little as it can.** The system prompt is a few lines,
+and the only context sent unasked is the environment and the user's
+instructions. Whatever else the harness sent would be paid for on every
+request, by every task, whether it helped that task or not.
+
 **A full context is compacted, not trimmed.** When the conversation reaches
 the `compact_at` size, the model is asked to summarize it, and a compaction
 entry makes the next request start from the ambient context and that summary
@@ -110,19 +114,16 @@ them sent.
 **Tool output is bounded.** A result stays in the context and is paid for on
 every later request, so results are kept small: a file is read in windows,
 and long command output is reduced to its beginning and end, with the whole
-of it saved to a file the model can search. The tree marks the files that are
-large, so the model knows to search one before it reads it.
+of it saved to a file the model can search.
 
 **The host is driven only through the protocol.** It ignores the terminal's
 interrupt and writes nothing to the terminal. A front end decides what Ctrl-C
 means and cancels with a message; diagnostics, including the provider's
 stderr, reach the user as events.
 
-**Stopping is a claim, not a fact.** The model declares the work finished by
-not calling tools. The harness checks the claim: if the project's files are
-not what they were when the run started, the checks run. What decides is the
-state of the files, not which tools were called, so a file written by a shell
-command counts and a command that only looked does not.
+**The model decides when the work is done.** A run ends when the model stops
+calling tools. The harness does not judge the result; checking the work is
+part of the task, and the user's instructions say how.
 
 **A project is its root.** Settings and sessions belong to the top of the git
 repository, and are found from any directory inside it. A session still works

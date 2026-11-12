@@ -45,7 +45,6 @@ type result struct {
 	Seconds   float64 `json:"seconds"`
 	Turns     int     `json:"turns"`
 	ToolCalls int     `json:"tool_calls"`
-	FixRounds int     `json:"fix_rounds"`
 	Compacted int     `json:"compactions"`
 	Input     int64   `json:"input_tokens"`
 	Cached    int64   `json:"cached_tokens"`
@@ -432,9 +431,6 @@ func measure(outcome *result, database string) error {
 
 		for _, entry := range entries {
 			switch entry.Kind {
-			case transcript.KindHarness:
-				outcome.FixRounds++
-
 			case transcript.KindCompaction:
 				var compaction transcript.Compaction
 
@@ -567,7 +563,7 @@ func record(path string, outcome result) error {
 func report(results []result) {
 	table := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
 
-	fmt.Fprintln(table, "task\tresult\texit\tseconds\tturns\ttools\tfixes\tcompact\tinput\tcached\toutput\t")
+	fmt.Fprintln(table, "task\tresult\texit\tseconds\tturns\ttools\tcompact\tinput\tcached\toutput\t")
 
 	passed := 0
 	var total result
@@ -580,19 +576,18 @@ func report(results []result) {
 		total.Seconds += outcome.Seconds
 		total.Turns += outcome.Turns
 		total.ToolCalls += outcome.ToolCalls
-		total.FixRounds += outcome.FixRounds
 		total.Compacted += outcome.Compacted
 		total.Input += outcome.Input
 		total.Cached += outcome.Cached
 		total.Output += outcome.Output
 
-		fmt.Fprintf(table, "%s\t%s\t%d\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
+		fmt.Fprintf(table, "%s\t%s\t%d\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
 			outcome.Task, verdict(outcome.Passed), outcome.ExitCode, outcome.Seconds,
-			outcome.Turns, outcome.ToolCalls, outcome.FixRounds, outcome.Compacted, outcome.Input, outcome.Cached, outcome.Output)
+			outcome.Turns, outcome.ToolCalls, outcome.Compacted, outcome.Input, outcome.Cached, outcome.Output)
 	}
 
-	fmt.Fprintf(table, "total\t%d/%d\t\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
-		passed, len(results), total.Seconds, total.Turns, total.ToolCalls, total.FixRounds, total.Compacted, total.Input, total.Cached, total.Output)
+	fmt.Fprintf(table, "total\t%d/%d\t\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
+		passed, len(results), total.Seconds, total.Turns, total.ToolCalls, total.Compacted, total.Input, total.Cached, total.Output)
 
 	table.Flush()
 

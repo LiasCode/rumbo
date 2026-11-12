@@ -64,6 +64,20 @@ var migrations = []string{
 	`ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT '';
 	 UPDATE sessions SET project = dir WHERE project = '';
 	 CREATE INDEX sessions_by_project ON sessions (project, created_at);`,
+
+	// 2: results of project checks. The checks were removed, and nothing
+	// reads this table, but databases at version 2 exist, so the step stays
+	// and later migrations keep their numbers.
+	`CREATE TABLE check_results (
+		project    TEXT NOT NULL,
+		dir        TEXT NOT NULL,
+		command    TEXT NOT NULL,
+		snapshot   TEXT NOT NULL,
+		passed     INTEGER NOT NULL,
+		output     TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, dir, command)
+	 );`,
 }
 
 // sessionColumns are selected in the order scanSession reads them. Activity

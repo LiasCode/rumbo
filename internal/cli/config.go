@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,30 +11,23 @@ import (
 
 	"rumbo/internal/project"
 	"rumbo/internal/store"
-	"rumbo/internal/verify"
 )
 
 // Setting keys. A project value overrides the global one.
 const (
-	keyModel           = "model"
-	keyFrontend        = "frontend"
-	keyChecks          = "checks"
-	keyMaxTokens       = "max_tokens"
-	keyMaxVerifyRounds = "max_verify_rounds"
-	keyMaxTurns        = "max_turns"
-	keyCompactAt       = "compact_at"
-	keyCheckTimeout    = "check_timeout"
+	keyModel     = "model"
+	keyFrontend  = "frontend"
+	keyMaxTokens = "max_tokens"
+	keyMaxTurns  = "max_turns"
+	keyCompactAt = "compact_at"
 )
 
 var settingHelp = map[string]string{
-	keyModel:           `provider and model, as "provider/model"`,
-	keyFrontend:        `front end to start; unset uses tui in a terminal and plain otherwise`,
-	keyChecks:          `JSON array of commands run when the agent stops; [] disables them; unset detects them`,
-	keyMaxTokens:       `output token limit per response; unset uses the provider's default`,
-	keyMaxVerifyRounds: `times the agent is sent back to fix failing checks (default 3)`,
-	keyMaxTurns:        `model responses after which a run is stopped (default 150; 0 for no limit)`,
-	keyCheckTimeout:    `seconds each check may take (default 600)`,
-	keyCompactAt:       `context size in tokens at which the conversation is summarized (default 150000; 0 never)`,
+	keyModel:     `provider and model, as "provider/model"`,
+	keyFrontend:  `front end to start; unset uses tui in a terminal and plain otherwise`,
+	keyMaxTokens: `output token limit per response; unset uses the provider's default`,
+	keyMaxTurns:  `model responses after which a run is stopped (default 150; 0 for no limit)`,
+	keyCompactAt: `context size in tokens at which the conversation is summarized (default 150000; 0 never)`,
 }
 
 // selfPlaceholder in a registered command stands for the rumbo executable, so
@@ -44,16 +36,12 @@ const selfPlaceholder = "{self}"
 
 // config is everything a run reads from settings, resolved once.
 type config struct {
-	Frontend        string
-	Provider        string
-	Model           string
-	Checks          []string
-	ChecksDir       string
-	CheckTimeout    int
-	MaxTokens       int
-	MaxVerifyRounds int
-	MaxTurns        int
-	CompactAt       int
+	Frontend  string
+	Provider  string
+	Model     string
+	MaxTokens int
+	MaxTurns  int
+	CompactAt int
 }
 
 // DatabasePath is where the SQLite file lives: RUMBO_DB, or the user's data
@@ -128,11 +116,10 @@ func workingProject() (dir, root string, err error) {
 	return dir, project.Root(context.Background(), dir), nil
 }
 
-// loadConfig resolves the settings for a run in dir, a directory of the
-// project at root. A missing or malformed required setting is an error;
-// nothing is guessed.
-func loadConfig(settings store.Store, dir, root, modelFlag, frontendFlag string) (config, error) {
-	loaded := config{MaxVerifyRounds: 3, MaxTurns: 150, CompactAt: 150_000, CheckTimeout: 600, Frontend: frontendFlag}
+// loadConfig resolves the settings for a run in the project at root. A
+// missing or malformed required setting is an error; nothing is guessed.
+func loadConfig(settings store.Store, root, modelFlag, frontendFlag string) (config, error) {
+	loaded := config{MaxTurns: 150, CompactAt: 150_000, Frontend: frontendFlag}
 
 	if loaded.Frontend == "" {
 		value, found, err := lookup(settings, root, keyFrontend)
@@ -172,33 +159,9 @@ func loadConfig(settings store.Store, dir, root, modelFlag, frontendFlag string)
 	loaded.Provider = providerName
 	loaded.Model = modelName
 
-	checks, found, err := lookup(settings, root, keyChecks)
-
-	if err != nil {
-		return loaded, err
-	}
-
-	// Checks written by the user are the project's, and run at its root.
-	// Detected ones run where the files that define them are.
-	if found {
-		loaded.ChecksDir = root
-
-		if err := json.Unmarshal([]byte(checks), &loaded.Checks); err != nil {
-			return loaded, fmt.Errorf("setting %s must be a JSON array of commands: %w", keyChecks, err)
-		}
-	} else {
-		loaded.Checks, loaded.ChecksDir = verify.Detect(dir, root)
-	}
-
-	if loaded.CheckTimeout, err = lookupInt(settings, root, keyCheckTimeout, loaded.CheckTimeout); err != nil {
-		return loaded, err
-	}
+	var err error
 
 	if loaded.MaxTokens, err = lookupInt(settings, root, keyMaxTokens, loaded.MaxTokens); err != nil {
-		return loaded, err
-	}
-
-	if loaded.MaxVerifyRounds, err = lookupInt(settings, root, keyMaxVerifyRounds, loaded.MaxVerifyRounds); err != nil {
 		return loaded, err
 	}
 

@@ -1,7 +1,9 @@
 # Evaluation set
 
 Eight small tasks that rumbo is run on, to measure a change instead of
-guessing at it. Each task targets one thing the harness is meant to get right.
+guessing at it. They are programming tasks because those are easy to check
+exactly; what they exercise is general: the tools, the context, staying on
+the task, and stopping when it is done.
 
 | Task | What it measures |
 |---|---|
@@ -10,7 +12,7 @@ guessing at it. Each task targets one thing the harness is meant to get right.
 | `stay-in-scope` | Does exactly what was asked in code that invites unrequested cleanup. |
 | `signature-change` | Follows a change through every caller in other files and packages. |
 | `follow-instructions` | Applies the project's `AGENTS.md`, which the harness provides as context. |
-| `no-checks` | Verifies its own work when the harness has no checks to run. |
+| `python-fix` | Finds a bug that only shows in the program's output, by running it. |
 | `large-file` | Edits one line of a file much larger than a read window. |
 | `answer-only` | Answers a question without changing anything. |
 
@@ -28,8 +30,8 @@ go run ./evals -model anthropic/claude-opus-5-5 -set compact_at=3000
 
 `-set key=value` applies a rumbo setting to every run. It is how a mechanism
 that small tasks never reach on their own gets exercised: with `compact_at`
-set that low, every task is summarized and continued mid-way, and still has
-to pass.
+set that low, the longer tasks are summarized and continued mid-way, and
+still have to pass.
 
 A real run calls the model and costs tokens. Model output varies between
 runs: use `-runs` before reading much into a single pass or failure.
@@ -37,8 +39,7 @@ runs: use `-runs` before reading much into a single pass or failure.
 Each run gets a fresh copy of the task's project and a database of its own,
 and ignores the machine's global instructions, so results depend only on the
 task and the code. A provider you registered is carried over from your own
-database. Checks are whatever the harness detects for the project, as for a
-new user.
+database.
 
 ## Reading the report
 
@@ -47,7 +48,6 @@ new user.
   time limit.
 - **turns**, **tools**: model responses and tool calls. Fewer for the same
   result means less wandering.
-- **fixes**: times the harness sent the agent back because its checks failed.
 - **compact**: times the conversation was replaced by a summary.
 - **input**, **cached**, **output**: tokens. `input` is what was paid in full;
   `cached` is what the provider read from its cache.

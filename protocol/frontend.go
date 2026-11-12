@@ -32,7 +32,6 @@ const (
 	EventText         = "text"
 	EventToolStarted  = "tool_started"
 	EventToolFinished = "tool_finished"
-	EventVerified     = "verified"
 	EventTurn         = "turn"
 	EventLog          = "log"
 )
@@ -82,7 +81,6 @@ type RunResult struct {
 //   - text: Text, a piece of the model's visible answer.
 //   - tool_started: Name, Args.
 //   - tool_finished: Name, Result, Failed.
-//   - verified: Checks, Passed, Report.
 //   - turn: Usage of one model response.
 //   - log: Text, a diagnostic line from the host or the provider.
 type Event struct {
@@ -93,9 +91,6 @@ type Event struct {
 	Args     json.RawMessage `json:"args,omitempty"`
 	Result   string          `json:"result,omitempty"`
 	Failed   bool            `json:"failed,omitempty"`
-	Checks   []string        `json:"checks,omitempty"`
-	Passed   bool            `json:"passed,omitempty"`
-	Report   string          `json:"report,omitempty"`
 	Usage    *Usage          `json:"usage,omitempty"`
 }
 

@@ -1,7 +1,6 @@
-// Package ambient gathers the context every programming task needs before
-// the model asks for it: the directory tree, the git state, the project's
-// instructions, and the environment. The harness collects it with ordinary
-// tools, so the model spends no turns or tokens fetching it.
+// Package ambient gathers the little the model is told without asking: where
+// it is running, and the user's standing instructions. Everything else about
+// a task the model finds out with its tools.
 package ambient
 
 import (
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"rumbo/internal/project"
-	"rumbo/internal/tool"
 	"rumbo/internal/transcript"
 )
 
@@ -43,14 +41,11 @@ func (f funcCollector) Collect(ctx context.Context, dir string) string {
 	return f.collect(ctx, dir)
 }
 
-// Defaults returns the built-in collectors, most stable first so the sections
-// that change often sit at the end.
+// Defaults returns the built-in collectors.
 func Defaults() []Collector {
 	return []Collector{
 		Func("environment", environment),
 		Func("instructions", instructions),
-		Func("tree", tree),
-		Func("git", git),
 	}
 }
 
@@ -116,26 +111,4 @@ func instructions(ctx context.Context, dir string) string {
 	}
 
 	return strings.Join(parts, "\n\n")
-}
-
-func git(ctx context.Context, dir string) string {
-	status := run(ctx, dir, "git status --short --branch 2>/dev/null | head -n 40")
-
-	if strings.TrimSpace(status) == "" {
-		return ""
-	}
-
-	log := run(ctx, dir, "git log --oneline -n 5 2>/dev/null")
-
-	if strings.TrimSpace(log) == "" {
-		return "status:\n" + status
-	}
-
-	return "status:\n" + status + "\nrecent commits:\n" + log
-}
-
-func run(ctx context.Context, dir, command string) string {
-	output, _ := tool.Shell(ctx, dir, command, 10*time.Second)
-
-	return output
 }

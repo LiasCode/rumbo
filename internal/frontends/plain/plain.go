@@ -151,13 +151,6 @@ func (f *frontend) show(event protocol.Event) {
 			f.line("  failed: %s", render.FirstLine(event.Result))
 		}
 
-	case protocol.EventVerified:
-		if event.Passed {
-			f.line("checks passed: %s", strings.Join(event.Checks, "; "))
-		} else {
-			f.line("checks failed:\n%s", event.Report)
-		}
-
 	case protocol.EventLog:
 		f.line("%s", event.Text)
 	}

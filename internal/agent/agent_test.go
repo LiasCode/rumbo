@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"rumbo/internal/store"
 	"rumbo/internal/tool"
 	"rumbo/internal/transcript"
-	"rumbo/internal/verify"
 	"rumbo/protocol"
 )
 
@@ -70,9 +68,8 @@ func (s *scripted) Close() error {
 }
 
 type silent struct {
-	verified []bool
-	notices  []string
-	shown    string
+	notices []string
+	shown   string
 }
 
 func (*silent) ContextUpdated([]string)             {}
@@ -83,10 +80,6 @@ func (*silent) TurnFinished(protocol.Usage)         {}
 
 func (s *silent) Notice(text string) {
 	s.notices = append(s.notices, text)
-}
-
-func (s *silent) Verified(_ []string, result verify.Result) {
-	s.verified = append(s.verified, result.Passed)
 }
 
 func write(id, path, content string) protocol.Block {
@@ -103,9 +96,9 @@ func text(value string) protocol.Block {
 	return protocol.Block{Type: protocol.BlockText, Text: value}
 }
 
-// The agent stops after writing a file that fails the check; the harness
-// sends the failure back, the agent fixes it, and only then the run ends.
-func TestRunVerifiesBeforeFinishing(t *testing.T) {
+// A run with a tool call: what the model is sent, that each request extends
+// the one before, and that the stored entries rebuild it exactly.
+func TestRunRecordsAReproducibleHistory(t *testing.T) {
 	dir := t.TempDir()
 	database, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 
@@ -116,24 +109,18 @@ func TestRunVerifiesBeforeFinishing(t *testing.T) {
 	defer database.Close()
 
 	model := &scripted{answers: []protocol.Message{
-		say(write("call-1", "state.txt", "bad")),
+		say(write("call-1", "state.txt", "ok")),
 		say(text("Done.")),
-		say(write("call-2", "state.txt", "ok")),
-		say(text("Fixed.")),
 	}}
 
-	observer := &silent{}
-
 	worker := &Agent{
-		Store:           database,
-		Provider:        model,
-		Observer:        observer,
-		Tools:           tool.Defaults(),
-		Collectors:      []ambient.Collector{ambient.Func("note", func(context.Context, string) string { return "hello" })},
-		ProviderName:    "scripted",
-		Model:           "test",
-		Checks:          []string{`grep -q ok state.txt`},
-		MaxVerifyRounds: 3,
+		Store:        database,
+		Provider:     model,
+		Observer:     &silent{},
+		Tools:        tool.Defaults(),
+		Collectors:   []ambient.Collector{ambient.Func("note", func(context.Context, string) string { return "hello" })},
+		ProviderName: "scripted",
+		Model:        "test",
 	}
 
 	session, err := database.CreateSession(dir, dir, "test")
@@ -146,16 +133,12 @@ func TestRunVerifiesBeforeFinishing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(observer.verified, []bool{false, true}) {
-		t.Fatalf("verification outcomes = %v, want [false true]", observer.verified)
-	}
-
 	if content, _ := os.ReadFile(filepath.Join(dir, "state.txt")); string(content) != "ok" {
 		t.Fatalf("state.txt = %q, want ok", content)
 	}
 
-	if len(model.requests) != 4 {
-		t.Fatalf("requests = %d, want 4", len(model.requests))
+	if len(model.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(model.requests))
 	}
 
 	first := model.requests[0].Messages
@@ -164,20 +147,9 @@ func TestRunVerifiesBeforeFinishing(t *testing.T) {
 		t.Fatalf("first request should be one user message with context then objective, got %+v", first)
 	}
 
-	feedback := model.requests[2].Messages
-	last := feedback[len(feedback)-1].Content
-
-	if !strings.Contains(last[len(last)-1].Text, "write ok to state.txt") {
-		t.Fatalf("check feedback should restate the objective, got %q", last[len(last)-1].Text)
-	}
-
 	// Every request is a prefix of the next one: history is append-only.
-	for index := 1; index < len(model.requests); index++ {
-		previous, current := model.requests[index-1].Messages, model.requests[index].Messages
-
-		if !isPrefix(previous, current) {
-			t.Fatalf("request %d does not extend request %d", index, index-1)
-		}
+	if !isPrefix(model.requests[0].Messages, model.requests[1].Messages) {
+		t.Fatal("the second request does not extend the first")
 	}
 
 	// The stored entries alone rebuild the last request sent.
@@ -187,16 +159,20 @@ func TestRunVerifiesBeforeFinishing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The last request was sent before the final answer and the notes that
-	// close the run were recorded.
-	state, err := transcript.Build(entries[:len(entries)-3])
+	if got := kinds(entries); got != "system context user assistant tool_result assistant note" {
+		t.Fatalf("entries = %q", got)
+	}
+
+	// The last request was sent before the final answer and the closing note
+	// were recorded.
+	state, err := transcript.Build(entries[:len(entries)-2])
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got, _ := json.Marshal(state.Messages)
-	want, _ := json.Marshal(model.requests[3].Messages)
+	want, _ := json.Marshal(model.requests[1].Messages)
 
 	if string(got) != string(want) {
 		t.Fatalf("replayed request differs from the one sent\n got: %s\nwant: %s", got, want)
@@ -211,9 +187,8 @@ func TestRunVerifiesBeforeFinishing(t *testing.T) {
 	}
 
 	after, _ := database.Entries(session.ID)
-	added := after[len(entries):]
 
-	if kinds(added) != "user assistant note" {
+	if added := after[len(entries):]; kinds(added) != "user assistant note" {
 		t.Fatalf("second run added %q, want only user, assistant, and the closing note", kinds(added))
 	}
 }
@@ -228,8 +203,8 @@ func kinds(entries []store.Entry) string {
 	return strings.Join(names, " ")
 }
 
-// setup returns an agent on a fresh session, with no checks and no ambient
-// context, so a test sees only what it is about.
+// setup returns an agent on a fresh session with no ambient context, so a
+// test sees only what it is about.
 func setup(t *testing.T, model *scripted) (*Agent, store.Store, store.Session, *silent) {
 	t.Helper()
 
@@ -418,14 +393,12 @@ func TestResumeAfterCancelClosesTheOpenCall(t *testing.T) {
 func TestResume(t *testing.T) {
 	model := &scripted{failures: []error{errors.New("connection reset")}}
 	worker, database, session, _ := setup(t, model)
-	worker.Checks = []string{"test -f done.txt"}
-	worker.MaxVerifyRounds = 1
 
 	if err := worker.Run(context.Background(), session, "create done.txt"); err == nil {
 		t.Fatal("the run should have failed")
 	}
 
-	model.answers = []protocol.Message{say(text("Nothing was needed.")), say(write("call-1", "done.txt", "x")), say(text("Created."))}
+	model.answers = []protocol.Message{say(write("call-1", "done.txt", "x")), say(text("Created."))}
 
 	if err := worker.Resume(context.Background(), session); err != nil {
 		t.Fatal(err)
@@ -438,17 +411,7 @@ func TestResume(t *testing.T) {
 		t.Fatalf("resumed request should end with the objective and the harness message, got %+v", last)
 	}
 
-	// The interrupted run may have changed the project, so the checks ran
-	// even though the resumed model first stopped without touching anything,
-	// and their feedback restated the original objective.
-	feedbackRequest := model.requests[2].Messages
-	told := feedbackRequest[len(feedbackRequest)-1].Content[0].Text
-
-	if !strings.Contains(told, "test -f done.txt") || !strings.Contains(told, "create done.txt") {
-		t.Fatalf("check feedback = %q", told)
-	}
-
-	if got := notes(t, database, session); got != "failed checks_passed done" {
+	if got := notes(t, database, session); got != "failed done" {
 		t.Fatalf("notes = %q", got)
 	}
 
@@ -545,41 +508,5 @@ func TestCompactionFailsWithoutASummary(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(session.Dir, "b.txt")); err == nil {
 		t.Fatal("a tool call made instead of the summary was executed")
-	}
-}
-
-// The checks run when the project changed, however it was changed, and not
-// when a command only looked at it.
-func TestChecksRunOnlyWhenTheProjectChanged(t *testing.T) {
-	bash := func(id, command string) protocol.Block {
-		args, _ := json.Marshal(map[string]string{"command": command})
-
-		return protocol.Block{Type: protocol.BlockToolCall, ID: id, Name: "bash", Args: args}
-	}
-
-	model := &scripted{answers: []protocol.Message{
-		say(bash("call-1", "ls -la && cat nothing.txt || true")),
-		say(text("Looked around.")),
-		say(bash("call-2", "echo data > made-by-a-command.txt")),
-		say(text("Created it.")),
-	}}
-
-	worker, _, session, observer := setup(t, model)
-	worker.Checks = []string{"true"}
-
-	if err := worker.Run(context.Background(), session, "look"); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(observer.verified) != 0 {
-		t.Fatal("the checks ran after a command that changed nothing")
-	}
-
-	if err := worker.Run(context.Background(), session, "create"); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(observer.verified) != 1 {
-		t.Fatalf("checks ran %d times after a command created a file, want 1", len(observer.verified))
 	}
 }

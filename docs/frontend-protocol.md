@@ -91,7 +91,7 @@ The result arrives when the run is over, however it ends:
 
 | `status` | Meaning |
 |---|---|
-| `done` | The agent stopped and the checks passed. |
+| `done` | The model finished the task. |
 | `failed` | The run ended with a problem; `error` explains it. |
 | `cancelled` | The front end cancelled it. |
 
@@ -121,7 +121,6 @@ What is happening in the active run. `type` selects the fields:
 | `text` | `text` | A piece of the model's visible answer, in order. |
 | `tool_started` | `name`, `args` | The agent calls a tool. |
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
-| `verified` | `checks`, `passed`, `report` | The checks ran after the agent stopped. |
 | `turn` | `usage` | One model response finished, with its token counts. |
 | `log` | `text` | A diagnostic from the provider, or something the host did on its own, such as retrying a request. |
 

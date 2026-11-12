@@ -1,17 +1,18 @@
 # rumbo
 
-A minimal coding agent harness. You give it an objective; it drives a model
-until the objective is done and the project's checks pass.
+A minimal agent harness. You give it a task; it drives a model, through a
+small set of tools, until the task is done.
 
-- **Small on purpose.** Four tools (`read`, `write`, `edit`, `bash`), a short
-  constant system prompt, one loop.
-- **Context without asking.** The harness collects the directory tree, git
-  state, project instructions, and checks with ordinary tools and hands them to
-  the model up front. Later turns only carry what changed.
-- **Done means verified.** When the model stops, the harness runs the
-  project's checks and sends failures back.
+- **Small on purpose.** Four general tools (`read`, `write`, `edit`, `bash`),
+  a short constant system prompt, one loop. The model is told where it is
+  running and what your standing instructions are, and finds out the rest
+  itself.
+- **Careful with tokens.** Each request extends the previous one, so the
+  provider's cache does the work. Tool output is bounded, and a full context
+  is summarized and continued.
 - **Reproducible history.** A session is an append-only list of entries in
-  SQLite. Every request sent to the model can be rebuilt from them.
+  SQLite. Every request sent to the model can be rebuilt from them, and an
+  interrupted run can be resumed.
 - **Bring your own model.** Models are reached through the Agent Provider
   Protocol: JSON-RPC over stdio, implementable in any language. Use your API
   key, your subscription, or a local server.
@@ -32,9 +33,9 @@ rumbo "add a --json flag to the export command"
 
 rumbo -c "also document it in the README"   # continue the latest session here
 rumbo -r                                     # resume a run that failed or was cancelled
-rumbo                                        # open the terminal UI and type objectives
-rumbo "fix the lint errors" > answer.txt     # not a terminal: plain output, exit code
-rumbo sessions                               # sessions of this directory
+rumbo                                        # open the terminal UI and type tasks
+rumbo "summarize notes.md" > summary.txt     # not a terminal: plain output, exit code
+rumbo sessions                               # sessions of this project
 rumbo log <session>                          # the full record, as JSON lines
 ```
 
@@ -52,6 +53,13 @@ rumbo provider add -config '{"base_url":"http://localhost:11434/v1"}' local '{se
 rumbo -m local/qwen3-coder "fix the failing test"
 ```
 
+## Instructions
+
+rumbo gives the model the `AGENTS.md` (or `CLAUDE.md`) files it finds from the
+root of the project down to the directory you are in, and the one in
+`~/.config/rumbo/`. That is where to say how you want work done: conventions,
+commands to run before finishing, things never to touch.
+
 ## Write your own provider
 
 A provider is a program that answers `initialize` and `complete` on stdin and
@@ -66,8 +74,8 @@ rumbo -m mine/some-model "..."
 ## Front ends
 
 In a terminal rumbo starts `tui`: the conversation scrolls above a status bar
-and an input line. Enter sends an objective, Ctrl-C cancels the run or quits
-when idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the model's
+and an input line. Enter sends a task, Ctrl-C cancels the run or quits when
+idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the model's
 text to stdout and progress to stderr. `-f <name>` or the `frontend` setting
 picks one.
 
@@ -91,7 +99,7 @@ which is the git repository the current directory is in. Project settings and
 sessions are found from any of its subdirectories.
 
 ```sh
-rumbo config set -p checks '["go vet ./...", "go test ./..."]'
+rumbo config set -p model anthropic/claude-sonnet-5-5
 ```
 
 ## Documentation

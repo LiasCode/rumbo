@@ -1,5 +1,9 @@
 # To do
 
+rumbo is a general agent harness: it is not tied to programming, it does not
+judge the model's work, and it sends no context beyond the environment and
+the user's instructions.
+
 What is left on our side: the loop, configuration, and sessions. Work on the
 protocols and on external interfaces waits until this is done.
 
@@ -11,7 +15,7 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Failures that were already there (45), then tests (46).
+1. Tools (15 to 18), now that they carry all of the work.
 2. The remaining blocks.
 
 ## Decisions for the owner
@@ -37,19 +41,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
     itself on end of input, and does not stop a running tool.
 
-### Verification
-
-45. **Failures that were already there.** The checks cannot tell a failure
-    the agent caused from one the project had before. The agent is told to
-    leave the second kind, but the run still ends as failed. Needs the checks
-    run once before the work, or on a clean copy.
-46. **Tests are opt-in.** No test suite is detected, only compilers and
-    linters, because suites can be slow and may already fail. Depends on 45.
-
 ### Context
 
-12. **Refresh during a run.** The tree and git state are collected only when
-    an objective starts, not after the agent's own changes.
 13. **Bound the instructions.** A very large `AGENTS.md` is injected whole.
 44. **Saved output is never removed.** Long command output is saved to the
     system's temporary directory and left there.
@@ -78,8 +71,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 23. **`config unset`.** A setting cannot be removed.
 24. **Show the effective value.** `config get` looks at one scope. It does not
     say what will apply or where it comes from.
-25. **Configurable limits.** Tool output size, tree budget, and timeouts are
-    fixed in the code.
+25. **Configurable limits.** Tool output size and timeouts are fixed in the
+    code.
 27. **Edit a registered program.** Changing a provider's config means running
     `add` again in full.
 28. **Built-in programs.** Deleted ones come back on the next start; they
@@ -102,6 +95,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## 4. Quality
 
-37. **Missing tests.** `store`, `verify`, `cli`, and configuration have none.
+37. **Missing tests.** `cli` and configuration have none.
 38. **`rumbo --version`** and a release build.
 39. **Windows.** Not supported.

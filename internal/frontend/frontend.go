@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"sync"
 
-	"rumbo/internal/verify"
 	"rumbo/protocol"
 )
 
@@ -198,11 +197,6 @@ func (c *Conn) ToolStarted(name string, args json.RawMessage) {
 // ToolFinished implements agent.Observer.
 func (c *Conn) ToolFinished(name, result string, failed bool) {
 	c.event(protocol.Event{Type: protocol.EventToolFinished, Name: name, Result: result, Failed: failed})
-}
-
-// Verified implements agent.Observer.
-func (c *Conn) Verified(checks []string, result verify.Result) {
-	c.event(protocol.Event{Type: protocol.EventVerified, Checks: checks, Passed: result.Passed, Report: result.Report})
 }
 
 // TurnFinished implements agent.Observer.

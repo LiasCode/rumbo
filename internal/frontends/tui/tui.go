@@ -33,7 +33,6 @@ const (
 	styleBold    = escape + "[1m"
 	styleDim     = escape + "[2m"
 	styleRed     = escape + "[31m"
-	styleGreen   = escape + "[32m"
 	styleYellow  = escape + "[33m"
 	styleReverse = escape + "[7m"
 )
@@ -235,13 +234,6 @@ func (u *ui) show(event protocol.Event) {
 	case protocol.EventToolFinished:
 		if event.Failed {
 			u.line(styleRed, "  failed: "+render.FirstLine(event.Result))
-		}
-
-	case protocol.EventVerified:
-		if event.Passed {
-			u.line(styleGreen, "checks passed: "+strings.Join(event.Checks, "; "))
-		} else {
-			u.line(styleRed, "checks failed:\n"+event.Report)
 		}
 
 	case protocol.EventTurn:

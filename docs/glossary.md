@@ -3,8 +3,8 @@
 **Objective.** What the user asks for in one message. A run works on one
 objective.
 
-**Run.** The work from an objective until the agent stops and the checks pass
-(or fail for good). A session holds one or more runs.
+**Run.** The work from an objective until the model stops calling tools, or
+the run fails or is cancelled. A session holds one or more runs.
 
 **Session.** A conversation bound to a project directory, stored as a list of
 entries.
@@ -12,11 +12,12 @@ entries.
 **Entry.** One immutable record in a session. Kinds: `system` (prompt and tool
 declarations in force), `context` (ambient sections that changed), `user` (an
 objective), `assistant` (a model response), `tool_result`, `harness` (a
-message from the harness to the model, such as a failed check), and `note`.
+message from the harness to the model, such as being told a run was
+interrupted), `compaction`, and `note`.
 
 **Note.** An entry that records what happened to a run without being part of
-the conversation: how it ended (`done`, `failed`, `cancelled`), a retried
-request, checks that passed. The model never sees notes.
+the conversation: how it ended (`done`, `failed`, `cancelled`), or a retried
+request. The model never sees notes.
 
 **Unfinished run.** A run whose last note is not `done`, or that has none
 because the process died. It can be resumed.
@@ -54,30 +55,27 @@ Frontend Protocol with the host.
 the host.
 
 **Event.** A notification from the host to the front end about a run: text,
-a tool call, a check result, token usage, a log line.
+a tool call, token usage, a log line.
 
 **Program.** A registered provider or front end: a name, the command that
 starts it, and its configuration.
 
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
 
-**Ambient context.** Information the harness collects on its own and gives the
-model without being asked.
+**Ambient context.** What the harness tells the model without being asked:
+the environment it runs in and the user's instructions.
+
+**Instructions.** The `AGENTS.md` or `CLAUDE.md` files of the project and of
+the user. They are where the user says how work should be done.
 
 **Collector.** The source of one section of ambient context.
 
-**Section.** A named piece of ambient context, such as `tree` or `git`. A new
+**Section.** A named piece of ambient context: `environment` or
+`instructions`. A new
 version of a section replaces the previous one.
-
-**Checks.** Commands that must succeed for the work to count as done. Detected
-from the project or set with the `checks` setting. They run when the agent
-stops and the project's files have changed since the run started.
 
 **Project.** The directory tree the work belongs to, identified by its root:
 the top of the git repository, or the directory itself outside one.
-
-**Snapshot.** A fingerprint of the project's files, by path, size, and
-modification time. Two equal snapshots mean nothing was touched in between.
 
 **Opaque block.** Provider-owned data inside an assistant message that the
 host stores and replays without reading.

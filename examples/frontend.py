@@ -36,8 +36,6 @@ def show(event):
         print(f"\n[tool] {event['name']} {json.dumps(event.get('args'))}")
     elif kind == "tool_finished" and event.get("failed"):
         print(f"[tool failed] {event['result']}")
-    elif kind == "verified":
-        print("\n[checks]", "passed" if event.get("passed") else "failed:\n" + event["report"])
     elif kind == "log":
         print(f"[log] {event['text']}")
 
