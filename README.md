@@ -31,6 +31,7 @@ rumbo config set model anthropic/claude-opus-5-5
 rumbo "add a --json flag to the export command"
 
 rumbo -c "also document it in the README"   # continue the latest session here
+rumbo -r                                     # resume a run that failed or was cancelled
 rumbo                                        # open the terminal UI and type objectives
 rumbo "fix the lint errors" > answer.txt     # not a terminal: plain output, exit code
 rumbo sessions                               # sessions of this directory

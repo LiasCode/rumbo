@@ -12,6 +12,9 @@ import (
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrLocked is returned when another process is using the session.
+var ErrLocked = errors.New("in use by another rumbo process")
+
 // GlobalScope is the settings scope that applies to every project. Any other
 // scope is a project directory.
 const GlobalScope = ""
@@ -69,6 +72,11 @@ type Store interface {
 	Session(id string) (Session, error)
 	LatestSession(dir string) (Session, error)
 	Sessions(dir string) ([]Session, error)
+
+	// LockSession gives this process the session until release is called or
+	// the process ends. Two processes appending to one session would
+	// interleave their entries into a history neither of them sent.
+	LockSession(id string) (release func(), err error)
 
 	Append(sessionID, kind string, payload any) (Entry, error)
 	Entries(sessionID string) ([]Entry, error)

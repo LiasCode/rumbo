@@ -11,7 +11,7 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Loop correctness (3 to 8) together with 21 and 29: what daily use needs.
+1. Context limit (3) and project root (21): what daily use still needs.
 2. The remaining blocks.
 
 ## Decisions for the owner
@@ -27,15 +27,10 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 3. **Context limit.** There is no compaction and no warning: a long session
    fails when it passes the model's window.
-4. **Resume an interrupted run.** After an error or a cancel, the only way on
-   is a new objective. There is no "continue where you stopped".
-5. **Transient provider errors.** A network or rate-limit failure ends the
-   run. Retry with a wait.
-6. **Response cut by `max_tokens`.** It ends the run with an error. It should
-   continue by itself.
-7. **Limit of a run.** No maximum of turns or tokens: a model that loops never
-   stops.
-8. **Two processes on one session.** There is no lock, and entries interleave.
+40. **Provider process death.** When the provider exits mid-session the run
+    fails and the host does not start it again; only a new `rumbo` does.
+41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
+    itself on end of input, and does not stop a running tool.
 
 ### Verification
 
@@ -43,8 +38,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
    triggers the checks.
 10. **Fuller project checks.** Only Go, Rust, and npm scripts are detected.
     No tests, and the time limit is fixed at ten minutes.
-11. **Record verification.** A passing check leaves no entry in the session;
-    a failing one does.
 
 ### Context
 
@@ -91,8 +84,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## 3. Sessions
 
-29. **Record errors and cancels.** A provider failure or a Ctrl-C leaves no
-    trace in the session.
 30. **Reproduce a request.** `log` prints entries. A command should print the
     exact request of turn N, which is the proof that history is reproducible.
 31. **Entry metadata.** Duration, rumbo version, and request parameters are

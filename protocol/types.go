@@ -9,7 +9,10 @@
 // specified in docs/frontend-protocol.md and lives in frontend.go.
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Version is the protocol version this package implements.
 const Version = 1
@@ -147,9 +150,24 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
-// Error codes.
+// Error codes. CodeTransient is the one a provider chooses: it marks a
+// failure worth retrying, such as a rate limit, an overloaded server, or a
+// dropped connection. The host waits and sends the request again.
 const (
 	CodeMethodNotFound = -32601
 	CodeInvalidParams  = -32602
 	CodeInternal       = -32603
+	CodeTransient      = 1
 )
+
+// Transient wraps err as a failure the host should retry.
+func Transient(err error) error {
+	return &Error{Code: CodeTransient, Message: err.Error()}
+}
+
+// IsTransient reports whether err is a failure the host should retry.
+func IsTransient(err error) bool {
+	var failure *Error
+
+	return errors.As(err, &failure) && failure.Code == CodeTransient
+}

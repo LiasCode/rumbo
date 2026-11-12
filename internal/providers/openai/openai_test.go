@@ -87,3 +87,36 @@ func TestCompleteStreamsTextAndToolCalls(t *testing.T) {
 		t.Fatalf("usage = %+v", result.Usage)
 	}
 }
+
+func TestTemporaryFailuresAreMarkedTransient(t *testing.T) {
+	status := http.StatusTooManyRequests
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "slow down", status)
+	}))
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY"})
+	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
+
+	complete := func() error {
+		_, err := handler.Complete(context.Background(), protocol.CompleteParams{Model: "m"}, func(string) {})
+		return err
+	}
+
+	if err := complete(); !protocol.IsTransient(err) {
+		t.Fatalf("429: err = %v, want transient", err)
+	}
+
+	status = http.StatusUnauthorized
+
+	if err := complete(); err == nil || protocol.IsTransient(err) {
+		t.Fatalf("401: err = %v, want a permanent failure", err)
+	}
+
+	server.Close()
+
+	if err := complete(); !protocol.IsTransient(err) {
+		t.Fatalf("unreachable server: err = %v, want transient", err)
+	}
+}

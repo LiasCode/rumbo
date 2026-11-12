@@ -19,8 +19,8 @@ import (
 	"rumbo/protocol"
 )
 
-// RunFunc works on one objective and returns the session it ran in.
-type RunFunc func(ctx context.Context, objective string) (session string, err error)
+// RunFunc works on one run request and returns the session it ran in.
+type RunFunc func(ctx context.Context, params protocol.RunParams) (session string, err error)
 
 // Conn is a connected front end. It implements agent.Observer by sending
 // events.
@@ -109,8 +109,8 @@ func (c *Conn) Serve(run RunFunc) error {
 		case protocol.MethodRun:
 			var params protocol.RunParams
 
-			if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || params.Objective == "" {
-				c.fail(frame.ID, protocol.CodeInvalidParams, "run needs an id and an objective")
+			if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (params.Objective == "") != params.Resume {
+				c.fail(frame.ID, protocol.CodeInvalidParams, "run needs an id and either an objective or resume")
 				continue
 			}
 
@@ -131,7 +131,7 @@ func (c *Conn) Serve(run RunFunc) error {
 			go func() {
 				defer active.Done()
 
-				session, err := run(ctx, params.Objective)
+				session, err := run(ctx, params)
 				result := protocol.RunResult{Status: protocol.RunDone, Session: session}
 
 				switch {
@@ -173,6 +173,11 @@ func (w logWriter) Write(data []byte) (int, error) {
 	}
 
 	return len(data), nil
+}
+
+// Notice implements agent.Observer.
+func (c *Conn) Notice(text string) {
+	c.event(protocol.Event{Type: protocol.EventLog, Text: text})
 }
 
 // ContextUpdated implements agent.Observer.

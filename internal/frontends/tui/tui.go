@@ -82,7 +82,10 @@ func Run(r io.Reader, w io.Writer) int {
 		}
 	}()
 
-	if info.Objective != "" {
+	switch {
+	case info.Resume:
+		ui.start("(resuming the unfinished run)", ui.conn.Resume)
+	case info.Objective != "":
 		ui.submit(info.Objective)
 	}
 
@@ -252,6 +255,13 @@ func (u *ui) show(event protocol.Event) {
 
 // submit starts a run on objective, unless one is already in progress.
 func (u *ui) submit(objective string) {
+	u.start(objective, func(onEvent func(protocol.Event)) (protocol.RunResult, error) {
+		return u.conn.Run(objective, onEvent)
+	})
+}
+
+// start follows one run, shown under label, unless one is in progress.
+func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protocol.RunResult, error)) {
 	u.mu.Lock()
 
 	if u.running {
@@ -265,7 +275,7 @@ func (u *ui) submit(objective string) {
 	u.running = true
 	u.notice = ""
 	u.input = nil
-	u.line(styleBold, "\n"+prompt+objective)
+	u.line(styleBold, "\n"+prompt+label)
 	u.mu.Unlock()
 
 	u.wait.Add(1)
@@ -273,7 +283,7 @@ func (u *ui) submit(objective string) {
 	go func() {
 		defer u.wait.Done()
 
-		result, err := u.conn.Run(objective, u.show)
+		result, err := run(u.show)
 
 		u.mu.Lock()
 		defer u.mu.Unlock()

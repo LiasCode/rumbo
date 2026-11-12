@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -55,7 +56,8 @@ CREATE TABLE IF NOT EXISTS entries (
 
 // SQLite is the Store backed by a single SQLite file.
 type SQLite struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 // Open opens the database at path, creating the file and schema if needed.
@@ -76,7 +78,7 @@ func Open(path string) (*SQLite, error) {
 		return nil, fmt.Errorf("open database %s: %w", path, err)
 	}
 
-	return &SQLite{db: db}, nil
+	return &SQLite{db: db, path: path}, nil
 }
 
 // Close implements Store.
@@ -300,6 +302,35 @@ func (s *SQLite) Sessions(dir string) ([]Session, error) {
 	}
 
 	return sessions, rows.Err()
+}
+
+// LockSession implements Store. The lock is a file lock next to the
+// database, because the system drops it when the process dies, however it
+// dies; a row in a table would outlive a crash.
+func (s *SQLite) LockSession(id string) (func(), error) {
+	dir := filepath.Join(filepath.Dir(s.path), "locks")
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(filepath.Join(dir, id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrLocked
+		}
+
+		return nil, err
+	}
+
+	return func() { _ = file.Close() }, nil
 }
 
 // Append implements Store.

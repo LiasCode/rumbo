@@ -84,6 +84,15 @@ Result:
 
 A failure is a JSON-RPC error; its `message` is shown to the user.
 
+An error with `code` `1` is **transient**: a rate limit, an overloaded
+server, a dropped connection. The host waits and sends the same request
+again, a few times, with growing pauses. Use it only for failures that can
+succeed unchanged later; any other code ends the run at once.
+
+```json
+{"jsonrpc":"2.0","id":2,"error":{"code":1,"message":"429 rate limited"}}
+```
+
 ### `delta` (notification, provider to host)
 
 ```json

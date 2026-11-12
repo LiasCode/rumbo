@@ -7,7 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"rumbo/internal/ambient"
 	"rumbo/internal/provider"
@@ -27,7 +30,27 @@ type Observer interface {
 	ToolFinished(name, result string, failed bool)
 	Verified(checks []string, result verify.Result)
 	TurnFinished(usage protocol.Usage)
+	// Notice reports something the loop did on its own, such as a retry.
+	Notice(text string)
 }
+
+// DefaultRetryWaits are the pauses before each retry of a request that
+// failed for a transient reason. After the last one the run fails.
+var DefaultRetryWaits = []time.Duration{2 * time.Second, 10 * time.Second, 30 * time.Second, time.Minute}
+
+// maxContinuations is how many responses in a row may be cut by the output
+// limit before the run gives up instead of looping.
+const maxContinuations = 3
+
+// Messages from the harness to the model. They are entries like any other,
+// so the model's history shows exactly what it was told.
+const (
+	cutText = "[harness] Your response was cut off by the output limit. Continue exactly where it stopped."
+
+	cutCall = "not executed: the response was cut off by the output limit before this call was complete. Send it again; if it is large, split the work into smaller calls."
+
+	resumed = "[harness] The run was interrupted before it finished, and tool calls in progress did not complete. Check the current state of the project and continue working on the objective."
+)
 
 // Agent holds everything a run needs. Every dependency is an interface or
 // plain data, so each one can be replaced independently.
@@ -47,24 +70,92 @@ type Agent struct {
 	// is sent back to work at most MaxVerifyRounds times per run.
 	Checks          []string
 	MaxVerifyRounds int
+
+	// MaxTurns ends a run that keeps going. Zero means no limit.
+	MaxTurns int
+	// RetryWaits are the pauses before retrying a transient failure.
+	RetryWaits []time.Duration
 }
 
 // Run works on objective in the given session until the model stops and the
-// checks pass, the verify rounds run out, or ctx is cancelled.
+// checks pass, a limit is reached, or ctx is cancelled.
 func (a *Agent) Run(ctx context.Context, session store.Session, objective string) error {
-	if err := a.open(ctx, session, objective); err != nil {
+	err := a.prepare(ctx, session)
+
+	if err == nil {
+		err = a.append(session, transcript.KindUser, transcript.Text{Text: objective})
+	}
+
+	if err == nil {
+		err = a.loop(ctx, session, objective, false)
+	}
+
+	return a.finish(ctx, session, err)
+}
+
+// Resume continues the session's last run, which ended by failure, cancel,
+// or the death of the process, without a new objective.
+func (a *Agent) Resume(ctx context.Context, session store.Session) error {
+	state, err := a.state(session)
+
+	if err != nil {
 		return err
 	}
 
-	changed := false
-	rounds := 0
+	if !state.Unfinished {
+		return errors.New("nothing to resume: the last run of this session finished")
+	}
 
-	for {
-		calls, err := a.turn(ctx, session)
+	err = a.prepare(ctx, session)
+
+	if err == nil {
+		err = a.append(session, transcript.KindHarness, transcript.Text{Text: resumed})
+	}
+
+	// What the interrupted run changed is unknown, so the checks must run.
+	if err == nil {
+		err = a.loop(ctx, session, state.Objective, true)
+	}
+
+	return a.finish(ctx, session, err)
+}
+
+// loop asks the model and runs its tool calls until it stops, then verifies
+// the work. changed says whether the project may already have been modified.
+func (a *Agent) loop(ctx context.Context, session store.Session, objective string, changed bool) error {
+	rounds := 0
+	cuts := 0
+
+	for turns := 1; ; turns++ {
+		if a.MaxTurns > 0 && turns > a.MaxTurns {
+			return fmt.Errorf("the run was stopped after %d turns (the max_turns setting); resume it to continue", a.MaxTurns)
+		}
+
+		reply, err := a.turn(ctx, session)
 
 		if err != nil {
 			return err
 		}
+
+		calls := toolCalls(reply.Message)
+
+		switch reply.Stop {
+		case protocol.StopRefusal:
+			return errors.New("the model refused the request")
+
+		case protocol.StopMaxTokens:
+			if cuts++; cuts > maxContinuations {
+				return fmt.Errorf("the response hit the output limit %d times in a row; raise the max_tokens setting", cuts)
+			}
+
+			if err := a.continueCut(session, calls); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		cuts = 0
 
 		if len(calls) > 0 {
 			mutated, err := a.execute(ctx, session, calls)
@@ -90,7 +181,7 @@ func (a *Agent) Run(ctx context.Context, session store.Session, objective string
 		a.Observer.Verified(a.Checks, result)
 
 		if result.Passed {
-			return nil
+			return a.note(session, transcript.NoteChecksPassed, strings.Join(a.Checks, "\n"))
 		}
 
 		if rounds >= a.MaxVerifyRounds {
@@ -106,17 +197,25 @@ func (a *Agent) Run(ctx context.Context, session store.Session, objective string
 	}
 }
 
-// open records what the model needs before the first request of a run: the
-// system prompt if it changed, the ambient context that changed, and the
-// objective.
-func (a *Agent) open(ctx context.Context, session store.Session, objective string) error {
-	entries, err := a.Store.Entries(session.ID)
-
-	if err != nil {
-		return err
+// finish records how the run ended, so the session shows it and a later
+// resume knows there is something to continue.
+func (a *Agent) finish(ctx context.Context, session store.Session, err error) error {
+	switch {
+	case err == nil:
+		return a.note(session, transcript.NoteDone, "")
+	case ctx.Err() != nil:
+		_ = a.note(session, transcript.NoteCancelled, "")
+	default:
+		_ = a.note(session, transcript.NoteFailed, err.Error())
 	}
 
-	state, err := transcript.Build(entries)
+	return err
+}
+
+// prepare records what the model needs before a run continues: the system
+// prompt if it changed, and the ambient context that changed.
+func (a *Agent) prepare(ctx context.Context, session store.Session) error {
+	state, err := a.state(session)
 
 	if err != nil {
 		return err
@@ -134,51 +233,87 @@ func (a *Agent) open(ctx context.Context, session store.Session, objective strin
 		}
 	}
 
-	if changes := ambient.Changes(ctx, session.Dir, a.Collectors, state.Sections); len(changes) > 0 {
-		if err := a.append(session, transcript.KindContext, transcript.Context{Sections: changes}); err != nil {
-			return err
-		}
+	changes := ambient.Changes(ctx, session.Dir, a.Collectors, state.Sections)
 
-		names := make([]string, len(changes))
-
-		for index, section := range changes {
-			names[index] = section.Name
-		}
-
-		a.Observer.ContextUpdated(names)
+	if len(changes) == 0 {
+		return nil
 	}
 
-	return a.append(session, transcript.KindUser, transcript.Text{Text: objective})
+	names := make([]string, len(changes))
+
+	for index, section := range changes {
+		names[index] = section.Name
+	}
+
+	a.Observer.ContextUpdated(names)
+
+	return a.append(session, transcript.KindContext, transcript.Context{Sections: changes})
 }
 
-// turn sends the session to the provider, records the answer, and returns the
-// tool calls it contains.
-func (a *Agent) turn(ctx context.Context, session store.Session) ([]protocol.Block, error) {
-	entries, err := a.Store.Entries(session.ID)
+// turn sends the session to the provider and records the answer. A request
+// that fails for a transient reason is sent again after a pause.
+func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.CompleteResult, error) {
+	state, err := a.state(session)
 
 	if err != nil {
-		return nil, err
+		return protocol.CompleteResult{}, err
 	}
 
-	state, err := transcript.Build(entries)
-
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := a.Provider.Complete(ctx, protocol.CompleteParams{
+	params := protocol.CompleteParams{
 		Model:     a.Model,
 		System:    state.System.Text,
 		Messages:  state.Messages,
 		Tools:     state.System.Tools,
 		MaxTokens: a.MaxTokens,
-	}, a.Observer.Text)
+	}
 
-	if err != nil {
-		return nil, err
+	var result protocol.CompleteResult
+
+	streamed := false
+
+	onDelta := func(text string) {
+		streamed = true
+		a.Observer.Text(text)
+	}
+
+	for attempt := 0; ; attempt++ {
+		result, err = a.Provider.Complete(ctx, params, onDelta)
+
+		if err == nil {
+			break
+		}
+
+		if ctx.Err() != nil || !protocol.IsTransient(err) || attempt >= len(a.RetryWaits) {
+			return result, err
+		}
+
+		wait := a.RetryWaits[attempt]
+		notice := fmt.Sprintf("request failed (%s); retrying in %s", err, wait)
+
+		a.Observer.Notice(notice)
+
+		if err := a.note(session, transcript.NoteRetry, notice); err != nil {
+			return result, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case <-time.After(wait):
+		}
 	}
 
 	result.Message.Role = protocol.RoleAssistant
+
+	// Deltas are optional for a provider. Without them the text is shown
+	// when the message arrives, so the user sees the answer either way.
+	if !streamed {
+		for _, block := range result.Message.Content {
+			if block.Type == protocol.BlockText {
+				a.Observer.Text(block.Text)
+			}
+		}
+	}
 
 	err = a.append(session, transcript.KindAssistant, transcript.Assistant{
 		Message:  result.Message,
@@ -188,28 +323,30 @@ func (a *Agent) turn(ctx context.Context, session store.Session) ([]protocol.Blo
 		Model:    a.Model,
 	})
 
-	if err != nil {
-		return nil, err
-	}
-
 	a.Observer.TurnFinished(result.Usage)
 
-	switch result.Stop {
-	case protocol.StopRefusal:
-		return nil, fmt.Errorf("the model refused the request")
-	case protocol.StopMaxTokens:
-		return nil, fmt.Errorf("the response hit the output token limit; raise the max_tokens setting or split the task")
+	return result, err
+}
+
+// continueCut answers a response that the output limit cut short, so the
+// model goes on instead of the run ending. Its tool calls are not executed:
+// any of them may be incomplete.
+func (a *Agent) continueCut(session store.Session, calls []protocol.Block) error {
+	a.Observer.Notice("the response was cut off by the output limit; asking the model to continue")
+
+	if len(calls) == 0 {
+		return a.append(session, transcript.KindHarness, transcript.Text{Text: cutText})
 	}
 
-	var calls []protocol.Block
+	for _, call := range calls {
+		result := transcript.ToolResult{ID: call.ID, Name: call.Name, Text: cutCall, IsError: true}
 
-	for _, block := range result.Message.Content {
-		if block.Type == protocol.BlockToolCall {
-			calls = append(calls, block)
+		if err := a.append(session, transcript.KindToolResult, result); err != nil {
+			return err
 		}
 	}
 
-	return calls, nil
+	return nil
 }
 
 // execute runs the calls in order, records each result, and reports whether
@@ -264,10 +401,24 @@ func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text
 	return fmt.Sprintf("unknown tool %q", call.Name), true, false
 }
 
+func (a *Agent) state(session store.Session) (transcript.State, error) {
+	entries, err := a.Store.Entries(session.ID)
+
+	if err != nil {
+		return transcript.State{}, err
+	}
+
+	return transcript.Build(entries)
+}
+
 func (a *Agent) append(session store.Session, kind string, payload any) error {
 	_, err := a.Store.Append(session.ID, kind, payload)
 
 	return err
+}
+
+func (a *Agent) note(session store.Session, kind, text string) error {
+	return a.append(session, transcript.KindNote, transcript.Note{Type: kind, Text: text})
 }
 
 func (a *Agent) toolDefs() []protocol.ToolDef {
@@ -278,6 +429,18 @@ func (a *Agent) toolDefs() []protocol.ToolDef {
 	}
 
 	return defs
+}
+
+func toolCalls(message protocol.Message) []protocol.Block {
+	var calls []protocol.Block
+
+	for _, block := range message.Content {
+		if block.Type == protocol.BlockToolCall {
+			calls = append(calls, block)
+		}
+	}
+
+	return calls
 }
 
 // feedback is what the model is told when the checks fail. It restates the

@@ -38,6 +38,7 @@ Usage:
 
 Flags:
   -c            continue the latest session of the current directory
+  -r            resume the unfinished run of that session, without a new objective
   -s <session>  continue the given session
   -m <model>    provider and model for this run, as provider/model
   -f <name>     front end for this run (default: tui in a terminal, else plain)
@@ -176,6 +177,8 @@ type host struct {
 	conn    *frontend.Conn
 	process provider.Provider
 	worker  *agent.Agent
+	// unlock releases the session, once one is in use.
+	unlock func()
 }
 
 // newHost resolves the session and the settings from the command line.
@@ -184,7 +187,8 @@ func newHost(database store.Store, args []string) (*host, error) {
 	flags := flag.NewFlagSet("rumbo", flag.ContinueOnError)
 	flags.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 
-	resume := flags.Bool("c", false, "")
+	latest := flags.Bool("c", false, "")
+	resume := flags.Bool("r", false, "")
 	sessionID := flags.String("s", "", "")
 	model := flags.String("m", "", "")
 	frontendName := flags.String("f", "", "")
@@ -212,7 +216,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		created.session = &found
 		dir = found.Dir
 
-	case *resume:
+	case *latest || *resume:
 		found, err := database.LatestSession(dir)
 
 		if err != nil {
@@ -235,6 +239,11 @@ func newHost(database store.Store, args []string) (*host, error) {
 		Provider:  created.settings.Provider,
 		Model:     created.settings.Model,
 		Objective: strings.TrimSpace(strings.Join(flags.Args(), " ")),
+		Resume:    *resume,
+	}
+
+	if *resume && created.info.Objective != "" {
+		return nil, errors.New("-r continues the unfinished run and takes no objective; use -c to give a new one")
 	}
 
 	if created.session != nil {
@@ -262,10 +271,14 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 	return conn.Serve(h.run)
 }
 
-// run works on one objective. The provider and the session are created on
+// run works on one run request. The provider and the session are created on
 // first use, so their errors reach the user through the front end and an
 // unused start leaves nothing behind.
-func (h *host) run(ctx context.Context, objective string) (string, error) {
+func (h *host) run(ctx context.Context, params protocol.RunParams) (string, error) {
+	if params.Resume && h.session == nil {
+		return "", errors.New("there is no session to resume")
+	}
+
 	if h.worker == nil {
 		if err := h.start(); err != nil {
 			return h.info.Session, err
@@ -273,7 +286,7 @@ func (h *host) run(ctx context.Context, objective string) (string, error) {
 	}
 
 	if h.session == nil {
-		created, err := h.database.CreateSession(h.info.Dir, render.FirstLine(objective))
+		created, err := h.database.CreateSession(h.info.Dir, render.FirstLine(params.Objective))
 
 		if err != nil {
 			return "", err
@@ -283,7 +296,21 @@ func (h *host) run(ctx context.Context, objective string) (string, error) {
 		h.info.Session = created.ID
 	}
 
-	return h.session.ID, h.worker.Run(ctx, *h.session, objective)
+	if h.unlock == nil {
+		unlock, err := h.database.LockSession(h.session.ID)
+
+		if err != nil {
+			return h.session.ID, fmt.Errorf("session %s: %w", h.session.ID, err)
+		}
+
+		h.unlock = unlock
+	}
+
+	if params.Resume {
+		return h.session.ID, h.worker.Resume(ctx, *h.session)
+	}
+
+	return h.session.ID, h.worker.Run(ctx, *h.session, params.Objective)
 }
 
 // start runs the provider and builds the agent around it.
@@ -319,6 +346,8 @@ func (h *host) start() error {
 		MaxTokens:       h.settings.MaxTokens,
 		Checks:          h.settings.Checks,
 		MaxVerifyRounds: h.settings.MaxVerifyRounds,
+		MaxTurns:        h.settings.MaxTurns,
+		RetryWaits:      agent.DefaultRetryWaits,
 	}
 
 	return nil
@@ -327,6 +356,10 @@ func (h *host) start() error {
 func (h *host) close() {
 	if h.process != nil {
 		_ = h.process.Close()
+	}
+
+	if h.unlock != nil {
+		h.unlock()
 	}
 }
 

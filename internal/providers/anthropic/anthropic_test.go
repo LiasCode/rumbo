@@ -121,3 +121,38 @@ func TestCompleteRoundTripsThinkingAndToolCalls(t *testing.T) {
 		t.Fatalf("usage = %+v", result.Usage)
 	}
 }
+
+func TestTemporaryFailuresAreMarkedTransient(t *testing.T) {
+	status := 529
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Tell the SDK not to retry by itself, so the test sees the first answer.
+		w.Header().Set("x-should-retry", "false")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		fmt.Fprint(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+	}))
+
+	defer server.Close()
+
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL})
+	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
+
+	params := protocol.CompleteParams{
+		Model:    "claude-opus-5-5",
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "hi"}}}},
+	}
+
+	if _, err := handler.Complete(context.Background(), params, func(string) {}); !protocol.IsTransient(err) {
+		t.Fatalf("529: err = %v, want transient", err)
+	}
+
+	status = 401
+
+	if _, err := handler.Complete(context.Background(), params, func(string) {}); err == nil || protocol.IsTransient(err) {
+		t.Fatalf("401: err = %v, want a permanent failure", err)
+	}
+}

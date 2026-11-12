@@ -6,7 +6,10 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
@@ -84,10 +87,38 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 	}
 
 	if err := stream.Err(); err != nil {
-		return protocol.CompleteResult{}, err
+		return protocol.CompleteResult{}, classify(ctx, err)
 	}
 
 	return result(message), nil
+}
+
+// classify marks the failures worth retrying: the statuses the API documents
+// as temporary, and connections that failed or dropped. The SDK has already
+// retried these briefly; the host waits longer.
+func classify(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return err
+	}
+
+	var failure *sdk.Error
+
+	if errors.As(err, &failure) {
+		switch status := failure.StatusCode; {
+		case status == 408, status == 409, status == 429, status >= 500:
+			return protocol.Transient(err)
+		}
+
+		return err
+	}
+
+	var network net.Error
+
+	if errors.As(err, &network) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return protocol.Transient(err)
+	}
+
+	return err
 }
 
 func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams, error) {

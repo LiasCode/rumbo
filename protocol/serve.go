@@ -113,10 +113,7 @@ func (s *server) complete(ctx context.Context, id int64, params CompleteParams) 
 	s.running[id] = cancel
 	s.mu.Unlock()
 
-	s.wait.Add(1)
-
-	go func() {
-		defer s.wait.Done()
+	s.wait.Go(func() {
 		defer cancel()
 
 		emit := func(text string) {
@@ -131,7 +128,7 @@ func (s *server) complete(ctx context.Context, id int64, params CompleteParams) 
 		s.mu.Unlock()
 
 		s.reply(&id, result, err)
-	}()
+	})
 }
 
 func (s *server) decode(frame Frame, params any) bool {
@@ -148,6 +145,13 @@ func (s *server) decode(frame Frame, params any) bool {
 
 func (s *server) reply(id *int64, result any, err error) {
 	if id == nil {
+		return
+	}
+
+	// A handler picks the code by returning an *Error, as Transient does.
+
+	if failure, ok := errors.AsType[*Error](err); ok {
+		s.send(Frame{ID: id, Error: failure})
 		return
 	}
 

@@ -20,6 +20,17 @@ const (
 	KindAssistant  = "assistant"
 	KindToolResult = "tool_result"
 	KindHarness    = "harness"
+	KindNote       = "note"
+)
+
+// Note types. Every run ends with exactly one of done, failed, or cancelled;
+// a run with none of them was killed.
+const (
+	NoteDone         = "done"
+	NoteFailed       = "failed"
+	NoteCancelled    = "cancelled"
+	NoteRetry        = "retry"
+	NoteChecksPassed = "checks_passed"
 )
 
 // System is the system prompt and tool declarations in force from this entry
@@ -63,6 +74,14 @@ type ToolResult struct {
 	IsError bool   `json:"is_error,omitempty"`
 }
 
+// Note records something that happened in a run and is not part of the
+// conversation: how the run ended, a retried request, checks that passed.
+// Notes are never sent to the model.
+type Note struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
 // Interrupted is the result given to a tool call that never got one, for
 // example because the run was cancelled. Providers reject a history where a
 // call has no result.
@@ -73,6 +92,11 @@ type State struct {
 	System   System
 	Messages []protocol.Message
 	Sections map[string]string
+	// Objective is the one the last run worked on.
+	Objective string
+	// Unfinished is true when the last run did not end with a done note, so
+	// it can be resumed.
+	Unfinished bool
 }
 
 // Build replays entries into the current system prompt, tools, messages, and
@@ -120,11 +144,27 @@ func (b *builder) add(entry store.Entry) error {
 			}
 		}
 
+	case KindNote:
+		var note Note
+
+		if err := json.Unmarshal(entry.Payload, &note); err != nil {
+			return err
+		}
+
+		if note.Type == NoteDone {
+			b.state.Unfinished = false
+		}
+
 	case KindUser, KindHarness:
 		var text Text
 
 		if err := json.Unmarshal(entry.Payload, &text); err != nil {
 			return err
+		}
+
+		if entry.Kind == KindUser {
+			b.state.Objective = text.Text
+			b.state.Unfinished = true
 		}
 
 		b.closePending()

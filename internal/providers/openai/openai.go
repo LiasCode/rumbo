@@ -124,6 +124,12 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 
 	response, err := http.DefaultClient.Do(httpRequest)
 
+	// A request that never got an answer is worth sending again, unless it
+	// was the host that cancelled it.
+	if err != nil && ctx.Err() == nil {
+		return protocol.CompleteResult{}, protocol.Transient(err)
+	}
+
 	if err != nil {
 		return protocol.CompleteResult{}, err
 	}
@@ -132,8 +138,14 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 
 	if response.StatusCode != http.StatusOK {
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 2000))
+		failure := fmt.Errorf("%s: %s", response.Status, strings.TrimSpace(string(detail)))
 
-		return protocol.CompleteResult{}, fmt.Errorf("%s: %s", response.Status, strings.TrimSpace(string(detail)))
+		switch status := response.StatusCode; {
+		case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests, status >= 500:
+			return protocol.CompleteResult{}, protocol.Transient(failure)
+		}
+
+		return protocol.CompleteResult{}, failure
 	}
 
 	return collect(response.Body, emit)

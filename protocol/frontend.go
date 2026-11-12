@@ -47,7 +47,8 @@ const (
 // FrontendInitializeParams tells the front end what it is attached to.
 // Session is empty until the first run of a new session. Objective is what
 // the user already passed on the command line, if anything; the front end is
-// expected to run it.
+// expected to run it. Resume means the user asked to continue the session's
+// unfinished run instead; the front end is expected to send a resume.
 type FrontendInitializeParams struct {
 	Protocol  int             `json:"protocol"`
 	Dir       string          `json:"dir"`
@@ -55,12 +56,15 @@ type FrontendInitializeParams struct {
 	Provider  string          `json:"provider"`
 	Model     string          `json:"model"`
 	Objective string          `json:"objective,omitempty"`
+	Resume    bool            `json:"resume,omitempty"`
 	Config    json.RawMessage `json:"config,omitempty"`
 }
 
-// RunParams starts a run. One run is active at a time.
+// RunParams starts a run on Objective, or, with Resume, continues the
+// session's last run where it stopped. One run is active at a time.
 type RunParams struct {
-	Objective string `json:"objective"`
+	Objective string `json:"objective,omitempty"`
+	Resume    bool   `json:"resume,omitempty"`
 }
 
 // RunResult is sent when the run ends, however it ends. Error explains a
@@ -136,6 +140,16 @@ func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, Fronten
 // Run asks the host to work on objective and blocks until the run ends,
 // passing every event to onEvent.
 func (c *FrontendConn) Run(objective string, onEvent func(Event)) (RunResult, error) {
+	return c.run(RunParams{Objective: objective}, onEvent)
+}
+
+// Resume asks the host to continue the session's unfinished run, and blocks
+// like Run.
+func (c *FrontendConn) Resume(onEvent func(Event)) (RunResult, error) {
+	return c.run(RunParams{Resume: true}, onEvent)
+}
+
+func (c *FrontendConn) run(request RunParams, onEvent func(Event)) (RunResult, error) {
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
@@ -143,7 +157,7 @@ func (c *FrontendConn) Run(objective string, onEvent func(Event)) (RunResult, er
 
 	var result RunResult
 
-	params, _ := json.Marshal(RunParams{Objective: objective})
+	params, _ := json.Marshal(request)
 
 	if err := c.send(Frame{ID: &id, Method: MethodRun, Params: params}); err != nil {
 		return result, err

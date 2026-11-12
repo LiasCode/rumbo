@@ -87,6 +87,14 @@ are deterministic, and ambient context is sent once and then only as changed
 sections. Each request therefore extends the previous one, which is what lets
 providers cache the prefix.
 
+**Every run leaves its ending in the session.** A run closes with a note:
+done, failed, or cancelled. A run without one was killed. That is what makes
+resuming possible, and why a failure is never only on the screen.
+
+**One process per session.** The host holds a lock on the session it works
+in, so two processes cannot interleave entries into a history that neither of
+them sent.
+
 **Tool output is bounded.** Results are cut to a fixed size, and the cut tells
 the model how to get the rest.
 

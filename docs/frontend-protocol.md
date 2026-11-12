@@ -65,6 +65,8 @@ The host speaks first.
   id.
 - `objective` is what the user already wrote on the command line, if anything.
   A front end is expected to run it without asking again.
+- `resume` is `true` when the user asked to continue the session's unfinished
+  run (`rumbo -r`). A front end is expected to send a `run` with `resume`.
 - `config` is the JSON registered with the front end (`rumbo frontend add
   -config`). Its meaning is the front end's own.
 
@@ -76,7 +78,12 @@ Result: `{"protocol":1,"name":"my-frontend"}`.
 {"jsonrpc":"2.0","id":1,"method":"run","params":{"objective":"add a --json flag"}}
 ```
 
-Starts a run. The result arrives when the run is over, however it ends:
+Starts a run on `objective`. Instead of an objective, `{"resume": true}`
+continues the session's last run where it stopped: one that failed, was
+cancelled, or was cut short by the host dying. It is an error when the last
+run finished.
+
+The result arrives when the run is over, however it ends:
 
 ```json
 {"status":"done","session":"4cf0261c"}
@@ -116,7 +123,7 @@ What is happening in the active run. `type` selects the fields:
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `verified` | `checks`, `passed`, `report` | The checks ran after the agent stopped. |
 | `turn` | `usage` | One model response finished, with its token counts. |
-| `log` | `text` | A diagnostic from the host or the provider. |
+| `log` | `text` | A diagnostic from the provider, or something the host did on its own, such as retrying a request. |
 
 A front end ignores event types and fields it does not know. New ones may be
 added without a new protocol version.

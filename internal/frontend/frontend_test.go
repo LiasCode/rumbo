@@ -56,7 +56,13 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 	served := make(chan error, 1)
 
 	go func() {
-		served <- host.Serve(func(ctx context.Context, objective string) (string, error) {
+		served <- host.Serve(func(ctx context.Context, params protocol.RunParams) (string, error) {
+			objective := params.Objective
+
+			if params.Resume {
+				objective = "the unfinished run"
+			}
+
 			switch objective {
 			case "fail":
 				return "s1", errors.New("no credit")
@@ -81,6 +87,16 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 
 	if len(events) != 2 || events[0].Text != "working on task" || events[1].Type != protocol.EventToolFinished || !events[1].Failed {
 		t.Fatalf("events = %+v", events)
+	}
+
+	events = nil
+
+	if _, err := front.Resume(func(event protocol.Event) { events = append(events, event) }); err != nil {
+		t.Fatal(err)
+	}
+
+	if events[0].Text != "working on the unfinished run" {
+		t.Fatalf("resume events = %+v", events)
 	}
 
 	result, _ = front.Run("fail", func(protocol.Event) {})

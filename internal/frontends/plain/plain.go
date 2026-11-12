@@ -25,8 +25,12 @@ func Run(r io.Reader, w io.Writer) int {
 
 	front := &frontend{conn: conn, out: os.Stdout, status: os.Stderr}
 
+	if info.Resume {
+		return front.run(front.conn.Resume)
+	}
+
 	if info.Objective != "" {
-		return front.run(info.Objective)
+		return front.objective(info.Objective)
 	}
 
 	if !isTerminal(os.Stdin) {
@@ -38,7 +42,7 @@ func Run(r io.Reader, w io.Writer) int {
 			return 1
 		}
 
-		return front.run(objective)
+		return front.objective(objective)
 	}
 
 	return front.prompt()
@@ -54,8 +58,15 @@ type frontend struct {
 	announced bool
 }
 
-// run works on one objective. Ctrl-C cancels it.
-func (f *frontend) run(objective string) int {
+// objective works on one objective.
+func (f *frontend) objective(text string) int {
+	return f.run(func(onEvent func(protocol.Event)) (protocol.RunResult, error) {
+		return f.conn.Run(text, onEvent)
+	})
+}
+
+// run follows one run, started by start, to its end. Ctrl-C cancels it.
+func (f *frontend) run(start func(onEvent func(protocol.Event)) (protocol.RunResult, error)) int {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 	defer signal.Stop(interrupt)
@@ -73,7 +84,7 @@ func (f *frontend) run(objective string) int {
 
 	var usage render.Usage
 
-	result, err := f.conn.Run(objective, func(event protocol.Event) {
+	result, err := start(func(event protocol.Event) {
 		usage.Add(event.Usage)
 		f.show(event)
 	})
@@ -118,7 +129,7 @@ func (f *frontend) prompt() int {
 		}
 
 		if objective := strings.TrimSpace(lines.Text()); objective != "" {
-			f.run(objective)
+			f.objective(objective)
 		}
 	}
 }

@@ -11,8 +11,22 @@ entries.
 
 **Entry.** One immutable record in a session. Kinds: `system` (prompt and tool
 declarations in force), `context` (ambient sections that changed), `user` (an
-objective), `assistant` (a model response), `tool_result`, and `harness` (a
-message from the harness to the model, such as a failed check).
+objective), `assistant` (a model response), `tool_result`, `harness` (a
+message from the harness to the model, such as a failed check), and `note`.
+
+**Note.** An entry that records what happened to a run without being part of
+the conversation: how it ended (`done`, `failed`, `cancelled`), a retried
+request, checks that passed. The model never sees notes.
+
+**Unfinished run.** A run whose last note is not `done`, or that has none
+because the process died. It can be resumed.
+
+**Resume.** To continue an unfinished run without a new objective. The model
+is told the run was interrupted, and calls that never finished are closed
+with an error result.
+
+**Transient failure.** A provider error that can succeed if the same request
+is sent again later. The host retries it; any other failure ends the run.
 
 **Transcript.** The interpretation of a session's entries as the request sent
 to the model.
