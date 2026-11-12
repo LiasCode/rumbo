@@ -259,7 +259,11 @@ func usage(function protocol.Function) string {
 	signature := "/" + function.Name
 
 	for _, param := range function.Params {
-		signature += " <" + param.Name + ">"
+		if param.Optional {
+			signature += " [" + param.Name + "]"
+		} else {
+			signature += " <" + param.Name + ">"
+		}
 	}
 
 	return fmt.Sprintf("%-28s %s", signature, function.Description)
@@ -268,13 +272,25 @@ func usage(function protocol.Function) string {
 // arguments turns the words after a command into the function's parameters,
 // in the order the function lists them. The last one takes what is left.
 func arguments(function protocol.Function, args []string) (json.RawMessage, error) {
-	if len(args) < len(function.Params) {
+	required := 0
+
+	for _, param := range function.Params {
+		if !param.Optional {
+			required++
+		}
+	}
+
+	if len(args) < required {
 		return nil, fmt.Errorf("usage: %s", strings.TrimSpace(usage(protocol.Function{Name: function.Name, Params: function.Params})))
 	}
 
 	params := map[string]json.RawMessage{}
 
 	for index, param := range function.Params {
+		if index >= len(args) {
+			break
+		}
+
 		value := args[index]
 
 		if index == len(function.Params)-1 {

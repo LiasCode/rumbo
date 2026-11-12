@@ -188,9 +188,10 @@ commands, menu entries, or buttons without knowing them beforehand. A host
 that gains a function gives every front end a new command.
 
 They arrive in `initialize`, as `functions`, each with a `name`, a
-`description`, and `params`. A function with a `confirm` text cannot be
-undone: a front end shows that text and calls the function only after the
-person agrees. They are called with `invoke` and
+`description`, and `params`. A parameter marked `optional` may be left out;
+the table below shows those with a `?`. A function with a `confirm` text
+cannot be undone: a front end shows that text and calls the function only
+after the person agrees. They are called with `invoke` and
 `"target": "host"`:
 
 ```json
@@ -224,6 +225,14 @@ The functions of this version:
 | `delete` | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `providers` | | Lists the registered providers. |
 | `use` | `provider`, `model` | Changes provider and model for the tasks that follow. The session goes on. |
+| `register` | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
+| `configure` | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
+| `inspect` | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
+| `unregister` | `provider` | Removes a registered provider. Asks to be confirmed. |
+| `settings` | | Shows every setting as it applies to the project, and where each value comes from. |
+| `setting` | `key`, `value`, `scope`? | Stores a setting, for the project unless `scope` is `global`. It applies from the next start. |
+| `unset` | `key`, `scope`? | Removes a stored setting. |
+| `setting-keys` | | Lists the settings there are. |
 | `compact` | | Replaces the conversation with a summary now. |
 | `quit` | | Stops the provider and ends the host, which closes the connection. |
 

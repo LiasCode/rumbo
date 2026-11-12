@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,27 +12,6 @@ import (
 	"rumbo/internal/project"
 	"rumbo/internal/store"
 )
-
-// Setting keys. A project value overrides the global one.
-const (
-	keyModel     = "model"
-	keyFrontend  = "frontend"
-	keyMaxTokens = "max_tokens"
-	keyMaxTurns  = "max_turns"
-	keyCompactAt = "compact_at"
-)
-
-var settingHelp = map[string]string{
-	keyModel:     `provider and model, as "provider/model"`,
-	keyFrontend:  `front end to start; unset uses tui in a terminal and plain otherwise`,
-	keyMaxTokens: `output token limit per response; unset uses the provider's default`,
-	keyMaxTurns:  `model responses after which a run is stopped (default 150; 0 for no limit)`,
-	keyCompactAt: `context size in tokens at which the conversation is summarized (default 150000; 0 never)`,
-}
-
-// selfPlaceholder in a registered command stands for the rumbo executable, so
-// built-in programs keep working wherever the binary is installed.
-const selfPlaceholder = "{self}"
 
 // config is everything a run reads from settings, resolved once.
 type config struct {
@@ -67,17 +45,6 @@ func DatabasePath() (string, error) {
 	return filepath.Join(home, ".local", "share", "rumbo", "rumbo.db"), nil
 }
 
-// builtins are the programs served by the rumbo executable itself, by kind,
-// with the subcommand that serves them.
-var builtins = []struct {
-	kind       string
-	subcommand string
-	names      []string
-}{
-	{store.KindProvider, "provide", []string{"anthropic", "openai"}},
-	{store.KindFrontend, "attach", []string{"tui", "plain"}},
-}
-
 // openStore opens the database and registers the built-in programs.
 func openStore() (store.Store, error) {
 	path, err := DatabasePath()
@@ -92,16 +59,8 @@ func openStore() (store.Store, error) {
 		return nil, err
 	}
 
-	for _, builtin := range builtins {
-		for _, name := range builtin.names {
-			if _, err := database.Program(builtin.kind, name); errors.Is(err, store.ErrNotFound) {
-				program := store.Program{Name: name, Command: []string{selfPlaceholder, builtin.subcommand, name}}
-
-				if err := database.PutProgram(builtin.kind, program); err != nil {
-					return nil, err
-				}
-			}
-		}
+	if err := seedBuiltins(database); err != nil {
+		return nil, err
 	}
 
 	return database, nil
@@ -122,18 +81,18 @@ func workingProject() (dir, root string, err error) {
 // loadConfig resolves the settings for a run in the project at root. A
 // missing or malformed required setting is an error; nothing is guessed.
 func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flagOptions json.RawMessage) (config, error) {
-	loaded := config{MaxTurns: 150, CompactAt: 150_000, Frontend: frontendFlag}
+	loaded := config{Frontend: frontendFlag}
 
 	if loaded.Frontend == "" {
-		value, found, err := lookup(settings, root, keyFrontend)
+		chosen, err := effectiveSetting(settings, root, keyFrontend)
 
 		if err != nil {
 			return loaded, err
 		}
 
 		switch {
-		case found:
-			loaded.Frontend = value
+		case chosen.Source != sourceUnset:
+			loaded.Frontend = chosen.Value
 		case isTerminal(os.Stdin) && isTerminal(os.Stdout):
 			loaded.Frontend = "tui"
 		default:
@@ -144,13 +103,13 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flag
 	model := modelFlag
 
 	if model == "" {
-		value, _, err := lookup(settings, root, keyModel)
+		chosen, err := effectiveSetting(settings, root, keyModel)
 
 		if err != nil {
 			return loaded, err
 		}
 
-		model = value
+		model = chosen.Value
 	}
 
 	providerName, modelName, found := strings.Cut(model, "/")
@@ -172,61 +131,29 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flag
 		return loaded, err
 	}
 
-	if loaded.MaxTokens, err = lookupInt(settings, root, keyMaxTokens, loaded.MaxTokens); err != nil {
-		return loaded, err
-	}
-
-	if loaded.MaxTurns, err = lookupInt(settings, root, keyMaxTurns, loaded.MaxTurns); err != nil {
-		return loaded, err
-	}
-
-	if loaded.CompactAt, err = lookupInt(settings, root, keyCompactAt, loaded.CompactAt); err != nil {
-		return loaded, err
+	for key, into := range map[string]*int{keyMaxTokens: &loaded.MaxTokens, keyMaxTurns: &loaded.MaxTurns, keyCompactAt: &loaded.CompactAt} {
+		if *into, err = effectiveCount(settings, root, key); err != nil {
+			return loaded, err
+		}
 	}
 
 	return loaded, nil
 }
 
-func lookup(settings store.Store, dir, key string) (string, bool, error) {
-	value, found, err := settings.Setting(dir, key)
+// effectiveCount reads a numeric setting in force. One that is not set, and
+// has no default, is zero.
+func effectiveCount(settings store.Store, root, key string) (int, error) {
+	chosen, err := effectiveSetting(settings, root, key)
 
-	if err != nil || found {
-		return value, found, err
+	if err != nil || chosen.Source == sourceUnset {
+		return 0, err
 	}
 
-	return settings.Setting(store.GlobalScope, key)
-}
-
-func lookupInt(settings store.Store, dir, key string, fallback int) (int, error) {
-	value, found, err := lookup(settings, dir, key)
-
-	if err != nil || !found {
-		return fallback, err
-	}
-
-	number, err := strconv.Atoi(value)
+	number, err := strconv.Atoi(chosen.Value)
 
 	if err != nil || number < 0 {
-		return fallback, fmt.Errorf("setting %s must be a non-negative integer, got %q", key, value)
+		return 0, fmt.Errorf("setting %s must be a whole number, zero or more, got %q", key, chosen.Value)
 	}
 
 	return number, nil
-}
-
-// programCommand resolves the placeholders of a registered command.
-func programCommand(command []string) ([]string, error) {
-	resolved := make([]string, len(command))
-	copy(resolved, command)
-
-	if len(resolved) > 0 && resolved[0] == selfPlaceholder {
-		self, err := os.Executable()
-
-		if err != nil {
-			return nil, err
-		}
-
-		resolved[0] = self
-	}
-
-	return resolved, nil
 }

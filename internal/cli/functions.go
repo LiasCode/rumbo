@@ -67,6 +67,76 @@ var hostFunctions = []hostFunction{
 		call: (*host).useProvider,
 	},
 	{
+		Function: protocol.Function{
+			Name:        "register",
+			Description: "Register a provider: a name and the command that starts it",
+			Params: []protocol.Option{
+				{Name: "name", Type: protocol.OptionString},
+				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
+			},
+		},
+		call: (*host).registerProvider,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "configure",
+			Description: "Change a field of a provider's configuration; an empty value removes it",
+			Params: []protocol.Option{
+				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
+				{Name: "change", Type: protocol.OptionString, Description: "field=value"},
+			},
+		},
+		call: (*host).configureProvider,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "inspect",
+			Description: "Start a provider and show what it offers; also the test that it works",
+			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
+		},
+		call: (*host).inspect,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "unregister",
+			Description: "Remove a registered provider",
+			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
+			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched.",
+		},
+		call: (*host).unregisterProvider,
+	},
+	{
+		Function: protocol.Function{Name: "settings", Description: "Show every setting as it applies here, and where it comes from"},
+		call:     (*host).showSettings,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "setting",
+			Description: "Store a setting, for this project unless the scope says global",
+			Params: []protocol.Option{
+				{Name: "key", Type: protocol.OptionString, Values: "setting-keys"},
+				{Name: "value", Type: protocol.OptionString},
+				{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true},
+			},
+		},
+		call: (*host).storeSetting,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "unset",
+			Description: "Remove a stored setting, for this project unless the scope says global",
+			Params: []protocol.Option{
+				{Name: "key", Type: protocol.OptionString, Values: "setting-keys"},
+				{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true},
+			},
+		},
+		call: (*host).removeSetting,
+	},
+	{
+		Function: protocol.Function{Name: "setting-keys", Description: "List the settings there are"},
+		call:     (*host).settingKeys,
+	},
+	{
 		Function: protocol.Function{Name: "compact", Description: "Replace the conversation with a summary now, to free context"},
 		call:     (*host).compactNow,
 	},
@@ -104,7 +174,7 @@ func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage)
 		}
 
 		for _, param := range function.Params {
-			if params[param.Name] == "" {
+			if params[param.Name] == "" && !param.Optional {
 				return protocol.HostResult{}, fmt.Errorf("%s needs %s", name, param.Name)
 			}
 		}
@@ -333,6 +403,127 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 	h.info.Model = params["model"]
 
 	return protocol.HostResult{Text: fmt.Sprintf("using %s/%s", name, params["model"])}, nil
+}
+
+// scopes are where a setting can be stored from a front end.
+var scopes = []string{sourceProject, sourceGlobal}
+
+// scope turns the scope a function was given into the one the store uses.
+// A front end works in a project, so that is where a setting goes unless it
+// says otherwise.
+func (h *host) scope(given string) (string, error) {
+	switch given {
+	case "", sourceProject:
+		return h.root, nil
+	case sourceGlobal:
+		return store.GlobalScope, nil
+	}
+
+	return "", fmt.Errorf("the scope is %s", strings.Join(scopes, " or "))
+}
+
+func (h *host) showSettings(context.Context, map[string]string) (protocol.HostResult, error) {
+	settings, err := effectiveSettings(h.database, h.root)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: describeSettings(settings)}, nil
+}
+
+func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostResult, error) {
+	var result protocol.HostResult
+
+	for _, spec := range settingSpecs {
+		result.Values = append(result.Values, protocol.Value{Value: spec.key, Description: spec.help})
+	}
+
+	result.Values = append(result.Values, protocol.Value{
+		Value:       optionsPrefix + h.settings.Provider,
+		Description: "JSON object of option values sent to this provider with every request",
+	})
+
+	return result, nil
+}
+
+// storeSetting stores a setting. The host read its settings when it started,
+// so what is stored applies from the next start.
+func (h *host) storeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	scope, err := h.scope(params["scope"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	if err := setSetting(h.database, scope, params["key"], params["value"]); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: fmt.Sprintf("%s = %s, stored; it applies from the next start of rumbo", params["key"], params["value"])}, nil
+}
+
+func (h *host) removeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	scope, err := h.scope(params["scope"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	if err := unsetSetting(h.database, scope, params["key"]); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: params["key"] + " is no longer stored there"}, nil
+}
+
+func (h *host) registerProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	if err := registerProgram(h.database, store.KindProvider, params["name"], strings.Fields(params["command"]), nil); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: fmt.Sprintf("registered %s; inspect it to see that it works and what it offers", params["name"])}, nil
+}
+
+func (h *host) configureProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	program, err := configureProgram(h.database, store.KindProvider, params["provider"], []string{params["change"]})
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	text := fmt.Sprintf("configuration of %s: %s", program.Name, program.Config)
+
+	// A provider reads its configuration when it starts.
+	if program.Name == h.settings.Provider && h.process != nil {
+		_ = h.process.Close()
+		h.process, h.worker = nil, nil
+		text += "\nit was restarted, so the change applies to the next task"
+	}
+
+	return protocol.HostResult{Text: text}, nil
+}
+
+func (h *host) inspect(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	described, err := inspectProvider(h.database, params["provider"], h.conn.Log())
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: described}, nil
+}
+
+func (h *host) unregisterProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	if params["provider"] == h.settings.Provider {
+		return protocol.HostResult{}, fmt.Errorf("%s is the provider in use; change to another one first", params["provider"])
+	}
+
+	if err := h.database.DeleteProgram(store.KindProvider, params["provider"]); err != nil {
+		return protocol.HostResult{}, fmt.Errorf("provider %q is not registered", params["provider"])
+	}
+
+	return protocol.HostResult{Text: "removed the provider " + params["provider"]}, nil
 }
 
 func (h *host) compactNow(ctx context.Context, _ map[string]string) (protocol.HostResult, error) {

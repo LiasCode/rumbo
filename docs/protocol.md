@@ -163,6 +163,7 @@ The description travels in the `initialize` result. Every part is optional.
 | `enum` | The accepted values of a string option, when they are fixed. |
 | `values` | The name of a function that returns the accepted values, when they are not. |
 | `default` | What applies when nothing is chosen. For display only. |
+| `optional` | For a parameter of a function: it may be left out. Optional parameters come last. |
 
 This is a small subset of JSON Schema on purpose: a front end can offer it
 without a validator.

@@ -66,6 +66,7 @@ type Setting struct {
 type Store interface {
 	Setting(scope, key string) (string, bool, error)
 	SetSetting(scope, key, value string) error
+	DeleteSetting(scope, key string) error
 	Settings() ([]Setting, error)
 
 	Program(kind, name string) (Program, error)

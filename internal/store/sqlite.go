@@ -192,6 +192,21 @@ func (s *SQLite) SetSetting(scope, key, value string) error {
 	return err
 }
 
+// DeleteSetting implements Store.
+func (s *SQLite) DeleteSetting(scope, key string) error {
+	result, err := s.db.Exec(`DELETE FROM settings WHERE scope = ? AND key = ?`, scope, key)
+
+	if err != nil {
+		return err
+	}
+
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // Settings implements Store.
 func (s *SQLite) Settings() ([]Setting, error) {
 	rows, err := s.db.Query(`SELECT scope, key, value FROM settings ORDER BY scope, key`)

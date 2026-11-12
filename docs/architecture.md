@@ -83,7 +83,11 @@ described functions, so a front end has commands for them without knowing
 them, exactly as it does for a provider's.
 
 **Command line** (`internal/cli`). Parses arguments, reads settings once, and
-wires the parts. It is the only place that knows the implementations.
+wires the parts. It is the only place that knows the implementations. What a
+setting is, and what a registered program is, each have one owner there
+(`settings.go`, `programs.go`); the commands and the host's functions are two
+ways into the same code, so configuring from a terminal and from a front end
+cannot drift apart.
 
 ## Rules the design depends on
 

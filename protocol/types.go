@@ -136,6 +136,9 @@ type Option struct {
 	Values string `json:"values,omitempty"`
 	// Default is the value in force when none is chosen, for display.
 	Default json.RawMessage `json:"default,omitempty"`
+	// Optional says a parameter of a function may be left out. Optional
+	// parameters come after the required ones.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // Function describes one operation of the provider or of the host.

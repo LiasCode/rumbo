@@ -131,8 +131,26 @@ which is the git repository the current directory is in. Project settings and
 sessions are found from any of its subdirectories.
 
 ```sh
+rumbo config list                                     # every setting, its value here, and where it comes from
 rumbo config set -p model anthropic/claude-sonnet-5-5
+rumbo config unset -p model
 ```
+
+A value is checked when it is stored, so a mistyped provider or number is an
+error then and not when the next task starts.
+
+Providers and front ends are registered programs:
+
+```sh
+rumbo provider add mine /path/to/my-provider          # register
+rumbo provider show mine                              # start it and see what it offers; also the test that it works
+rumbo provider set mine base_url=http://host:8080     # change one field of its configuration
+rumbo provider rm mine
+```
+
+The same can be done from a front end, through functions of the host:
+`/settings`, `/setting`, `/unset`, `/register`, `/inspect`, `/configure`, and
+`/unregister` in the terminal UI.
 
 ## Documentation
 

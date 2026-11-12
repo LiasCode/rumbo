@@ -15,12 +15,12 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Permissions (18), once the owner decides the model.
-2. Steering (19) and the remaining blocks.
+1. The context window (42, 43, 13).
+2. Concurrency (19, and what the owner decides it covers).
+3. The remaining blocks.
 
 ## Decisions for the owner
 
-- **Permission model** (18): confirm each action, an allow list, or a sandbox.
 - **File restore points** (35): whether sessions should be able to undo
   changes to files.
 - **Windows** (39): whether it is in scope.
@@ -51,13 +51,13 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 48. **Background processes end with the host.** A process started with
     `background` is stopped when rumbo exits, so it does not survive between
     one-shot runs, and its log file is left in the temporary directory.
-18. **Permissions.** There are none: the agent can write outside the project
-    and run any command.
-
 ### Provider options
 
-49. **Choices made in a front end are not stored.** `/set` in the terminal UI
-    lasts until it closes; only `rumbo config` and `-o` reach the database.
+49. **Keeping a choice takes a second step.** `/set` in the terminal UI lasts
+    until it closes. Storing it is a separate `/setting model ...` or
+    `/setting options.<provider> {...}`.
+55. **Stored settings apply from the next start.** The host reads them once,
+    so `/setting max_turns 40` does nothing to the session that stored it.
 50. **Functions are request and response only.** A provider cannot hold a
     dialogue through one, which a browser login for a subscription needs.
 52. **Host functions take only text.** Their parameters are an object of
@@ -79,17 +79,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## 2. Configuration
 
-22. **Validate on save.** `config set` accepts any value; the error appears
-    when running.
-23. **`config unset`.** A setting cannot be removed.
-24. **Show the effective value.** `config get` looks at one scope. It does not
-    say what will apply or where it comes from.
 25. **Configurable limits.** Tool output size and timeouts are fixed in the
     code.
-27. **Edit a registered program.** Changing a provider's config means running
-    `add` again in full.
-28. **Built-in programs.** Deleted ones come back on the next start; they
-    cannot be disabled.
 
 ## 3. Sessions
 

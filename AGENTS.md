@@ -45,6 +45,9 @@ rumbo is a general agent harness. These are decisions, not gaps:
 - **It sends no context unasked** beyond the environment and the user's
   instructions. The model looks at the project with its tools when it needs
   to.
+- **It has no permission system.** The agent acts with the rights of the
+  user who started it. Limiting what it may write or run is out of scope;
+  someone who needs that runs rumbo inside a sandbox of their choice.
 
 ## Minimalism
 

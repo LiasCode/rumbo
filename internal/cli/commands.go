@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"rumbo/internal/frontends/plain"
@@ -75,7 +74,7 @@ var programHelp = map[string]string{
 
 func programUsage(kind string) string {
 	return fmt.Sprintf(
-		"usage:\n  rumbo %[1]s list\n  rumbo %[1]s add [-config <json>] <name> <command> [args...]\n  rumbo %[1]s rm <name>\n\n%[2]s\n\"{self}\" as the command stands for the rumbo executable.",
+		"usage:\n  rumbo %[1]s list\n  rumbo %[1]s add [-config <json>] <name> <command> [args...]\n  rumbo %[1]s set <name> <field>=<value>...   change its configuration; an empty value removes the field\n  rumbo %[1]s show <name>                     what is registered; a provider is started and says what it offers\n  rumbo %[1]s rm <name>\n\n%[2]s\n\"{self}\" as the command stands for the rumbo executable.",
 		kind, programHelp[kind],
 	)
 }
@@ -123,15 +122,49 @@ func manageProgram(database store.Store, kind string, args []string) error {
 			return errors.New(help)
 		}
 
-		if !json.Valid([]byte(*config)) {
-			return errors.New("-config must be valid JSON")
+		return registerProgram(database, kind, rest[0], rest[1:], json.RawMessage(*config))
+
+	case "set":
+		if len(args) < 3 {
+			return errors.New(help)
 		}
 
-		if strings.Contains(rest[0], "/") {
-			return errors.New(`a name cannot contain "/"`)
+		program, err := configureProgram(database, kind, args[1], args[2:])
+
+		if err != nil {
+			return err
 		}
 
-		return database.PutProgram(kind, store.Program{Name: rest[0], Command: rest[1:], Config: json.RawMessage(*config)})
+		fmt.Println(program.Config)
+
+		return nil
+
+	case "show":
+		if len(args) != 2 {
+			return errors.New(help)
+		}
+
+		if kind == store.KindProvider {
+			described, err := inspectProvider(database, args[1], os.Stderr)
+
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(described)
+
+			return nil
+		}
+
+		program, err := database.Program(kind, args[1])
+
+		if err != nil {
+			return fmt.Errorf("%s %q is not registered", kind, args[1])
+		}
+
+		fmt.Println(describeProgram(program))
+
+		return nil
 
 	case "rm":
 		if len(args) != 2 {
@@ -145,25 +178,12 @@ func manageProgram(database store.Store, kind string, args []string) error {
 }
 
 func configUsage() string {
-	keys := make([]string, 0, len(settingHelp))
-
-	for key := range settingHelp {
-		keys = append(keys, key)
-	}
-
-	sort.Strings(keys)
-
-	var out strings.Builder
-	out.WriteString("usage:\n  rumbo config list\n  rumbo config get [-p] <key>\n  rumbo config set [-p] <key> <value>\n\n")
-	out.WriteString("-p applies to the project the current directory is part of, instead of globally.\n\nkeys:\n")
-
-	for _, key := range keys {
-		fmt.Fprintf(&out, "  %-18s %s\n", key, settingHelp[key])
-	}
-
-	fmt.Fprintf(&out, "  %-18s %s\n", optionsPrefix+"<provider>", "JSON object of option values sent to that provider with every request")
-
-	return strings.TrimRight(out.String(), "\n")
+	return "usage:\n" +
+		"  rumbo config list                     every setting as it applies here, and where it comes from\n" +
+		"  rumbo config get [-p] <key>           the value stored globally, or for this project with -p\n" +
+		"  rumbo config set [-p] <key> <value>\n" +
+		"  rumbo config unset [-p] <key>\n\n" +
+		"-p applies to the project the current directory is part of, instead of globally.\n\nsettings:\n" + settingsHelp()
 }
 
 func configCommands(database store.Store, args []string) error {
@@ -171,22 +191,20 @@ func configCommands(database store.Store, args []string) error {
 		return errors.New(configUsage())
 	}
 
+	_, root, err := workingProject()
+
+	if err != nil {
+		return err
+	}
+
 	if args[0] == "list" {
-		settings, err := database.Settings()
+		settings, err := effectiveSettings(database, root)
 
 		if err != nil {
 			return err
 		}
 
-		for _, setting := range settings {
-			scope := setting.Scope
-
-			if scope == store.GlobalScope {
-				scope = "(global)"
-			}
-
-			fmt.Printf("%s\t%s\t%s\n", scope, setting.Key, setting.Value)
-		}
+		fmt.Println(describeSettings(settings))
 
 		return nil
 	}
@@ -202,17 +220,7 @@ func configCommands(database store.Store, args []string) error {
 	scope := store.GlobalScope
 
 	if *project {
-		_, root, err := workingProject()
-
-		if err != nil {
-			return err
-		}
-
 		scope = root
-	}
-
-	if len(rest) == 0 || (settingHelp[rest[0]] == "" && !strings.HasPrefix(rest[0], optionsPrefix)) {
-		return errors.New(configUsage())
 	}
 
 	switch {
@@ -224,7 +232,7 @@ func configCommands(database store.Store, args []string) error {
 		}
 
 		if !found {
-			return fmt.Errorf("%s is not set", rest[0])
+			return fmt.Errorf("%s is not set there", rest[0])
 		}
 
 		fmt.Println(value)
@@ -232,13 +240,10 @@ func configCommands(database store.Store, args []string) error {
 		return nil
 
 	case args[0] == "set" && len(rest) == 2:
-		if strings.HasPrefix(rest[0], optionsPrefix) {
-			if _, err := mergeOptions(json.RawMessage(rest[1])); err != nil {
-				return err
-			}
-		}
+		return setSetting(database, scope, rest[0], rest[1])
 
-		return database.SetSetting(scope, rest[0], rest[1])
+	case args[0] == "unset" && len(rest) == 1:
+		return unsetSetting(database, scope, rest[0])
 	}
 
 	return errors.New(configUsage())
