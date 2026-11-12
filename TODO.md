@@ -33,9 +33,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     of tokens because the host does not know the model's window. It is right
     for 200K models and early for larger ones. Needs the provider to report
     the window, which is protocol work.
-43. **Compact on request and on overflow.** There is no way to ask for a
-    compaction, and a provider error saying the prompt is too long ends the
-    run instead of compacting and trying again.
+43. **Compact on overflow.** A provider error saying the prompt is too long
+    ends the run instead of compacting and trying again.
 40. **Provider process death.** When the provider exits mid-session the run
     fails and the host does not start it again; only a new `rumbo` does.
 41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
@@ -61,8 +60,9 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     lasts until it closes; only `rumbo config` and `-o` reach the database.
 50. **Functions are request and response only.** A provider cannot hold a
     dialogue through one, which a browser login for a subscription needs.
-51. **The provider cannot be changed from a front end.** `describe` and
-    `/set model` work within the provider the host was started with.
+52. **Host functions take only text.** Their parameters are an object of
+    text values, and they cannot report progress while they work, which
+    `compact` would use.
 
 ### Steering
 

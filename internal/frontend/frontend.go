@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 
 	"rumbo/protocol"
 )
@@ -32,6 +33,8 @@ type Handlers struct {
 // events.
 type Conn struct {
 	reader *bufio.Reader
+	// stopped ends Serve after the request being answered.
+	stopped atomic.Bool
 
 	mu  sync.Mutex
 	out *json.Encoder
@@ -171,6 +174,10 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 			c.answer(frame, handlers)
 
+			if c.stopped.Load() {
+				return nil
+			}
+
 		default:
 			c.fail(frame.ID, protocol.CodeMethodNotFound, "unknown method: "+frame.Method)
 		}
@@ -206,6 +213,12 @@ func (c *Conn) answer(frame protocol.Frame, handlers Handlers) {
 
 	raw, _ := json.Marshal(result)
 	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
+}
+
+// Stop makes Serve return once the request in hand is answered, which
+// disconnects the front end.
+func (c *Conn) Stop() {
+	c.stopped.Store(true)
 }
 
 // Log returns a writer whose lines reach the front end as log events. It is

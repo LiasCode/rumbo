@@ -69,6 +69,8 @@ The host speaks first.
   run (`rumbo -r`). A front end is expected to send a `run` with `resume`.
 - `config` is the JSON registered with the front end (`rumbo frontend add
   -config`). Its meaning is the front end's own.
+- `functions` are what the host itself can be asked, whatever the provider.
+  See [Functions of the host](#functions-of-the-host).
 
 Result: `{"protocol":1,"name":"my-frontend"}`.
 
@@ -142,6 +144,9 @@ host relays the call and the answer without reading either. A function that
 an option names in `values` answers with `{"values": [{"value", "label",
 "description"}]}`; any other answers with JSON of its own.
 
+With `"target": "host"` the call goes to a function of the host instead; see
+[Functions of the host](#functions-of-the-host).
+
 `describe` and `invoke` are refused with an error while a run is in progress.
 
 ### `cancel` (notification, front end to host)
@@ -172,6 +177,55 @@ What is happening in the active run. `type` selects the fields:
 
 A front end ignores event types and fields it does not know. New ones may be
 added without a new protocol version.
+
+## Functions of the host
+
+Some things a person wants from any front end have nothing to do with the
+provider: changing session, changing provider, seeing what a conversation
+has cost, quitting. The host offers them as functions, described the same
+way a provider describes its own, so a front end can turn them into
+commands, menu entries, or buttons without knowing them beforehand. A host
+that gains a function gives every front end a new command.
+
+They arrive in `initialize`, as `functions`, each with a `name`, a
+`description`, and `params`. They are called with `invoke` and
+`"target": "host"`:
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"invoke",
+ "params":{"target":"host","name":"use","params":{"provider":"openai","model":"gpt-x"}}}
+```
+
+Parameters are an object of text values. Every answer has the same shape:
+
+```json
+{"text": "using openai/gpt-x",
+ "values": [],
+ "state": {"dir": "/home/me/project", "session": "4cf0261c", "provider": "openai", "model": "gpt-x"}}
+```
+
+- `text` is the outcome in words, for a person.
+- `values` is set by a function that lists something, in the shape a
+  provider's value functions use: `value`, `label`, `description`.
+- `state` is what the front end is attached to after the call. A function may
+  have changed it, so a front end takes its session, provider, and model from
+  here instead of remembering them.
+
+The functions of this version:
+
+| Function | Parameters | What it does |
+|---|---|---|
+| `status` | | The session, the model, the size of the context, and what was spent. |
+| `sessions` | | Lists the project's sessions, most recently used first. |
+| `open` | `session` | Continues another session of the project. |
+| `new` | | Makes the next task start a new session. |
+| `providers` | | Lists the registered providers. |
+| `use` | `provider`, `model` | Changes provider and model for the tasks that follow. The session goes on. |
+| `compact` | | Replaces the conversation with a summary now. |
+| `quit` | | Stops the provider and ends the host, which closes the connection. |
+
+A front end should read the list from `initialize` and not from this table:
+the table is what the host offers today.
 
 ## What the host guarantees
 

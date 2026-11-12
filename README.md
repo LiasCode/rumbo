@@ -68,6 +68,11 @@ In the terminal UI, `/options` shows what the provider offers and what is in
 force, including its models, and `/set <name> <value>` changes a choice for
 the runs that follow (`/set model <name>` for the model).
 
+Other commands come from the host: `/status`, `/sessions`, `/open <session>`,
+`/new`, `/providers`, `/use <provider> <model>`, `/compact`, and `/quit`.
+`/help` lists them. The terminal UI knows none of them in advance; it builds
+them from what the host and the provider describe, and so can any front end.
+
 ## Instructions
 
 rumbo gives the model the `AGENTS.md` (or `CLAUDE.md`) files it finds from the

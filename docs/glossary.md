@@ -48,8 +48,9 @@ passes it on without interpreting it.
 **Option.** A value a provider accepts with a request, beyond the model,
 such as how thorough to be. Which options exist is the provider's decision.
 
-**Function.** An operation a provider offers through `invoke`, such as
-listing its models.
+**Function.** An operation offered through `invoke`: by a provider, such as
+listing its models, or by the host, such as changing session or quitting. A
+front end learns both from descriptions and knows neither beforehand.
 
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
 provider.

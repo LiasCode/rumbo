@@ -91,7 +91,20 @@ func Run(r io.Reader, w io.Writer) int {
 		ui.submit(info.Objective)
 	}
 
-	ui.readKeys(bufio.NewReader(os.Stdin))
+	// The front end ends when the user quits, or when the host goes away,
+	// which is also how a quit asked of the host arrives.
+	quit := make(chan struct{})
+
+	go func() {
+		ui.readKeys(bufio.NewReader(os.Stdin))
+		close(quit)
+	}()
+
+	select {
+	case <-quit:
+	case <-conn.Done():
+	}
+
 	ui.wait.Wait()
 
 	return 0

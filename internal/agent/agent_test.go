@@ -518,3 +518,45 @@ func TestCompactionFailsWithoutASummary(t *testing.T) {
 		t.Fatal("a tool call made instead of the summary was executed")
 	}
 }
+
+// A compaction can be asked for at any size, between runs.
+func TestCompactOnRequest(t *testing.T) {
+	model := &scripted{
+		usage:   protocol.Usage{Input: 40, Output: 5},
+		answers: []protocol.Message{say(text("The capital is Paris."))},
+	}
+
+	worker, database, session, _ := setup(t, model)
+
+	if _, err := worker.Compact(context.Background(), session); err == nil {
+		t.Fatal("an empty session was compacted")
+	}
+
+	if err := worker.Run(context.Background(), session, "what is the capital of France?"); err != nil {
+		t.Fatal(err)
+	}
+
+	model.answers = append(model.answers, say(text("<summary>Asked for the capital of France; it is Paris.</summary>")), say(text("Madrid.")))
+
+	before, err := worker.Compact(context.Background(), session)
+
+	if err != nil || before != 45 {
+		t.Fatalf("before = %d, err = %v", before, err)
+	}
+
+	if err := worker.Run(context.Background(), session, "and of Spain?"); err != nil {
+		t.Fatal(err)
+	}
+
+	sent := model.requests[2].Messages
+
+	if len(sent) != 1 || !strings.Contains(sent[0].Content[0].Text, "it is Paris") || sent[0].Content[1].Text != "and of Spain?" {
+		t.Fatalf("the request after the compaction = %+v", sent)
+	}
+
+	entries, _ := database.Entries(session.ID)
+
+	if got := kinds(entries); got != "system user assistant note compaction user assistant note" {
+		t.Fatalf("entries = %q", got)
+	}
+}

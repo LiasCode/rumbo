@@ -77,7 +77,10 @@ connection is the loop's `Observer`. The built-in front ends
 (`internal/frontends`) are served by the same binary through `rumbo attach
 <name>` and cross the same protocol as one a user writes. A front end either
 is started by the host, which leaves it the terminal, or starts the host
-itself with `rumbo serve`, as an editor would.
+itself with `rumbo serve`, as an editor would. What a person can do beyond
+giving a task, such as changing session or provider, the host offers as
+described functions, so a front end has commands for them without knowing
+them, exactly as it does for a provider's.
 
 **Command line** (`internal/cli`). Parses arguments, reads settings once, and
 wires the parts. It is the only place that knows the implementations.

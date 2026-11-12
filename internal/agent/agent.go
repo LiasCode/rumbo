@@ -230,9 +230,25 @@ func (a *Agent) prepare(ctx context.Context, session store.Session) error {
 	return a.append(session, transcript.KindContext, transcript.Context{Sections: changes})
 }
 
+// Compact replaces the session's conversation with a summary now, whatever
+// its size, and returns how large the context was. It is what a user asks
+// for before a long task, or to stop paying for a history that is spent.
+func (a *Agent) Compact(ctx context.Context, session store.Session) (int64, error) {
+	state, err := a.state(session)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if len(state.Messages) < 2 {
+		return 0, errors.New("there is no conversation to compact yet")
+	}
+
+	return state.Tokens, a.summarize(ctx, session, state, state.Objective)
+}
+
 // compact replaces the conversation with a summary once the context has
-// grown to CompactAt. The model writes the summary itself, as one more
-// request on the same prefix, and the next request starts from it.
+// grown to CompactAt.
 func (a *Agent) compact(ctx context.Context, session store.Session, objective string) error {
 	state, err := a.state(session)
 
@@ -241,6 +257,14 @@ func (a *Agent) compact(ctx context.Context, session store.Session, objective st
 	}
 
 	a.Observer.Notice(fmt.Sprintf("the context reached %d tokens; summarizing the conversation to free it", state.Tokens))
+
+	return a.summarize(ctx, session, state, objective)
+}
+
+// summarize asks the model for a summary of the conversation, as one more
+// request on the same prefix, and records the compaction the next request
+// starts from.
+func (a *Agent) summarize(ctx context.Context, session store.Session, state transcript.State, objective string) error {
 
 	// The instruction joins the last user message when there is one, since
 	// roles must alternate.

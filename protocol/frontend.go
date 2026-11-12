@@ -50,6 +50,8 @@ const (
 // the user already passed on the command line, if anything; the front end is
 // expected to run it. Resume means the user asked to continue the session's
 // unfinished run instead; the front end is expected to send a resume.
+// Functions are what the host itself can be asked through invoke, whatever
+// the provider: changing provider or session, compacting, quitting.
 type FrontendInitializeParams struct {
 	Protocol  int             `json:"protocol"`
 	Dir       string          `json:"dir"`
@@ -59,6 +61,25 @@ type FrontendInitializeParams struct {
 	Objective string          `json:"objective,omitempty"`
 	Resume    bool            `json:"resume,omitempty"`
 	Config    json.RawMessage `json:"config,omitempty"`
+	Functions []Function      `json:"functions,omitempty"`
+}
+
+// HostResult is the answer of a function of the host. Text is the outcome in
+// words, for a person; Values is set by a function that lists something.
+// State is what the front end is attached to after the call, since a host
+// function may have changed it.
+type HostResult struct {
+	Text   string    `json:"text,omitempty"`
+	Values []Value   `json:"values,omitempty"`
+	State  HostState `json:"state"`
+}
+
+// HostState is what a front end is attached to.
+type HostState struct {
+	Dir      string `json:"dir"`
+	Session  string `json:"session,omitempty"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 // RunParams starts a run on Objective, or, with Resume, continues the
@@ -117,6 +138,7 @@ type FrontendConn struct {
 	frames chan Frame
 	// calling lets one request at a time wait for its answer.
 	calling sync.Mutex
+	done    chan struct{}
 
 	mu     sync.Mutex
 	out    *json.Encoder
@@ -126,7 +148,7 @@ type FrontendConn struct {
 // DialFrontend answers the host's initialize on r and w and returns the
 // connection together with what the host said.
 func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, FrontendInitializeParams, error) {
-	conn := &FrontendConn{frames: make(chan Frame, 64), out: json.NewEncoder(w)}
+	conn := &FrontendConn{frames: make(chan Frame, 64), out: json.NewEncoder(w), done: make(chan struct{})}
 
 	go conn.read(r)
 
@@ -182,6 +204,18 @@ func (c *FrontendConn) Invoke(name string, params json.RawMessage) (json.RawMess
 	var result json.RawMessage
 
 	return result, c.request(MethodInvoke, InvokeParams{Name: name, Params: params}, &result, nil)
+}
+
+// InvokeHost calls a function of the host.
+func (c *FrontendConn) InvokeHost(name string, params json.RawMessage) (HostResult, error) {
+	var result HostResult
+
+	return result, c.request(MethodInvoke, InvokeParams{Name: name, Params: params, Target: TargetHost}, &result, nil)
+}
+
+// Done is closed when the host is gone.
+func (c *FrontendConn) Done() <-chan struct{} {
+	return c.done
 }
 
 // request sends one request and waits for its answer, passing the events
@@ -242,6 +276,7 @@ func (c *FrontendConn) send(frame Frame) error {
 }
 
 func (c *FrontendConn) read(r io.Reader) {
+	defer close(c.done)
 	defer close(c.frames)
 
 	reader := bufio.NewReader(r)

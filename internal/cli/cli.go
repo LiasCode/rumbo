@@ -252,6 +252,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		Model:     created.settings.Model,
 		Objective: strings.TrimSpace(strings.Join(flags.Args(), " ")),
 		Resume:    *resume,
+		Functions: describedFunctions(),
 	}
 
 	if *resume && created.info.Objective != "" {
@@ -298,8 +299,19 @@ func (h *host) describe(context.Context) (protocol.DescribeResult, error) {
 	}, nil
 }
 
-// invoke passes a function call to the provider, as it is.
+// invoke answers a function call: the host's own, or the provider's, which
+// is passed on as it is.
 func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
+	if params.Target == protocol.TargetHost {
+		result, err := h.invokeHost(ctx, params.Name, params.Params)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(result)
+	}
+
 	if err := h.start(); err != nil {
 		return nil, err
 	}
@@ -344,14 +356,8 @@ func (h *host) run(ctx context.Context, params protocol.RunParams) (string, erro
 		h.info.Session = created.ID
 	}
 
-	if h.unlock == nil {
-		unlock, err := h.database.LockSession(h.session.ID)
-
-		if err != nil {
-			return h.session.ID, fmt.Errorf("session %s: %w", h.session.ID, err)
-		}
-
-		h.unlock = unlock
+	if err := h.lock(); err != nil {
+		return h.session.ID, err
 	}
 
 	if params.Resume {
@@ -411,8 +417,31 @@ func (h *host) close() {
 		_ = h.process.Close()
 	}
 
+	h.release()
+}
+
+// lock takes the session for this process, if it does not have it yet.
+func (h *host) lock() error {
+	if h.unlock != nil {
+		return nil
+	}
+
+	unlock, err := h.database.LockSession(h.session.ID)
+
+	if err != nil {
+		return fmt.Errorf("session %s: %w", h.session.ID, err)
+	}
+
+	h.unlock = unlock
+
+	return nil
+}
+
+// release gives up the session this process holds, if any.
+func (h *host) release() {
 	if h.unlock != nil {
 		h.unlock()
+		h.unlock = nil
 	}
 }
 

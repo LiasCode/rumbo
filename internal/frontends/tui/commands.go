@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -10,22 +11,27 @@ import (
 	"rumbo/protocol"
 )
 
-// Commands the input line understands instead of sending it as a task. They
-// show and change what the provider lets the user choose, and work from the
-// provider's own description: nothing here knows any provider.
+// A line that starts with a slash and a word is a command, not a task. Three
+// commands are the front end's own. Every other one is a function the host
+// or the provider described: the front end knows none of them beforehand,
+// and gains a command whenever either of them gains a function.
 const (
 	commandOptions = "/options"
 	commandSet     = "/set"
+	commandHelp    = "/help"
 )
 
 // maxListed bounds how many values of an option are shown.
 const maxListed = 40
 
-// isCommand reports whether line is a command rather than a task.
+var commandName = regexp.MustCompile(`^/[a-z][a-z0-9_-]*$`)
+
+// isCommand reports whether line is a command rather than a task. A path
+// such as /etc/hosts is not one.
 func isCommand(line string) bool {
 	name, _, _ := strings.Cut(line, " ")
 
-	return name == commandOptions || name == commandSet
+	return commandName.MatchString(name)
 }
 
 // command runs one command and shows its answer, unless a run is in
@@ -70,21 +76,164 @@ func (u *ui) command(line string) {
 }
 
 func (u *ui) execute(words []string) (string, error) {
+	name, args := strings.TrimPrefix(words[0], "/"), words[1:]
+
+	if words[0] == commandHelp {
+		return u.help(), nil
+	}
+
+	// The host's functions come first: they need no provider to be running.
+	if words[0] != commandOptions && words[0] != commandSet {
+		if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
+			return u.host(u.info.Functions[index], args)
+		}
+	}
+
 	described, err := u.conn.Describe()
 
 	if err != nil {
 		return "", err
 	}
 
-	if words[0] == commandOptions {
+	switch words[0] {
+	case commandOptions:
 		return u.offered(described), nil
+
+	case commandSet:
+		if len(args) == 0 {
+			return "", fmt.Errorf("usage: %s <name> [value]; without a value the choice is dropped. See %s", commandSet, commandOptions)
+		}
+
+		return u.set(described, args[0], strings.Join(args[1:], " "))
 	}
 
-	if len(words) < 2 {
-		return "", fmt.Errorf("usage: %s <name> [value]; without a value the choice is dropped. See %s", commandSet, commandOptions)
+	if index := slices.IndexFunc(described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
+		return u.provider(described.Offers.Functions[index], args)
 	}
 
-	return u.set(described, words[1], strings.Join(words[2:], " "))
+	return "", fmt.Errorf("there is no command %s; see %s", words[0], commandHelp)
+}
+
+// help lists the commands. The provider's functions are left to /options,
+// which is where the provider gets started.
+func (u *ui) help() string {
+	var out strings.Builder
+
+	for _, function := range u.info.Functions {
+		fmt.Fprintf(&out, "%s\n", usage(function))
+	}
+
+	fmt.Fprintf(&out, "%-28s %s\n", commandOptions, "Show what the provider offers and what is chosen")
+	fmt.Fprintf(&out, "%-28s %s\n", commandSet+" <name> [value]", "Choose a model or an option for the tasks that follow")
+	fmt.Fprintf(&out, "%-28s %s", commandHelp, "Show this list")
+
+	return out.String()
+}
+
+func usage(function protocol.Function) string {
+	signature := "/" + function.Name
+
+	for _, param := range function.Params {
+		signature += " <" + param.Name + ">"
+	}
+
+	return fmt.Sprintf("%-28s %s", signature, function.Description)
+}
+
+// arguments turns the words after a command into the function's parameters,
+// in the order the function lists them. The last one takes what is left.
+func arguments(function protocol.Function, args []string) (json.RawMessage, error) {
+	if len(args) < len(function.Params) {
+		return nil, fmt.Errorf("usage: %s", strings.TrimSpace(usage(protocol.Function{Name: function.Name, Params: function.Params})))
+	}
+
+	params := map[string]json.RawMessage{}
+
+	for index, param := range function.Params {
+		value := args[index]
+
+		if index == len(function.Params)-1 {
+			value = strings.Join(args[index:], " ")
+		}
+
+		encoded, err := encode(param, value)
+
+		if err != nil {
+			return nil, err
+		}
+
+		params[param.Name] = encoded
+	}
+
+	return json.Marshal(params)
+}
+
+// host calls a function of the host and takes in the state it answers with.
+func (u *ui) host(function protocol.Function, args []string) (string, error) {
+	params, err := arguments(function, args)
+
+	if err != nil {
+		return "", err
+	}
+
+	result, err := u.conn.InvokeHost(function.Name, params)
+
+	if err != nil {
+		return "", err
+	}
+
+	u.mu.Lock()
+
+	// What was chosen here was chosen for the provider that was in use.
+	if result.State.Provider != u.info.Provider {
+		u.model, u.options = "", nil
+	}
+
+	u.info.Provider, u.info.Model, u.info.Dir = result.State.Provider, result.State.Model, result.State.Dir
+	u.session = result.State.Session
+	u.mu.Unlock()
+
+	return strings.TrimSpace(result.Text + "\n" + list(result.Values)), nil
+}
+
+// provider calls a function of the provider and shows what it answers.
+func (u *ui) provider(function protocol.Function, args []string) (string, error) {
+	params, err := arguments(function, args)
+
+	if err != nil {
+		return "", err
+	}
+
+	raw, err := u.conn.Invoke(function.Name, params)
+
+	if err != nil {
+		return "", err
+	}
+
+	var listed protocol.ValuesResult
+
+	if json.Unmarshal(raw, &listed) == nil && len(listed.Values) > 0 {
+		return list(listed.Values), nil
+	}
+
+	return string(raw), nil
+}
+
+// list shows values one per line, with what describes each.
+func list(values []protocol.Value) string {
+	lines := make([]string, len(values))
+
+	for index, value := range values {
+		lines[index] = value.Value
+
+		for _, detail := range []string{value.Label, value.Description} {
+			if detail != "" {
+				lines[index] += "  " + detail
+			}
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // offered lists what can be chosen, with the value each choice has now.

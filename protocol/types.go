@@ -149,7 +149,16 @@ type Function struct {
 type InvokeParams struct {
 	Name   string          `json:"name"`
 	Params json.RawMessage `json:"params,omitempty"`
+	// Target says whose function it is, on the frontend protocol: the
+	// provider's, which is the default, or the host's.
+	Target string `json:"target,omitempty"`
 }
+
+// Targets of an invoke on the frontend protocol.
+const (
+	TargetProvider = "provider"
+	TargetHost     = "host"
+)
 
 // ValuesResult is the answer of a function that an Option names in Values.
 // Any other function answers with whatever JSON it likes.
