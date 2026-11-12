@@ -58,6 +58,12 @@ go run ./evals -model anthropic/claude-opus-5-5   # needs a credential; costs to
 Never run the second command without the owner asking for it. See
 [evals/README.md](evals/README.md).
 
+Compare runs made on the same day, with `-runs 3` or more. Figures from an
+earlier day are not a baseline: the same code, sending byte-identical
+requests, has measured about a third more output tokens a few days apart.
+When two results differ, find out what was sent before explaining it; a
+provider that only records the request settles that without a model.
+
 Tests never call a real model: the agent uses a scripted `Provider`, and the
 built-in providers are tested against local HTTP servers.
 
