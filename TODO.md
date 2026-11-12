@@ -15,8 +15,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Tools (15 to 18), now that they carry all of the work.
-2. The remaining blocks.
+1. Permissions (18), once the owner decides the model.
+2. Steering (19) and the remaining blocks.
 
 ## Decisions for the owner
 
@@ -49,11 +49,9 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Tools
 
-15. **Safe editing.** `edit` and `write` do not check whether the file changed
-    on disk since the model read it.
-16. **Read-only tools in parallel.** Every call runs in sequence.
-17. **Long processes in `bash`.** A development server blocks until the
-    timeout. Needs background execution.
+48. **Background processes end with the host.** A process started with
+    `background` is stopped when rumbo exits, so it does not survive between
+    one-shot runs, and its log file is left in the temporary directory.
 18. **Permissions.** There are none: the agent can write outside the project
     and run any command.
 

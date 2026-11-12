@@ -11,7 +11,9 @@ import (
 )
 
 // Read returns the contents of a text file, in windows when it is large.
-type Read struct{}
+type Read struct {
+	seen *seen
+}
 
 // Def implements Tool.
 func (Read) Def() protocol.ToolDef {
@@ -27,7 +29,7 @@ func (Read) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (Read) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
+func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {
 		Path   string `json:"path"`
 		Offset int    `json:"offset"`
@@ -79,6 +81,8 @@ func (Read) Run(_ context.Context, dir string, args json.RawMessage) (string, er
 	if end == start {
 		return "", fmt.Errorf("line %d is longer than %d bytes; inspect it with bash instead", start+1, maxReadBytes)
 	}
+
+	r.seen.record(path)
 
 	text := strings.Join(lines[start:end], "\n")
 

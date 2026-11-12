@@ -181,6 +181,7 @@ type host struct {
 	worker  *agent.Agent
 	// unlock releases the session, once one is in use.
 	unlock func()
+	tools  *tool.Set
 }
 
 // newHost resolves the session and the settings from the command line.
@@ -205,7 +206,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, err
 	}
 
-	created := &host{database: database, root: root}
+	created := &host{database: database, root: root, tools: tool.NewSet()}
 
 	switch {
 	case *sessionID != "":
@@ -345,7 +346,7 @@ func (h *host) start() error {
 		Store:        h.database,
 		Provider:     process,
 		Observer:     h.conn,
-		Tools:        tool.Defaults(),
+		Tools:        h.tools.Tools(),
 		Collectors:   ambient.Defaults(),
 		ProviderName: h.settings.Provider,
 		Model:        h.settings.Model,
@@ -359,6 +360,8 @@ func (h *host) start() error {
 }
 
 func (h *host) close() {
+	h.tools.Close()
+
 	if h.process != nil {
 		_ = h.process.Close()
 	}

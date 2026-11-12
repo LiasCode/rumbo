@@ -46,7 +46,11 @@ host never sees them.
 
 **Tools** (`internal/tool`). What the model can do: read, write, and edit
 files, and run commands. The set is small because every declared tool costs
-tokens on every request, and a shell already reaches everything else.
+tokens on every request, and a shell already reaches everything else. The
+tools share a little state for the life of the host: which files the model
+has seen, so it cannot replace one whole without knowing what is in it, and
+which processes it left running in the background, so they are stopped when
+the host exits.
 
 **Ambient context** (`internal/ambient`). The little the model is told
 without asking: the environment it runs in, and the user's instruction files.

@@ -22,9 +22,10 @@ type Tool interface {
 	Run(ctx context.Context, dir string, args json.RawMessage) (string, error)
 }
 
-// Defaults returns the built-in tools.
+// Defaults returns the built-in tools, for callers that have nothing to
+// clean up afterwards.
 func Defaults() []Tool {
-	return []Tool{Read{}, Write{}, Edit{}, Bash{}}
+	return NewSet().Tools()
 }
 
 // Limits on what one call may put in the context. A tool result is paid for

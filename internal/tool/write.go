@@ -12,13 +12,15 @@ import (
 )
 
 // Write creates or replaces a whole file.
-type Write struct{}
+type Write struct {
+	seen *seen
+}
 
 // Def implements Tool.
 func (Write) Def() protocol.ToolDef {
 	return protocol.ToolDef{
 		Name:        "write",
-		Description: "Create a file or replace its whole content. Parent directories are created. Use edit for changes to an existing file.",
+		Description: "Create a file or replace its whole content. Parent directories are created. An existing file must have been read first. Use edit for changes to an existing file.",
 		Schema: schema(`{
 			"path": {"type": "string", "description": "File path, relative to the working directory or absolute"},
 			"content": {"type": "string", "description": "Full content of the file"}
@@ -27,7 +29,7 @@ func (Write) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (Write) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
+func (w Write) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -43,6 +45,13 @@ func (Write) Run(_ context.Context, dir string, args json.RawMessage) (string, e
 		return "", err
 	}
 
+	// Replacing a file whole discards whatever is in it, so the model has to
+	// know what that is. edit needs no such rule: its exact match fails by
+	// itself when the file is not what the model thinks.
+	if err := w.seen.overwritable(path, input.Path); err != nil {
+		return "", err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
@@ -51,11 +60,15 @@ func (Write) Run(_ context.Context, dir string, args json.RawMessage) (string, e
 		return "", err
 	}
 
+	w.seen.record(path)
+
 	return fmt.Sprintf("wrote %s (%d lines)", input.Path, strings.Count(input.Content, "\n")+1), nil
 }
 
 // Edit replaces one exact piece of text in a file.
-type Edit struct{}
+type Edit struct {
+	seen *seen
+}
 
 // Def implements Tool.
 func (Edit) Def() protocol.ToolDef {
@@ -72,7 +85,7 @@ func (Edit) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (Edit) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
+func (e Edit) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {
 		Path string `json:"path"`
 		Old  string `json:"old"`
@@ -126,6 +139,9 @@ func (Edit) Run(_ context.Context, dir string, args json.RawMessage) (string, er
 	if err := os.WriteFile(path, []byte(content), info.Mode().Perm()); err != nil {
 		return "", err
 	}
+
+	// The model read the old text and wrote the new, so it knows the file.
+	e.seen.record(path)
 
 	return fmt.Sprintf("edited %s (%d replacement(s))", input.Path, count), nil
 }

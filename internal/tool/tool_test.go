@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func call(t *testing.T, target Tool, dir string, args map[string]any) (string, error) {
@@ -117,6 +119,97 @@ func TestBashTimeoutKillsProcessGroup(t *testing.T) {
 	_, err := call(t, Bash{}, t.TempDir(), map[string]any{"command": "sleep 30 & sleep 30", "timeout": 1})
 
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A file is not replaced whole by a model that does not know what is in it.
+func TestWriteNeedsToKnowTheFileItReplaces(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notes.txt")
+	os.WriteFile(path, []byte("the user's notes\n"), 0o644)
+
+	tools := NewSet().Tools()
+	read, write, edit := tools[0], tools[1], tools[2]
+
+	if _, err := call(t, write, dir, map[string]any{"path": "notes.txt", "content": "mine"}); err == nil || !strings.Contains(err.Error(), "have not read it") {
+		t.Fatalf("overwriting an unread file: err = %v", err)
+	}
+
+	if content, _ := os.ReadFile(path); string(content) != "the user's notes\n" {
+		t.Fatal("the file was replaced anyway")
+	}
+
+	// A new file needs nothing, and can be rewritten by the model that made it.
+	for _, content := range []string{"first", "second"} {
+		if _, err := call(t, write, dir, map[string]any{"path": "new/file.txt", "content": content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := call(t, read, dir, map[string]any{"path": "notes.txt"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Someone else changes the file after the model read it.
+	os.WriteFile(path, []byte("the user's notes, with more\n"), 0o644)
+
+	if _, err := call(t, write, dir, map[string]any{"path": "notes.txt", "content": "mine"}); err == nil || !strings.Contains(err.Error(), "changed since") {
+		t.Fatalf("overwriting a file that changed: err = %v", err)
+	}
+
+	// An edit is guarded by its exact match, and leaves the file known.
+	if _, err := call(t, edit, dir, map[string]any{"path": "notes.txt", "old": "with more", "new": "edited"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := call(t, write, dir, map[string]any{"path": "notes.txt", "content": "mine"}); err != nil {
+		t.Fatalf("overwriting after an edit: %v", err)
+	}
+}
+
+func TestBashBackgroundReturnsAtOnceAndIsStoppedOnClose(t *testing.T) {
+	dir := t.TempDir()
+	set := NewSet()
+	bash := set.Tools()[3]
+
+	started := time.Now()
+	output, err := call(t, bash, dir, map[string]any{"command": "echo serving; sleep 60", "background": true})
+
+	if err != nil || time.Since(started) > 5*time.Second {
+		t.Fatalf("err = %v after %s", err, time.Since(started))
+	}
+
+	var group int
+
+	if _, err := fmt.Sscanf(output, "started in the background as process group %d.", &group); err != nil {
+		t.Fatalf("output = %q", output)
+	}
+
+	_, after, _ := strings.Cut(output, "Its output is in ")
+	log, _, _ := strings.Cut(after, ". Stop it")
+
+	defer os.Remove(log)
+
+	if content, _ := os.ReadFile(log); string(content) != "serving\n" {
+		t.Fatalf("log = %q", content)
+	}
+
+	if syscall.Kill(-group, 0) != nil {
+		t.Fatal("the background process is not running")
+	}
+
+	set.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	if syscall.Kill(-group, 0) == nil {
+		t.Fatal("the background process survived the close")
+	}
+
+	// A command that fails at once is reported as a failure, not as started.
+	_, err = call(t, bash, dir, map[string]any{"command": "no-such-command-here", "background": true})
+
+	if err == nil || !strings.Contains(err.Error(), "ended at once") || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("err = %v", err)
 	}
 }
