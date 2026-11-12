@@ -1,0 +1,77 @@
+// Package store persists everything rumbo keeps between runs: settings,
+// registered programs, sessions, and their entries. Store is the contract;
+// SQLite is the implementation.
+package store
+
+import (
+	"encoding/json"
+	"errors"
+	"time"
+)
+
+// ErrNotFound is returned when a requested row does not exist.
+var ErrNotFound = errors.New("not found")
+
+// GlobalScope is the settings scope that applies to every project. Any other
+// scope is a project directory.
+const GlobalScope = ""
+
+// Kinds of registered programs.
+const (
+	KindProvider = "provider"
+	KindFrontend = "frontend"
+)
+
+// Program is a registered provider or front end: the command that starts it
+// and the configuration handed to it on initialize.
+type Program struct {
+	Name    string
+	Command []string
+	Config  json.RawMessage
+}
+
+// Session is one conversation, bound to the directory it works in.
+type Session struct {
+	ID        string
+	Dir       string
+	Title     string
+	CreatedAt time.Time
+}
+
+// Entry is one immutable record of a session's history. Entries are only ever
+// appended, and Seq orders them.
+type Entry struct {
+	Seq       int64
+	Kind      string
+	Payload   json.RawMessage
+	CreatedAt time.Time
+}
+
+// Setting is one stored preference.
+type Setting struct {
+	Scope string
+	Key   string
+	Value string
+}
+
+// Store is the persistence contract the rest of rumbo depends on.
+type Store interface {
+	Setting(scope, key string) (string, bool, error)
+	SetSetting(scope, key, value string) error
+	Settings() ([]Setting, error)
+
+	Program(kind, name string) (Program, error)
+	PutProgram(kind string, program Program) error
+	DeleteProgram(kind, name string) error
+	Programs(kind string) ([]Program, error)
+
+	CreateSession(dir, title string) (Session, error)
+	Session(id string) (Session, error)
+	LatestSession(dir string) (Session, error)
+	Sessions(dir string) ([]Session, error)
+
+	Append(sessionID, kind string, payload any) (Entry, error)
+	Entries(sessionID string) ([]Entry, error)
+
+	Close() error
+}

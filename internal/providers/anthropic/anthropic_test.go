@@ -1,0 +1,123 @@
+package anthropic
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"rumbo/protocol"
+)
+
+// The handler is run against a server that replays a recorded-shape stream:
+// a thinking block, text, and a tool call.
+func TestCompleteRoundTripsThinkingAndToolCalls(t *testing.T) {
+	var received map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &received)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		events := []string{
+			`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"usage":{"input_tokens":12,"output_tokens":1,"cache_read_input_tokens":300,"cache_creation_input_tokens":20}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Checking."}}`,
+			`{"type":"content_block_stop","index":1}`,
+			`{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"bash","input":{}}}`,
+			`{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"command\":"}}`,
+			`{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"\"ls\"}"}}`,
+			`{"type":"content_block_stop","index":2}`,
+			`{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":25}}`,
+			`{"type":"message_stop"}`,
+		}
+
+		for _, event := range events {
+			var header struct {
+				Type string `json:"type"`
+			}
+
+			json.Unmarshal([]byte(event), &header)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", header.Type, event)
+		}
+	}))
+
+	defer server.Close()
+
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL, Effort: "high"})
+
+	if _, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config}); err != nil {
+		t.Fatal(err)
+	}
+
+	earlier := opaque(reasoning{Type: "thinking", Signature: "sig-old"})
+
+	params := protocol.CompleteParams{
+		Model:  "claude-opus-5-5",
+		System: "be brief",
+		Tools: []protocol.ToolDef{{
+			Name: "bash", Description: "run",
+			Schema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}`),
+		}},
+		Messages: []protocol.Message{
+			{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "list files"}}},
+			{Role: protocol.RoleAssistant, Content: []protocol.Block{
+				earlier,
+				{Type: protocol.BlockToolCall, ID: "toolu_0", Name: "bash", Args: json.RawMessage(`{"command":"pwd"}`)},
+			}},
+			{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockToolResult, ID: "toolu_0", Text: "/tmp"}}},
+		},
+	}
+
+	var streamed strings.Builder
+	result, err := handler.Complete(context.Background(), params, func(text string) { streamed.WriteString(text) })
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sent, _ := json.Marshal(received)
+
+	for _, fragment := range []string{
+		`"cache_control":{"type":"ephemeral"}`,
+		`"effort":"high"`,
+		`"signature":"sig-old"`,
+		`"tool_use_id":"toolu_0"`,
+		`"eager_input_streaming":true`,
+		`"max_tokens":64000`,
+		`"stream":true`,
+	} {
+		if !strings.Contains(string(sent), fragment) {
+			t.Errorf("request is missing %s\n%s", fragment, sent)
+		}
+	}
+
+	content := result.Message.Content
+
+	if len(content) != 3 || streamed.String() != "Checking." {
+		t.Fatalf("content = %+v, streamed %q", content, streamed.String())
+	}
+
+	if content[0].Type != protocol.BlockOpaque || !strings.Contains(string(content[0].Data), "sig-abc") {
+		t.Fatalf("thinking block not kept as opaque: %+v", content[0])
+	}
+
+	if content[2].ID != "toolu_1" || string(content[2].Args) != `{"command":"ls"}` || result.Stop != protocol.StopToolCalls {
+		t.Fatalf("tool call: %+v stop %s", content[2], result.Stop)
+	}
+
+	if result.Usage != (protocol.Usage{Input: 12, Output: 25, CacheRead: 300, CacheWrite: 20}) {
+		t.Fatalf("usage = %+v", result.Usage)
+	}
+}
