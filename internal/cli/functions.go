@@ -248,6 +248,14 @@ func (h *host) status(context.Context, map[string]string) (protocol.HostResult, 
 
 	fmt.Fprintf(&out, "\nsession: %s (%s)", h.session.ID, h.session.Title)
 	fmt.Fprintf(&out, "\ncontext: %d tokens", state.Tokens)
+
+	if state.Window > 0 {
+		fmt.Fprintf(&out, " of %d, %d%%", state.Window, state.Tokens*100/state.Window)
+	}
+
+	if limit := h.settings.Compaction.Limit(state.Window); limit > 0 {
+		fmt.Fprintf(&out, "; summarized at %d", limit)
+	}
 	fmt.Fprintf(&out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", turns, spent.Input, spent.CacheRead, spent.Output)
 
 	if state.Unfinished {

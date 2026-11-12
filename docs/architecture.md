@@ -109,10 +109,14 @@ and the only context sent unasked is the environment and the user's
 instructions. Whatever else the harness sent would be paid for on every
 request, by every task, whether it helped that task or not.
 
-**A full context is compacted, not trimmed.** When the conversation reaches
-the `compact_at` size, the model is asked to summarize it, and a compaction
-entry makes the next request start from the ambient context and that summary
-alone. No recent turns are kept alongside it: turns replayed after a
+**A full context is compacted, not trimmed.** The provider reports how many
+tokens the model's context holds, and the conversation is summarized at 80%
+of that, and never later than 150,000 tokens: a very large context costs more
+on every request and is not read more carefully for it. The `compact_at`
+setting changes the rule. When the limit is reached the model is asked to
+summarize, and a compaction entry makes the next request start from the
+ambient context and that summary alone. A request that does not fit anyway is
+recovered the same way, without the step that tipped it over. No recent turns are kept alongside it: turns replayed after a
 rewritten beginning are what model APIs reject, and a summary written for the
 purpose carries the work better than a cut. The entries before the compaction
 stay in the session; only the request changes.

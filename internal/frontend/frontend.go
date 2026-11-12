@@ -265,8 +265,8 @@ func (c *Conn) ToolFinished(name, result string, failed bool) {
 }
 
 // TurnFinished implements agent.Observer.
-func (c *Conn) TurnFinished(usage protocol.Usage) {
-	c.event(protocol.Event{Type: protocol.EventTurn, Usage: &usage})
+func (c *Conn) TurnFinished(usage protocol.Usage, context, window int64) {
+	c.event(protocol.Event{Type: protocol.EventTurn, Usage: &usage, Context: context, Window: window})
 }
 
 func (c *Conn) event(event protocol.Event) {

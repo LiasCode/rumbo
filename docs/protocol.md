@@ -76,8 +76,14 @@ Result:
 ```json
 {"message":{"role":"assistant","content":[ ... ]},
  "stop":"end",
- "usage":{"input":1200,"output":85,"cache_read":0,"cache_write":0}}
+ "usage":{"input":1200,"output":85,"cache_read":0,"cache_write":0},
+ "context_window":200000}
 ```
+
+`context_window` is how many tokens the model's context holds. It is
+optional, and worth sending when the provider knows it: the host uses it to
+summarize the conversation before the context fills, which matters most for
+models with small contexts. Without it the host works to a fixed limit.
 
 `stop` is one of:
 
@@ -98,6 +104,11 @@ succeed unchanged later; any other code ends the run at once.
 ```json
 {"jsonrpc":"2.0","id":2,"error":{"code":1,"message":"429 rate limited"}}
 ```
+
+An error with `code` `2` says the request **did not fit** in the model's
+context. The host summarizes the conversation, leaving out the last step,
+which is what tipped it over, and sends the shorter request. A second such
+error in a row ends the run.
 
 ### `invoke` (request)
 

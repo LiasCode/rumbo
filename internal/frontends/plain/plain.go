@@ -85,7 +85,7 @@ func (f *frontend) run(start func(onEvent func(protocol.Event)) (protocol.RunRes
 	var usage render.Usage
 
 	result, err := start(func(event protocol.Event) {
-		usage.Add(event.Usage)
+		usage.Turn(event)
 		f.show(event)
 	})
 
@@ -100,6 +100,10 @@ func (f *frontend) run(start func(onEvent func(protocol.Event)) (protocol.RunRes
 	}
 
 	f.line("tokens: %s", &usage)
+
+	if context := usage.Context(); context != "" {
+		f.line("%s", context)
+	}
 
 	switch result.Status {
 	case protocol.RunDone:

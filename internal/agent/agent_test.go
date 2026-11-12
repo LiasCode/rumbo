@@ -26,12 +26,19 @@ type scripted struct {
 	failures []error
 	cut      map[int]bool
 	usage    protocol.Usage
+	window   int64
+	// failAt makes the request with that number, counting from zero, fail.
+	failAt   map[int]error
 	requests []protocol.CompleteParams
 	answered int
 }
 
 func (s *scripted) Complete(ctx context.Context, params protocol.CompleteParams, onDelta func(string)) (protocol.CompleteResult, error) {
 	s.requests = append(s.requests, params)
+
+	if failure, found := s.failAt[len(s.requests)-1]; found {
+		return protocol.CompleteResult{}, failure
+	}
 
 	if len(s.failures) > 0 {
 		failure := s.failures[0]
@@ -60,7 +67,7 @@ func (s *scripted) Complete(ctx context.Context, params protocol.CompleteParams,
 
 	s.answered++
 
-	return protocol.CompleteResult{Message: answer, Stop: stop, Usage: s.usage}, nil
+	return protocol.CompleteResult{Message: answer, Stop: stop, Usage: s.usage, ContextWindow: s.window}, nil
 }
 
 func (s *scripted) Close() error {
@@ -78,13 +85,19 @@ func (s *scripted) Invoke(context.Context, string, json.RawMessage) (json.RawMes
 type silent struct {
 	notices []string
 	shown   string
+	context int64
+	window  int64
 }
 
 func (*silent) ContextUpdated([]string)             {}
 func (s *silent) Text(delta string)                 { s.shown += delta }
 func (*silent) ToolStarted(string, json.RawMessage) {}
 func (*silent) ToolFinished(string, string, bool)   {}
-func (*silent) TurnFinished(protocol.Usage)         {}
+func (s *silent) TurnFinished(_ protocol.Usage, context, window int64) {
+	if context > 0 {
+		s.context, s.window = context, window
+	}
+}
 
 func (s *silent) Notice(text string) {
 	s.notices = append(s.notices, text)
@@ -450,7 +463,7 @@ func TestCompactionReplacesTheConversation(t *testing.T) {
 	}
 
 	worker, database, session, observer := setup(t, model)
-	worker.CompactAt = 100
+	worker.Compaction = Compaction{Tokens: 100}
 	worker.Collectors = []ambient.Collector{ambient.Func("note", func(context.Context, string) string { return "hello" })}
 
 	if err := worker.Run(context.Background(), session, "write one to a.txt"); err != nil {
@@ -506,7 +519,7 @@ func TestCompactionFailsWithoutASummary(t *testing.T) {
 	}
 
 	worker, _, session, _ := setup(t, model)
-	worker.CompactAt = 100
+	worker.Compaction = Compaction{Tokens: 100}
 
 	err := worker.Run(context.Background(), session, "write")
 
@@ -559,4 +572,120 @@ func TestCompactOnRequest(t *testing.T) {
 	if got := kinds(entries); got != "system user assistant note compaction user assistant note" {
 		t.Fatalf("entries = %q", got)
 	}
+}
+
+func TestCompactionLimitFollowsTheModelsContext(t *testing.T) {
+	for _, test := range []struct {
+		policy Compaction
+		window int64
+		want   int64
+	}{
+		{Compaction{}, 0, 150_000},                // nothing known: the fixed limit
+		{Compaction{}, 1_000_000, 150_000},        // a very large context is not filled
+		{Compaction{}, 32_000, 25_600},            // a small one is used to 80%
+		{Compaction{Percent: 50}, 32_000, 16_000}, // a share the user chose
+		{Compaction{Percent: 90}, 1_000_000, 900_000},
+		{Compaction{Percent: 50}, 0, 150_000}, // a share of an unknown size falls back
+		{Compaction{Tokens: 5_000}, 32_000, 5_000},
+		{Compaction{Never: true}, 32_000, 0},
+	} {
+		if got := test.policy.Limit(test.window); got != test.want {
+			t.Errorf("%+v with a context of %d: limit %d, want %d", test.policy, test.window, got, test.want)
+		}
+	}
+}
+
+// The provider says the model's context is small, and the conversation is
+// summarized before it fills, with no setting touched.
+func TestCompactionUsesTheWindowTheProviderReports(t *testing.T) {
+	model := &scripted{
+		usage:  protocol.Usage{Input: 900},
+		window: 1_000,
+		answers: []protocol.Message{
+			say(write("call-1", "a.txt", "one")),
+			say(text("<summary>Wrote a.txt.</summary>")),
+			say(text("Done.")),
+		},
+	}
+
+	worker, database, session, observer := setup(t, model)
+
+	if err := worker.Run(context.Background(), session, "write"); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _ := database.Entries(session.ID)
+
+	if got := kinds(entries); got != "system user assistant tool_result compaction assistant note" {
+		t.Fatalf("entries = %q", got)
+	}
+
+	if observer.window != 1_000 || observer.context != 900 {
+		t.Fatalf("the front end was told a context of %d in a window of %d", observer.context, observer.window)
+	}
+}
+
+// A request that does not fit is recovered from: the conversation is
+// summarized without the step that tipped it over, and the model is told.
+func TestOverflowIsRecoveredByDroppingTheLastStep(t *testing.T) {
+	tooLong := protocol.Overflow(errors.New("prompt is too long"))
+
+	model := &scripted{answers: []protocol.Message{
+		say(write("call-1", "a.txt", "one")),
+		say(command("call-2", "echo a very long log")),
+		say(text("<summary>Wrote a.txt, then looked at a log.</summary>")),
+		say(text("Done.")),
+	}}
+
+	worker, database, session, observer := setup(t, model)
+
+	// The third request, which carries the log, is the one that overflows.
+	model.failAt = map[int]error{2: tooLong}
+
+	if err := worker.Run(context.Background(), session, "inspect the log"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The summary was asked for on the conversation without the log step.
+	asked := model.requests[3].Messages
+
+	for _, message := range asked {
+		for _, block := range message.Content {
+			if block.ID == "call-2" {
+				t.Fatal("the step that did not fit was sent again to be summarized")
+			}
+		}
+	}
+
+	if tail := asked[len(asked)-1].Content; tail[len(tail)-1].Text != summarize {
+		t.Fatalf("the summary request ends with %+v", tail)
+	}
+
+	after := model.requests[4].Messages
+
+	if len(after) != 1 || !strings.Contains(after[0].Content[0].Text, "looked at a log") || !strings.Contains(after[0].Content[0].Text, "in smaller pieces") {
+		t.Fatalf("after the recovery the model saw %+v", after)
+	}
+
+	if !strings.Contains(strings.Join(observer.notices, "\n"), "did not fit") {
+		t.Fatalf("notices = %v", observer.notices)
+	}
+
+	if got := notes(t, database, session); got != "done" {
+		t.Fatalf("notes = %q", got)
+	}
+
+	// When the summary does not fit either, the run fails instead of looping.
+	model.answers = append(model.answers, say(write("call-3", "b.txt", "two")))
+	model.failAt = map[int]error{6: tooLong, 7: tooLong}
+
+	if err := worker.Run(context.Background(), session, "again"); err == nil || !strings.Contains(err.Error(), "could not summarize") {
+		t.Fatalf("a second overflow in a row: err = %v", err)
+	}
+}
+
+func command(id, line string) protocol.Block {
+	args, _ := json.Marshal(map[string]string{"command": line})
+
+	return protocol.Block{Type: protocol.BlockToolCall, ID: id, Name: "bash", Args: args}
 }

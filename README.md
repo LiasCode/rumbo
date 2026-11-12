@@ -139,6 +139,16 @@ rumbo config unset -p model
 A value is checked when it is stored, so a mistyped provider or number is an
 error then and not when the next task starts.
 
+`compact_at` says when a long conversation is summarized to free the model's
+context. Unset, it is 80% of the context the provider reports, and at most
+150,000 tokens. It takes a number of tokens, a share such as `90%`, or `0`
+for never. The `openai` provider cannot ask a server for its context size, so
+say it in its configuration when it is small:
+
+```sh
+rumbo provider set local context_window=32768
+```
+
 Providers and front ends are registered programs:
 
 ```sh

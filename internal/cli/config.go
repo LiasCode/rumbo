@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"rumbo/internal/agent"
 	"rumbo/internal/project"
 	"rumbo/internal/store"
 )
@@ -18,11 +19,11 @@ type config struct {
 	Frontend string
 	Provider string
 	// Options are the provider option values in force by default.
-	Options   json.RawMessage
-	Model     string
-	MaxTokens int
-	MaxTurns  int
-	CompactAt int
+	Options    json.RawMessage
+	Model      string
+	MaxTokens  int
+	MaxTurns   int
+	Compaction agent.Compaction
 }
 
 // DatabasePath is where the SQLite file lives: RUMBO_DB, or the user's data
@@ -131,10 +132,20 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flag
 		return loaded, err
 	}
 
-	for key, into := range map[string]*int{keyMaxTokens: &loaded.MaxTokens, keyMaxTurns: &loaded.MaxTurns, keyCompactAt: &loaded.CompactAt} {
+	for key, into := range map[string]*int{keyMaxTokens: &loaded.MaxTokens, keyMaxTurns: &loaded.MaxTurns} {
 		if *into, err = effectiveCount(settings, root, key); err != nil {
 			return loaded, err
 		}
+	}
+
+	compactAt, err := effectiveSetting(settings, root, keyCompactAt)
+
+	if err != nil {
+		return loaded, err
+	}
+
+	if loaded.Compaction, err = parseCompactAt(compactAt.Value); err != nil {
+		return loaded, fmt.Errorf("setting %s: %w", keyCompactAt, err)
 	}
 
 	return loaded, nil

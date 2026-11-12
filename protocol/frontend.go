@@ -119,7 +119,9 @@ type RunResult struct {
 //   - text: Text, a piece of the model's visible answer.
 //   - tool_started: Name, Args.
 //   - tool_finished: Name, Result, Failed.
-//   - turn: Usage of one model response.
+//   - turn: Usage of one model response; Context, the tokens the
+//     conversation now takes; and Window, how many the model holds, when the
+//     provider said.
 //   - log: Text, and Source saying whose line it is: the provider's own
 //     output, or something the host did, such as retrying a request.
 type Event struct {
@@ -131,6 +133,8 @@ type Event struct {
 	Result   string          `json:"result,omitempty"`
 	Failed   bool            `json:"failed,omitempty"`
 	Source   string          `json:"source,omitempty"`
+	Context  int64           `json:"context,omitempty"`
+	Window   int64           `json:"window,omitempty"`
 	Usage    *Usage          `json:"usage,omitempty"`
 }
 

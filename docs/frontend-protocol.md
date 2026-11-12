@@ -172,7 +172,7 @@ What is happening in the active run. `type` selects the fields:
 | `text` | `text` | A piece of the model's visible answer, in order. |
 | `tool_started` | `name`, `args` | The agent calls a tool. |
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
-| `turn` | `usage` | One model response finished, with its token counts. |
+| `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |
 | `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for something the host did on its own, such as retrying a request. |
 
 A front end ignores event types and fields it does not know. New ones may be

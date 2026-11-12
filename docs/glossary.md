@@ -26,6 +26,9 @@ because the process died. It can be resumed.
 is told the run was interrupted, and calls that never finished are closed
 with an error result.
 
+**Context window.** How many tokens a model's context holds. The provider
+reports it, and the host summarizes the conversation before it fills.
+
 **Compaction.** Replacing the conversation the model sees with a summary of
 it, when the context is nearly full. It is an entry like any other: what came
 before stays stored and the request is rebuilt from the summary on.

@@ -45,3 +45,22 @@ func TestChangesReportsOnlyWhatChanged(t *testing.T) {
 		t.Fatalf("removal: %+v", removed)
 	}
 }
+
+// Instructions too long to send with every request are cut at a line, and
+// say where the rest is.
+func TestLongInstructionsAreBounded(t *testing.T) {
+	long := strings.Repeat("Keep every rule in mind.\n", 2000)
+	got := bounded("/repo/AGENTS.md", strings.TrimSpace(long))
+
+	if len(got) > maxInstructionBytes+300 || !strings.Contains(got, "Read the rest of /repo/AGENTS.md") {
+		t.Fatalf("bounded to %d bytes, ending %q", len(got), got[len(got)-120:])
+	}
+
+	if cut := got[:strings.Index(got, "\n[These instructions continue")]; !strings.HasSuffix(cut, "Keep every rule in mind.") {
+		t.Fatalf("cut in the middle of a line: %q", cut[len(cut)-40:])
+	}
+
+	if short := bounded("/repo/AGENTS.md", "Be brief."); short != "Be brief." {
+		t.Fatalf("short instructions were changed: %q", short)
+	}
+}

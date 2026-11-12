@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
@@ -36,11 +37,13 @@ type Config struct {
 type Handler struct {
 	client sdk.Client
 	config Config
+	// windows holds the context size of each model asked about.
+	windows map[string]int64
 }
 
 // New returns a handler that is ready after Initialize.
 func New() *Handler {
-	return &Handler{}
+	return &Handler{windows: map[string]int64{}}
 }
 
 // Initialize implements protocol.Handler.
@@ -129,7 +132,29 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 		return protocol.CompleteResult{}, classify(ctx, err)
 	}
 
-	return result(message), nil
+	completed := result(message)
+	completed.ContextWindow = h.window(ctx, params.Model)
+
+	return completed, nil
+}
+
+// window returns how many tokens the model's context holds, as the API says.
+// It is asked once per model. Zero means it could not be found out, which
+// only makes the host fall back to a fixed limit.
+func (h *Handler) window(ctx context.Context, model string) int64 {
+	if size, known := h.windows[model]; known {
+		return size
+	}
+
+	var size int64
+
+	if info, err := h.client.Models.Get(ctx, model, sdk.ModelGetParams{}); err == nil {
+		size = info.MaxInputTokens
+	}
+
+	h.windows[model] = size
+
+	return size
 }
 
 // classify marks the failures worth retrying: the statuses the API documents
@@ -146,6 +171,11 @@ func classify(ctx context.Context, err error) error {
 		switch status := failure.StatusCode; {
 		case status == 408, status == 409, status == 429, status >= 500:
 			return protocol.Transient(err)
+
+		// The API has no code of its own for a prompt that does not fit, so
+		// its message is what tells it apart from other bad requests.
+		case status == 413, status == 400 && strings.Contains(strings.ToLower(failure.Error()), "prompt is too long"):
+			return protocol.Overflow(err)
 		}
 
 		return err

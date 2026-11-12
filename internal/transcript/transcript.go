@@ -67,6 +67,8 @@ type Assistant struct {
 	Model    string           `json:"model"`
 	// Options are the provider options the request was sent with.
 	Options json.RawMessage `json:"options,omitempty"`
+	// Window is the size of the model's context, as the provider reported it.
+	Window int64 `json:"window,omitempty"`
 }
 
 // ToolResult is the outcome of one tool call.
@@ -115,6 +117,8 @@ type State struct {
 	// Tokens is the size of the context as of the last model response, as the
 	// provider counted it. It is zero right after a compaction.
 	Tokens int64
+	// Window is the size of the model's context, when a provider has said.
+	Window int64
 }
 
 // Build replays entries into the current system prompt, tools, messages, and
@@ -222,6 +226,10 @@ func (b *builder) add(entry store.Entry) error {
 
 		usage := assistant.Usage
 		b.state.Tokens = usage.Input + usage.CacheRead + usage.CacheWrite + usage.Output
+
+		if assistant.Window > 0 {
+			b.state.Window = assistant.Window
+		}
 
 		for _, block := range assistant.Message.Content {
 			if block.Type == protocol.BlockToolCall {

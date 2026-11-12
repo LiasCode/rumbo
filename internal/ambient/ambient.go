@@ -73,6 +73,26 @@ func environment(_ context.Context, dir string) string {
 	)
 }
 
+// maxInstructionBytes is how much of one instruction file is sent with every
+// request. A longer file is cut, and says where the rest is.
+const maxInstructionBytes = 24_000
+
+// bounded cuts instructions that are too long to send whole, at a line, and
+// tells the model to read the rest when it needs it.
+func bounded(path, text string) string {
+	if len(text) <= maxInstructionBytes {
+		return text
+	}
+
+	kept := text[:maxInstructionBytes]
+
+	if index := strings.LastIndexByte(kept, '\n'); index > 0 {
+		kept = kept[:index]
+	}
+
+	return fmt.Sprintf("%s\n[These instructions continue: this is the first %d of %d bytes. Read the rest of %s before relying on them.]", kept, len(kept), len(text), path)
+}
+
 // instructionFiles are the agent guides a project may carry, in order of
 // preference. The first one found in a directory is used.
 var instructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
@@ -104,7 +124,7 @@ func instructions(ctx context.Context, dir string) string {
 			raw, err := os.ReadFile(path)
 
 			if err == nil && strings.TrimSpace(string(raw)) != "" {
-				parts = append(parts, fmt.Sprintf("[%s]\n%s", path, strings.TrimSpace(string(raw))))
+				parts = append(parts, fmt.Sprintf("[%s]\n%s", path, bounded(path, strings.TrimSpace(string(raw)))))
 				break
 			}
 		}

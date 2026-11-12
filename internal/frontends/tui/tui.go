@@ -218,6 +218,10 @@ func (u *ui) footer() {
 		status += " | session " + u.session
 	}
 
+	if context := u.usage.Context(); context != "" {
+		status += " | " + context
+	}
+
 	status = fit(status+" | "+u.usage.String(), u.width)
 	status += strings.Repeat(" ", u.width-len([]rune(status)))
 
@@ -276,7 +280,7 @@ func (u *ui) show(event protocol.Event) {
 		}
 
 	case protocol.EventTurn:
-		u.usage.Add(event.Usage)
+		u.usage.Turn(event)
 		u.footer()
 
 	case protocol.EventLog:

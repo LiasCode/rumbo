@@ -223,3 +223,79 @@ func TestDescriptionFunctionsAndOptions(t *testing.T) {
 		t.Fatalf("an option the provider did not describe: err = %v", err)
 	}
 }
+
+// The provider reports the model's context size, asking the API once per
+// model, and marks a prompt that does not fit so the host can recover.
+func TestContextWindowAndOverflow(t *testing.T) {
+	asked := 0
+	tooLong := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/models/") {
+			asked++
+
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-01-01T00:00:00Z","max_input_tokens":1000000,"max_tokens":128000}`)
+
+			return
+		}
+
+		if tooLong {
+			w.Header().Set("x-should-retry", "false")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1200000 tokens > 1000000 maximum"}}`)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		for _, event := range []string{
+			`{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"usage":{"input_tokens":5,"output_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi."}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":2}}`,
+			`{"type":"message_stop"}`,
+		} {
+			var header struct {
+				Type string `json:"type"`
+			}
+
+			json.Unmarshal([]byte(event), &header)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", header.Type, event)
+		}
+	}))
+
+	defer server.Close()
+
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL})
+	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
+
+	params := protocol.CompleteParams{
+		Model:    "claude-opus-5-5",
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "hi"}}}},
+	}
+
+	for range 2 {
+		result, err := handler.Complete(context.Background(), params, func(string) {})
+
+		if err != nil || result.ContextWindow != 1_000_000 {
+			t.Fatalf("window = %d, err = %v", result.ContextWindow, err)
+		}
+	}
+
+	if asked != 1 {
+		t.Fatalf("the API was asked for the model %d times, want once", asked)
+	}
+
+	tooLong = true
+
+	if _, err := handler.Complete(context.Background(), params, func(string) {}); !protocol.IsOverflow(err) {
+		t.Fatalf("a prompt that does not fit: err = %v, want an overflow", err)
+	}
+}

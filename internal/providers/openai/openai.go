@@ -22,6 +22,10 @@ import (
 type Config struct {
 	BaseURL   string `json:"base_url"`
 	APIKeyEnv string `json:"api_key_env"`
+	// ContextWindow is the size of the model's context, in tokens. This API
+	// does not report it, so it is said here when it is known, which matters
+	// most for local models with small contexts.
+	ContextWindow int64 `json:"context_window"`
 }
 
 // Handler implements protocol.Handler on Chat Completions.
@@ -160,7 +164,10 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 
 	defer response.Body.Close()
 
-	return collect(response.Body, emit)
+	result, err := collect(response.Body, emit)
+	result.ContextWindow = h.config.ContextWindow
+
+	return result, err
 }
 
 // send makes one request to the server and returns its successful response,
@@ -200,9 +207,16 @@ func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*
 	detail, _ := io.ReadAll(io.LimitReader(response.Body, 2000))
 	failure := fmt.Errorf("%s: %s", response.Status, strings.TrimSpace(string(detail)))
 
+	// Servers say a prompt does not fit in different words; these cover the
+	// API itself and the common local ones.
+	said := strings.ToLower(string(detail))
+
 	switch status := response.StatusCode; {
 	case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests, status >= 500:
 		return nil, protocol.Transient(failure)
+
+	case strings.Contains(said, "context_length_exceeded"), strings.Contains(said, "context length"), strings.Contains(said, "context window"):
+		return nil, protocol.Overflow(failure)
 	}
 
 	return nil, failure

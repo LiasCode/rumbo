@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"rumbo/internal/agent"
 	"rumbo/internal/store"
 )
 
@@ -30,7 +31,19 @@ func testStore(t *testing.T) store.Store {
 func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 	database := testStore(t)
 
+	for value, want := range map[string]agent.Compaction{
+		"":      {},
+		"0":     {Never: true},
+		"90000": {Tokens: 90000},
+		"70%":   {Percent: 70},
+	} {
+		if got, err := parseCompactAt(value); err != nil || got != want {
+			t.Errorf("compact_at %q = %+v, %v; want %+v", value, got, err, want)
+		}
+	}
+
 	for key, value := range map[string]string{
+		"compact_at":      "150%",
 		"model":           "nope/x",
 		"max_turns":       "many",
 		"frontend":        "missing",
@@ -71,6 +84,7 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		"model                openai/small  (project)",
 		"frontend             (not set)",
 		"max_turns            150  (default)",
+		"compact_at           (not set)",
 		`options.anthropic    {"effort":"low"}  (stored)`,
 	} {
 		if !strings.Contains(text, line) {
@@ -97,7 +111,7 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 
 	loaded, err := loadConfig(database, "/repo", "", "plain", nil)
 
-	if err != nil || loaded.Provider != "anthropic" || loaded.MaxTurns != 150 || loaded.CompactAt != 150000 || loaded.MaxTokens != 0 {
+	if err != nil || loaded.Provider != "anthropic" || loaded.MaxTurns != 150 || loaded.Compaction != (agent.Compaction{}) || loaded.MaxTokens != 0 {
 		t.Fatalf("loaded = %+v, err = %v", loaded, err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"rumbo/internal/agent"
 	"rumbo/internal/store"
 )
 
@@ -50,7 +51,7 @@ var settingSpecs = []settingSpec{
 	{key: keyFrontend, help: "front end to start; unset uses tui in a terminal and plain otherwise", check: checkFrontend},
 	{key: keyMaxTokens, help: "output token limit per response; unset uses the provider's default", check: checkCount},
 	{key: keyMaxTurns, help: "model responses after which a run is stopped; 0 for no limit", fallback: "150", check: checkCount},
-	{key: keyCompactAt, help: "context size in tokens at which the conversation is summarized; 0 never", fallback: "150000", check: checkCount},
+	{key: keyCompactAt, help: "when the conversation is summarized: tokens, or a share of the model's context such as 80%; 0 never; unset uses 80%, at most 150000 tokens", check: checkCompactAt},
 }
 
 func checkModel(database store.Store, value string) error {
@@ -81,6 +82,43 @@ func checkCount(_ store.Store, value string) error {
 	}
 
 	return nil
+}
+
+func checkCompactAt(_ store.Store, value string) error {
+	_, err := parseCompactAt(value)
+
+	return err
+}
+
+// parseCompactAt reads the compact_at setting: a number of tokens, a share
+// of the model's context written with a percent sign, or zero for never. An
+// empty value is the default.
+func parseCompactAt(value string) (agent.Compaction, error) {
+	if value == "" {
+		return agent.Compaction{}, nil
+	}
+
+	if share, found := strings.CutSuffix(value, "%"); found {
+		percent, err := strconv.Atoi(share)
+
+		if err != nil || percent < 1 || percent > 100 {
+			return agent.Compaction{}, fmt.Errorf("a share of the context is between 1%% and 100%%, not %q", value)
+		}
+
+		return agent.Compaction{Percent: percent}, nil
+	}
+
+	tokens, err := strconv.ParseInt(value, 10, 64)
+
+	if err != nil || tokens < 0 {
+		return agent.Compaction{}, fmt.Errorf("it takes a number of tokens, a share such as 80%%, or 0 for never, not %q", value)
+	}
+
+	if tokens == 0 {
+		return agent.Compaction{Never: true}, nil
+	}
+
+	return agent.Compaction{Tokens: tokens}, nil
 }
 
 // checkSetting says why value cannot be stored under key, if it cannot.

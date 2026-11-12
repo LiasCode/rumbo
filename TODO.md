@@ -15,9 +15,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. The context window (42, 43, 13).
-2. Concurrency (19, and what the owner decides it covers).
-3. The remaining blocks.
+1. Concurrency (19, 56, 57).
+2. The remaining blocks.
 
 ## Decisions for the owner
 
@@ -29,12 +28,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Correctness
 
-42. **Context size is a setting, not a fact.** `compact_at` is a fixed number
-    of tokens because the host does not know the model's window. It is right
-    for 200K models and early for larger ones. Needs the provider to report
-    the window, which is protocol work.
-43. **Compact on overflow.** A provider error saying the prompt is too long
-    ends the run instead of compacting and trying again.
 40. **Provider process death.** When the provider exits mid-session the run
     fails and the host does not start it again; only a new `rumbo` does.
 41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
@@ -42,7 +35,10 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Context
 
-13. **Bound the instructions.** A very large `AGENTS.md` is injected whole.
+58. **Old tool results stay in the context until a compaction.** A result
+    read once is paid for on every later request. Dropping old ones needs the
+    provider's help, because editing earlier turns invalidates the reasoning
+    blocks that came after.
 44. **Saved output is never removed.** Long command output is saved to the
     system's temporary directory and left there.
 
@@ -70,10 +66,16 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     session ids without their titles, because the status bar has one line.
 54. **The input line is a single line with no cursor movement or history.**
 
-### Steering
+### Concurrency
 
-19. **Messages during a run.** The loop accepts no correction from the user
-    between turns; it can only be cancelled.
+The owner decided what this covers: these three, in this order.
+
+19. **Talking to the host while it works.** During a run every request is
+    refused but cancel. `status` and `sessions` should answer, and a message
+    should reach the agent before its next turn.
+56. **Several sessions in one host.** A host serves one session at a time, so
+    an interface with tabs, or several agents at once, needs a process each.
+57. **Subagents.** The agent cannot hand part of a task to another agent.
 20. **Changing model mid-session.** It works, but is untested with reasoning
     blocks left by another provider.
 

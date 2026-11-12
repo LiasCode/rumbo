@@ -40,6 +40,36 @@ func FirstLine(text string) string {
 // Usage totals the tokens of a run.
 type Usage struct {
 	total protocol.Usage
+	// context and window are the size of the conversation and of the
+	// model's context, as of the last response that said.
+	context int64
+	window  int64
+}
+
+// Turn counts one model response, as a turn event reports it.
+func (u *Usage) Turn(event protocol.Event) {
+	u.Add(event.Usage)
+
+	if event.Context > 0 {
+		u.context = event.Context
+	}
+
+	if event.Window > 0 {
+		u.window = event.Window
+	}
+}
+
+// Context says how full the model's context is: as a share when its size
+// is known, and as a count of tokens otherwise.
+func (u *Usage) Context() string {
+	switch {
+	case u.context == 0:
+		return ""
+	case u.window > 0:
+		return fmt.Sprintf("context %d%% of %dk", u.context*100/u.window, u.window/1000)
+	}
+
+	return fmt.Sprintf("context %d tokens", u.context)
 }
 
 // Add counts one model response.

@@ -151,3 +151,36 @@ func TestModelsFunctionListsWhatTheServerOffers(t *testing.T) {
 		t.Fatalf("models = %+v", listed)
 	}
 }
+
+func TestConfiguredWindowAndOverflow(t *testing.T) {
+	tooLong := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if tooLong {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"This model's maximum context length is 8192 tokens.","code":"context_length_exceeded"}}`)
+
+			return
+		}
+
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hi.\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+
+	defer server.Close()
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY", ContextWindow: 8192})
+	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
+
+	result, err := handler.Complete(context.Background(), protocol.CompleteParams{Model: "m"}, func(string) {})
+
+	if err != nil || result.ContextWindow != 8192 {
+		t.Fatalf("window = %d, err = %v", result.ContextWindow, err)
+	}
+
+	tooLong = true
+
+	if _, err := handler.Complete(context.Background(), protocol.CompleteParams{Model: "m"}, func(string) {}); !protocol.IsOverflow(err) {
+		t.Fatalf("a prompt that does not fit: err = %v, want an overflow", err)
+	}
+}

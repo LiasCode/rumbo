@@ -194,11 +194,14 @@ type CompleteParams struct {
 	Options   json.RawMessage `json:"options,omitempty"`
 }
 
-// CompleteResult is the finished assistant message.
+// CompleteResult is the finished assistant message. ContextWindow is how
+// many tokens the model's context holds, when the provider knows it; the
+// host uses it to decide when a conversation has to be summarized.
 type CompleteResult struct {
-	Message Message `json:"message"`
-	Stop    string  `json:"stop"`
-	Usage   Usage   `json:"usage"`
+	Message       Message `json:"message"`
+	Stop          string  `json:"stop"`
+	Usage         Usage   `json:"usage"`
+	ContextWindow int64   `json:"context_window,omitempty"`
 }
 
 // DeltaParams streams visible text while a completion is running. Deltas are
@@ -242,7 +245,22 @@ const (
 	CodeInvalidParams  = -32602
 	CodeInternal       = -32603
 	CodeTransient      = 1
+	// CodeOverflow marks a request that did not fit in the model's context.
+	// The host summarizes the conversation and tries again.
+	CodeOverflow = 2
 )
+
+// Overflow wraps err as a request that did not fit in the model's context.
+func Overflow(err error) error {
+	return &Error{Code: CodeOverflow, Message: err.Error()}
+}
+
+// IsOverflow reports whether err says the request did not fit.
+func IsOverflow(err error) bool {
+	var failure *Error
+
+	return errors.As(err, &failure) && failure.Code == CodeOverflow
+}
 
 // Transient wraps err as a failure the host should retry.
 func Transient(err error) error {

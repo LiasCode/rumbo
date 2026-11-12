@@ -28,7 +28,9 @@ type Observer interface {
 	Text(delta string)
 	ToolStarted(name string, args json.RawMessage)
 	ToolFinished(name, result string, failed bool)
-	TurnFinished(usage protocol.Usage)
+	// TurnFinished reports one model response: what it cost, how large the
+	// context is now, and how large it can get, when that is known.
+	TurnFinished(usage protocol.Usage, context, window int64)
 	// Notice reports something the loop did on its own, such as a retry.
 	Notice(text string)
 }
@@ -55,6 +57,9 @@ const (
 	// dropping them would change the cached prefix.
 	summarize = "[harness] The context is almost full. Summarize this conversation inside <summary></summary> tags, so that the work continues from the summary alone, without redoing anything and without being told again what matters. Preserve: (1) the objective, in the user's own words, and every constraint, preference, or decision the user stated; (2) what has been done so far: which files were created or changed and how, and which commands were run with what result; (3) problems that came up and how they were handled; (4) approaches that were tried or ruled out, and why; (5) exactly where the work stands now and what is left to do, in order; (6) details that are hard to reconstruct: paths, names, numbers, exact error messages. Be complete on these even at the cost of length, and brief on everything else. Do not call any tools while writing this summary; respond with text only."
 
+	// shedNote follows a summary made because the last step did not fit.
+	shedNote = "\n\nThe last step is not in the summary: the tool calls you had just made returned more than the context could hold, and they were dropped with their results. Do what you still need from that step again, in smaller pieces: read fewer lines at a time, and limit the output of commands."
+
 	compacted = "[harness] The conversation before this point was replaced by this summary to free context:\n\n<summary>\n%s\n</summary>\n\nThe objective is still:\n%s\n\nContinue from where the summary ends. The files are as the summary describes; read them again when you need their content."
 )
 
@@ -74,9 +79,8 @@ type Agent struct {
 	Options      json.RawMessage
 	MaxTokens    int
 
-	// CompactAt is the context size, in tokens, at which the conversation is
-	// replaced by a summary. Zero never compacts.
-	CompactAt int64
+	// Compaction says when the conversation is replaced by a summary.
+	Compaction Compaction
 	// MaxTurns ends a run that keeps going. Zero means no limit.
 	MaxTurns int
 	// RetryWaits are the pauses before retrying a transient failure.
@@ -129,6 +133,7 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 // which is how the model says the work is done.
 func (a *Agent) loop(ctx context.Context, session store.Session, objective string) error {
 	cuts := 0
+	shed := false
 
 	for turns := 1; ; turns++ {
 		if a.MaxTurns > 0 && turns > a.MaxTurns {
@@ -141,10 +146,23 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 
 		reply, err := a.turn(ctx, session)
 
+		// A request that did not fit is retried once on a summary. A second
+		// overflow in a row means even the summary is too much.
+		if protocol.IsOverflow(err) && !shed {
+			shed = true
+
+			if err := a.shed(ctx, session, objective); err != nil {
+				return err
+			}
+
+			continue
+		}
+
 		if err != nil {
 			return err
 		}
 
+		shed = false
 		calls := toolCalls(reply.Message)
 
 		switch reply.Stop {
@@ -244,31 +262,62 @@ func (a *Agent) Compact(ctx context.Context, session store.Session) (int64, erro
 		return 0, errors.New("there is no conversation to compact yet")
 	}
 
-	return state.Tokens, a.summarize(ctx, session, state, state.Objective)
+	return state.Tokens, a.summarize(ctx, session, state, state.Messages, state.Objective, "")
 }
 
 // compact replaces the conversation with a summary once the context has
-// grown to CompactAt.
+// grown to the limit.
 func (a *Agent) compact(ctx context.Context, session store.Session, objective string) error {
 	state, err := a.state(session)
 
-	if err != nil || a.CompactAt == 0 || state.Tokens < a.CompactAt {
+	if err != nil {
 		return err
 	}
 
-	a.Observer.Notice(fmt.Sprintf("the context reached %d tokens; summarizing the conversation to free it", state.Tokens))
+	limit := a.Compaction.Limit(state.Window)
 
-	return a.summarize(ctx, session, state, objective)
+	if limit == 0 || state.Tokens < limit {
+		return nil
+	}
+
+	a.Observer.Notice(fmt.Sprintf("the context reached %d tokens, over the limit of %d; summarizing the conversation to free it", state.Tokens, limit))
+
+	return a.summarize(ctx, session, state, state.Messages, objective, "")
+}
+
+// shed recovers from a request that did not fit in the model's context. The
+// last step is what tipped it over, so the conversation is summarized without
+// it, and the model is told that step was lost.
+func (a *Agent) shed(ctx context.Context, session store.Session, objective string) error {
+	state, err := a.state(session)
+
+	if err != nil {
+		return err
+	}
+
+	// The last step is the model's last message and what answered it.
+	last := len(state.Messages) - 1
+
+	for last >= 0 && state.Messages[last].Role != protocol.RoleAssistant {
+		last--
+	}
+
+	if last < 1 {
+		return errors.New("the request does not fit in the model's context even at its start; shorten the instructions or use a model with a larger context")
+	}
+
+	a.Observer.Notice("the request did not fit in the model's context; summarizing the conversation without its last step and trying again")
+
+	return a.summarize(ctx, session, state, state.Messages[:last], objective, shedNote)
 }
 
 // summarize asks the model for a summary of the conversation, as one more
 // request on the same prefix, and records the compaction the next request
 // starts from.
-func (a *Agent) summarize(ctx context.Context, session store.Session, state transcript.State, objective string) error {
-
+func (a *Agent) summarize(ctx context.Context, session store.Session, state transcript.State, conversation []protocol.Message, objective, note string) error {
 	// The instruction joins the last user message when there is one, since
 	// roles must alternate.
-	messages := slices.Clone(state.Messages)
+	messages := slices.Clone(conversation)
 	instruction := protocol.Block{Type: protocol.BlockText, Text: summarize}
 	last := len(messages) - 1
 
@@ -285,7 +334,7 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 		return fmt.Errorf("could not summarize the conversation: %w", err)
 	}
 
-	a.Observer.TurnFinished(result.Usage)
+	a.Observer.TurnFinished(result.Usage, 0, result.ContextWindow)
 
 	summary := summaryOf(result)
 
@@ -295,7 +344,7 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 
 	return a.append(session, transcript.KindCompaction, transcript.Compaction{
 		Prompt:   summarize,
-		Text:     fmt.Sprintf(compacted, summary, objective),
+		Text:     fmt.Sprintf(compacted, summary, objective) + note,
 		Usage:    result.Usage,
 		Provider: a.ProviderName,
 		Model:    a.Model,
@@ -409,9 +458,11 @@ func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.Compl
 		Provider: a.ProviderName,
 		Model:    a.Model,
 		Options:  a.Options,
+		Window:   result.ContextWindow,
 	})
 
-	a.Observer.TurnFinished(result.Usage)
+	usage := result.Usage
+	a.Observer.TurnFinished(usage, usage.Input+usage.CacheRead+usage.CacheWrite+usage.Output, result.ContextWindow)
 
 	return result, err
 }

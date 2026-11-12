@@ -403,7 +403,7 @@ func (h *host) start() error {
 		Model:        h.settings.Model,
 		MaxTokens:    h.settings.MaxTokens,
 		MaxTurns:     h.settings.MaxTurns,
-		CompactAt:    int64(h.settings.CompactAt),
+		Compaction:   h.settings.Compaction,
 		RetryWaits:   agent.DefaultRetryWaits,
 	}
 
