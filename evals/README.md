@@ -23,7 +23,13 @@ go run ./evals -selftest                           # no model needed
 go run ./evals -model anthropic/claude-opus-5-5    # the whole set
 go run ./evals -model anthropic/claude-opus-5-5 -task scope -runs 3
 go run ./evals -model anthropic/claude-opus-5-5 -out results.jsonl
+go run ./evals -model anthropic/claude-opus-5-5 -set compact_at=3000
 ```
+
+`-set key=value` applies a rumbo setting to every run. It is how a mechanism
+that small tasks never reach on their own gets exercised: with `compact_at`
+set that low, every task is summarized and continued mid-way, and still has
+to pass.
 
 A real run calls the model and costs tokens. Model output varies between
 runs: use `-runs` before reading much into a single pass or failure.
@@ -42,6 +48,7 @@ new user.
 - **turns**, **tools**: model responses and tool calls. Fewer for the same
   result means less wandering.
 - **fixes**: times the harness sent the agent back because its checks failed.
+- **compact**: times the conversation was replaced by a summary.
 - **input**, **cached**, **output**: tokens. `input` is what was paid in full;
   `cached` is what the provider read from its cache.
 

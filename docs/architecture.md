@@ -87,6 +87,14 @@ are deterministic, and ambient context is sent once and then only as changed
 sections. Each request therefore extends the previous one, which is what lets
 providers cache the prefix.
 
+**A full context is compacted, not trimmed.** When the conversation reaches
+the `compact_at` size, the model is asked to summarize it, and a compaction
+entry makes the next request start from the ambient context and that summary
+alone. No recent turns are kept alongside it: turns replayed after a
+rewritten beginning are what model APIs reject, and a summary written for the
+purpose carries the work better than a cut. The entries before the compaction
+stay in the session; only the request changes.
+
 **Every run leaves its ending in the session.** A run closes with a note:
 done, failed, or cancelled. A run without one was killed. That is what makes
 resuming possible, and why a failure is never only on the screen.

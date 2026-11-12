@@ -46,6 +46,7 @@ type result struct {
 	Turns     int     `json:"turns"`
 	ToolCalls int     `json:"tool_calls"`
 	FixRounds int     `json:"fix_rounds"`
+	Compacted int     `json:"compactions"`
 	Input     int64   `json:"input_tokens"`
 	Cached    int64   `json:"cached_tokens"`
 	Output    int64   `json:"output_tokens"`
@@ -63,6 +64,25 @@ type options struct {
 	keep     bool
 	out      string
 	selftest bool
+	settings settings
+}
+
+// settings are key=value pairs applied to every run's database, to measure
+// the same tasks under a different configuration.
+type settings []string
+
+func (s *settings) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *settings) Set(value string) error {
+	if key, _, found := strings.Cut(value, "="); !found || key == "" {
+		return errors.New("expected key=value")
+	}
+
+	*s = append(*s, value)
+
+	return nil
 }
 
 func main() {
@@ -75,6 +95,7 @@ func main() {
 	flag.BoolVar(&opts.keep, "keep", false, "keep the working directory of every run, not only of failed ones")
 	flag.StringVar(&opts.out, "out", "", "append each result to this file as a JSON line")
 	flag.BoolVar(&opts.selftest, "selftest", false, "check the tasks themselves, without a model")
+	flag.Var(&opts.settings, "set", "a rumbo setting for every run, as key=value; may be repeated")
 	flag.Parse()
 
 	if err := run(opts); err != nil {
@@ -203,7 +224,7 @@ func evaluate(task, binary, scratch string, attempt int, opts options, provider 
 
 	env := environment(task, workdir)
 
-	if err := register(provider, filepath.Join(workdir, "eval.db")); err != nil {
+	if err := configure(filepath.Join(workdir, "eval.db"), provider, opts.settings); err != nil {
 		return outcome, err
 	}
 
@@ -319,9 +340,10 @@ func registeredProvider(model string) (*store.Program, error) {
 	return &program, err
 }
 
-// register adds the provider to a run's database.
-func register(provider *store.Program, database string) error {
-	if provider == nil {
+// configure prepares a run's database: the provider carried over from the
+// user's, and the settings asked for on the command line.
+func configure(database string, provider *store.Program, settings []string) error {
+	if provider == nil && len(settings) == 0 {
 		return nil
 	}
 
@@ -333,7 +355,21 @@ func register(provider *store.Program, database string) error {
 
 	defer opened.Close()
 
-	return opened.PutProgram(store.KindProvider, *provider)
+	if provider != nil {
+		if err := opened.PutProgram(store.KindProvider, *provider); err != nil {
+			return err
+		}
+	}
+
+	for _, setting := range settings {
+		key, value, _ := strings.Cut(setting, "=")
+
+		if err := opened.SetSetting(store.GlobalScope, key, value); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // redirect sends the agent's answer and its progress to files in workdir.
@@ -398,6 +434,18 @@ func measure(outcome *result, database string) error {
 			switch entry.Kind {
 			case transcript.KindHarness:
 				outcome.FixRounds++
+
+			case transcript.KindCompaction:
+				var compaction transcript.Compaction
+
+				if err := json.Unmarshal(entry.Payload, &compaction); err != nil {
+					return err
+				}
+
+				outcome.Compacted++
+				outcome.Input += compaction.Usage.Input + compaction.Usage.CacheWrite
+				outcome.Cached += compaction.Usage.CacheRead
+				outcome.Output += compaction.Usage.Output
 
 			case transcript.KindAssistant:
 				var assistant transcript.Assistant
@@ -519,7 +567,7 @@ func record(path string, outcome result) error {
 func report(results []result) {
 	table := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
 
-	fmt.Fprintln(table, "task\tresult\texit\tseconds\tturns\ttools\tfixes\tinput\tcached\toutput\t")
+	fmt.Fprintln(table, "task\tresult\texit\tseconds\tturns\ttools\tfixes\tcompact\tinput\tcached\toutput\t")
 
 	passed := 0
 	var total result
@@ -533,17 +581,18 @@ func report(results []result) {
 		total.Turns += outcome.Turns
 		total.ToolCalls += outcome.ToolCalls
 		total.FixRounds += outcome.FixRounds
+		total.Compacted += outcome.Compacted
 		total.Input += outcome.Input
 		total.Cached += outcome.Cached
 		total.Output += outcome.Output
 
-		fmt.Fprintf(table, "%s\t%s\t%d\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
+		fmt.Fprintf(table, "%s\t%s\t%d\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
 			outcome.Task, verdict(outcome.Passed), outcome.ExitCode, outcome.Seconds,
-			outcome.Turns, outcome.ToolCalls, outcome.FixRounds, outcome.Input, outcome.Cached, outcome.Output)
+			outcome.Turns, outcome.ToolCalls, outcome.FixRounds, outcome.Compacted, outcome.Input, outcome.Cached, outcome.Output)
 	}
 
-	fmt.Fprintf(table, "total\t%d/%d\t\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
-		passed, len(results), total.Seconds, total.Turns, total.ToolCalls, total.FixRounds, total.Input, total.Cached, total.Output)
+	fmt.Fprintf(table, "total\t%d/%d\t\t%.0f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n",
+		passed, len(results), total.Seconds, total.Turns, total.ToolCalls, total.FixRounds, total.Compacted, total.Input, total.Cached, total.Output)
 
 	table.Flush()
 

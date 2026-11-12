@@ -11,7 +11,7 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Context limit (3) and project root (21): what daily use still needs.
+1. Project root (21), then verification (9, 10): what daily use still needs.
 2. The remaining blocks.
 
 ## Decisions for the owner
@@ -25,8 +25,13 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Correctness
 
-3. **Context limit.** There is no compaction and no warning: a long session
-   fails when it passes the model's window.
+42. **Context size is a setting, not a fact.** `compact_at` is a fixed number
+    of tokens because the host does not know the model's window. It is right
+    for 200K models and early for larger ones. Needs the provider to report
+    the window, which is protocol work.
+43. **Compact on request and on overflow.** There is no way to ask for a
+    compaction, and a provider error saying the prompt is too long ends the
+    run instead of compacting and trying again.
 40. **Provider process death.** When the provider exits mid-session the run
     fails and the host does not start it again; only a new `rumbo` does.
 41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by

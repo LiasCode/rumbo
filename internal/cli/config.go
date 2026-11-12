@@ -21,6 +21,7 @@ const (
 	keyMaxTokens       = "max_tokens"
 	keyMaxVerifyRounds = "max_verify_rounds"
 	keyMaxTurns        = "max_turns"
+	keyCompactAt       = "compact_at"
 )
 
 var settingHelp = map[string]string{
@@ -30,6 +31,7 @@ var settingHelp = map[string]string{
 	keyMaxTokens:       `output token limit per response; unset uses the provider's default`,
 	keyMaxVerifyRounds: `times the agent is sent back to fix failing checks (default 3)`,
 	keyMaxTurns:        `model responses after which a run is stopped (default 150; 0 for no limit)`,
+	keyCompactAt:       `context size in tokens at which the conversation is summarized (default 150000; 0 never)`,
 }
 
 // selfPlaceholder in a registered command stands for the rumbo executable, so
@@ -45,6 +47,7 @@ type config struct {
 	MaxTokens       int
 	MaxVerifyRounds int
 	MaxTurns        int
+	CompactAt       int
 }
 
 // DatabasePath is where the SQLite file lives: RUMBO_DB, or the user's data
@@ -110,7 +113,7 @@ func openStore() (store.Store, error) {
 // loadConfig resolves the settings for a run in dir. A missing or malformed
 // required setting is an error; nothing is guessed.
 func loadConfig(settings store.Store, dir, modelFlag, frontendFlag string) (config, error) {
-	loaded := config{MaxVerifyRounds: 3, MaxTurns: 150, Frontend: frontendFlag}
+	loaded := config{MaxVerifyRounds: 3, MaxTurns: 150, CompactAt: 150_000, Frontend: frontendFlag}
 
 	if loaded.Frontend == "" {
 		value, found, err := lookup(settings, dir, keyFrontend)
@@ -173,6 +176,10 @@ func loadConfig(settings store.Store, dir, modelFlag, frontendFlag string) (conf
 	}
 
 	if loaded.MaxTurns, err = lookupInt(settings, dir, keyMaxTurns, loaded.MaxTurns); err != nil {
+		return loaded, err
+	}
+
+	if loaded.CompactAt, err = lookupInt(settings, dir, keyCompactAt, loaded.CompactAt); err != nil {
 		return loaded, err
 	}
 

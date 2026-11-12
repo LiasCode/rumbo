@@ -25,6 +25,10 @@ because the process died. It can be resumed.
 is told the run was interrupted, and calls that never finished are closed
 with an error result.
 
+**Compaction.** Replacing the conversation the model sees with a summary of
+it, when the context is nearly full. It is an entry like any other: what came
+before stays stored and the request is rebuilt from the summary on.
+
 **Transient failure.** A provider error that can succeed if the same request
 is sent again later. The host retries it; any other failure ends the run.
 

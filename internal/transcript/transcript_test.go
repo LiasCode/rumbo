@@ -58,3 +58,81 @@ func TestBuildTracksSections(t *testing.T) {
 		t.Fatalf("sections = %v", state.Sections)
 	}
 }
+
+func TestBuildStartsOverAtACompaction(t *testing.T) {
+	answer := Assistant{
+		Message: protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockText, Text: "old"}}},
+		Usage:   protocol.Usage{Input: 10, CacheRead: 20, CacheWrite: 5, Output: 7},
+	}
+
+	entries := []store.Entry{
+		entry(1, KindContext, Context{Sections: []Section{{Name: "tree", Text: "a.go"}, {Name: "git", Text: "clean"}}}),
+		entry(2, KindUser, Text{Text: "go"}),
+		entry(3, KindAssistant, answer),
+		entry(4, KindContext, Context{Sections: []Section{{Name: "tree", Text: "a.go\nb.go"}}}),
+	}
+
+	before, err := Build(entries)
+
+	if err != nil || before.Tokens != 42 {
+		t.Fatalf("tokens = %d, err = %v, want the sum the provider reported", before.Tokens, err)
+	}
+
+	entries = append(entries,
+		entry(5, KindCompaction, Compaction{Text: "summary"}),
+		entry(6, KindUser, Text{Text: "next"}),
+	)
+
+	state, err := Build(entries)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(state.Messages) != 1 || state.Tokens != 0 {
+		t.Fatalf("messages = %d, tokens = %d, want one message and a reset count", len(state.Messages), state.Tokens)
+	}
+
+	content := state.Messages[0].Content
+	want := "<context name=\"tree\">\na.go\nb.go\n</context>\n\n<context name=\"git\">\nclean\n</context>"
+
+	if len(content) != 3 || content[0].Text != want || content[1].Text != "summary" || content[2].Text != "next" {
+		t.Fatalf("content after compaction = %+v", content)
+	}
+}
+
+// Opaque blocks are tied to the prefix that produced them, so a new system
+// prompt in the middle of a session removes the ones already there.
+func TestBuildDropsOpaqueBlocksWhenTheSystemPromptChanges(t *testing.T) {
+	answer := func(text string) Assistant {
+		return Assistant{Message: protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{
+			{Type: protocol.BlockOpaque, Data: json.RawMessage(`{"signature":"s"}`)},
+			{Type: protocol.BlockText, Text: text},
+		}}}
+	}
+
+	entries := []store.Entry{
+		entry(1, KindSystem, System{Text: "v1"}),
+		entry(2, KindUser, Text{Text: "one"}),
+		entry(3, KindAssistant, answer("first")),
+		entry(4, KindSystem, System{Text: "v2"}),
+		entry(5, KindUser, Text{Text: "two"}),
+		entry(6, KindAssistant, answer("second")),
+	}
+
+	state, err := Build(entries)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, second := state.Messages[1].Content, state.Messages[3].Content
+
+	if len(first) != 1 || first[0].Text != "first" {
+		t.Fatalf("the block from before the change was kept: %+v", first)
+	}
+
+	if len(second) != 2 || second[0].Type != protocol.BlockOpaque {
+		t.Fatalf("the block from after the change was dropped: %+v", second)
+	}
+}

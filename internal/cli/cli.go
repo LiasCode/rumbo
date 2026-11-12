@@ -347,6 +347,7 @@ func (h *host) start() error {
 		Checks:          h.settings.Checks,
 		MaxVerifyRounds: h.settings.MaxVerifyRounds,
 		MaxTurns:        h.settings.MaxTurns,
+		CompactAt:       int64(h.settings.CompactAt),
 		RetryWaits:      agent.DefaultRetryWaits,
 	}
 

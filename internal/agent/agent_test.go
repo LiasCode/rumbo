@@ -27,6 +27,7 @@ type scripted struct {
 	answers  []protocol.Message
 	failures []error
 	cut      map[int]bool
+	usage    protocol.Usage
 	requests []protocol.CompleteParams
 	answered int
 }
@@ -61,7 +62,7 @@ func (s *scripted) Complete(ctx context.Context, params protocol.CompleteParams,
 
 	s.answered++
 
-	return protocol.CompleteResult{Message: answer, Stop: stop}, nil
+	return protocol.CompleteResult{Message: answer, Stop: stop, Usage: s.usage}, nil
 }
 
 func (s *scripted) Close() error {
@@ -462,4 +463,86 @@ func isPrefix(shorter, longer []protocol.Message) bool {
 	b, _ := json.Marshal(longer)
 
 	return strings.HasPrefix(string(b), strings.TrimSuffix(string(a), "]}]"))
+}
+
+// When the context reaches the limit, the model is asked for a summary on
+// the same conversation, and the next request starts from that summary alone.
+func TestCompactionReplacesTheConversation(t *testing.T) {
+	model := &scripted{
+		usage: protocol.Usage{Input: 80, CacheRead: 30, Output: 10},
+		answers: []protocol.Message{
+			say(write("call-1", "a.txt", "one")),
+			say(text("Thinking aloud. <summary>Wrote a.txt with one.</summary>")),
+			say(text("Done.")),
+		},
+	}
+
+	worker, database, session, observer := setup(t, model)
+	worker.CompactAt = 100
+	worker.Collectors = []ambient.Collector{ambient.Func("note", func(context.Context, string) string { return "hello" })}
+
+	if err := worker.Run(context.Background(), session, "write one to a.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(model.requests) != 3 {
+		t.Fatalf("requests = %d, want the turn, the summary, and the turn after it", len(model.requests))
+	}
+
+	// The summary request is the conversation so far plus the instruction,
+	// so it reuses the cached prefix.
+	asked := model.requests[1].Messages
+	tail := asked[len(asked)-1].Content
+
+	if len(asked) != 3 || tail[0].Type != protocol.BlockToolResult || tail[len(tail)-1].Text != summarize {
+		t.Fatalf("summary request should end with the tool result and the instruction, got %+v", tail)
+	}
+
+	// The request after it carries the context again, the summary, and the
+	// objective, and nothing from before.
+	after := model.requests[2].Messages
+
+	if len(after) != 1 || len(after[0].Content) != 2 {
+		t.Fatalf("request after compaction = %+v, want one user message with context and summary", after)
+	}
+
+	context, told := after[0].Content[0].Text, after[0].Content[1].Text
+
+	if !strings.Contains(context, `<context name="note">`) || !strings.Contains(told, "Wrote a.txt with one.") ||
+		!strings.Contains(told, "write one to a.txt") || strings.Contains(told, "Thinking aloud") {
+		t.Fatalf("after compaction the model saw:\n%s\n%s", context, told)
+	}
+
+	if observer.shown != "Done." {
+		t.Fatalf("shown = %q; the summary is not an answer and must not be shown", observer.shown)
+	}
+
+	entries, _ := database.Entries(session.ID)
+
+	if got := kinds(entries); got != "system context user assistant tool_result compaction assistant note" {
+		t.Fatalf("entries = %q", got)
+	}
+}
+
+func TestCompactionFailsWithoutASummary(t *testing.T) {
+	model := &scripted{
+		usage: protocol.Usage{Input: 500},
+		answers: []protocol.Message{
+			say(write("call-1", "a.txt", "one")),
+			say(write("call-2", "b.txt", "instead of a summary")),
+		},
+	}
+
+	worker, _, session, _ := setup(t, model)
+	worker.CompactAt = 100
+
+	err := worker.Run(context.Background(), session, "write")
+
+	if err == nil || !strings.Contains(err.Error(), "could not summarize") {
+		t.Fatalf("err = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(session.Dir, "b.txt")); err == nil {
+		t.Fatal("a tool call made instead of the summary was executed")
+	}
 }

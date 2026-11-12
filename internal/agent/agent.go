@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,6 +51,13 @@ const (
 	cutCall = "not executed: the response was cut off by the output limit before this call was complete. Send it again; if it is large, split the work into smaller calls."
 
 	resumed = "[harness] The run was interrupted before it finished, and tool calls in progress did not complete. Check the current state of the project and continue working on the objective."
+
+	// summarize asks for the summary that will replace the conversation. The
+	// last sentence matters: the request still declares the tools, because
+	// dropping them would change the cached prefix.
+	summarize = "[harness] The context is almost full. Summarize this conversation inside <summary></summary> tags, so that the work continues from the summary alone, without redoing anything and without being told again what matters. Preserve: (1) the objective, in the user's own words, and every constraint, preference, or decision the user stated; (2) what has been done so far: which files were created or changed and how, and which commands were run with what result; (3) problems that came up and how they were handled; (4) approaches that were tried or ruled out, and why; (5) exactly where the work stands now and what is left to do, in order; (6) details that are hard to reconstruct: paths, names, numbers, exact error messages. Be complete on these even at the cost of length, and brief on everything else. Do not call any tools while writing this summary; respond with text only."
+
+	compacted = "[harness] The conversation before this point was replaced by this summary to free context:\n\n<summary>\n%s\n</summary>\n\nThe objective is still:\n%s\n\nContinue from where the summary ends. The files are as the summary describes; read them again when you need their content."
 )
 
 // Agent holds everything a run needs. Every dependency is an interface or
@@ -71,6 +79,9 @@ type Agent struct {
 	Checks          []string
 	MaxVerifyRounds int
 
+	// CompactAt is the context size, in tokens, at which the conversation is
+	// replaced by a summary. Zero never compacts.
+	CompactAt int64
 	// MaxTurns ends a run that keeps going. Zero means no limit.
 	MaxTurns int
 	// RetryWaits are the pauses before retrying a transient failure.
@@ -129,6 +140,10 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 	for turns := 1; ; turns++ {
 		if a.MaxTurns > 0 && turns > a.MaxTurns {
 			return fmt.Errorf("the run was stopped after %d turns (the max_turns setting); resume it to continue", a.MaxTurns)
+		}
+
+		if err := a.compact(ctx, session, objective); err != nil {
+			return err
 		}
 
 		reply, err := a.turn(ctx, session)
@@ -250,37 +265,96 @@ func (a *Agent) prepare(ctx context.Context, session store.Session) error {
 	return a.append(session, transcript.KindContext, transcript.Context{Sections: changes})
 }
 
-// turn sends the session to the provider and records the answer. A request
-// that fails for a transient reason is sent again after a pause.
-func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.CompleteResult, error) {
+// compact replaces the conversation with a summary once the context has
+// grown to CompactAt. The model writes the summary itself, as one more
+// request on the same prefix, and the next request starts from it.
+func (a *Agent) compact(ctx context.Context, session store.Session, objective string) error {
 	state, err := a.state(session)
 
-	if err != nil {
-		return protocol.CompleteResult{}, err
+	if err != nil || a.CompactAt == 0 || state.Tokens < a.CompactAt {
+		return err
 	}
 
-	params := protocol.CompleteParams{
+	a.Observer.Notice(fmt.Sprintf("the context reached %d tokens; summarizing the conversation to free it", state.Tokens))
+
+	// The instruction joins the last user message when there is one, since
+	// roles must alternate.
+	messages := slices.Clone(state.Messages)
+	instruction := protocol.Block{Type: protocol.BlockText, Text: summarize}
+	last := len(messages) - 1
+
+	if last >= 0 && messages[last].Role == protocol.RoleUser {
+		messages[last].Content = append(slices.Clone(messages[last].Content), instruction)
+	} else {
+		messages = append(messages, protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{instruction}})
+	}
+
+	// The summary is not an answer to the user, so it is not shown as text.
+	result, err := a.complete(ctx, session, a.params(state, messages), func(string) {})
+
+	if err != nil {
+		return fmt.Errorf("could not summarize the conversation: %w", err)
+	}
+
+	a.Observer.TurnFinished(result.Usage)
+
+	summary := summaryOf(result)
+
+	if summary == "" {
+		return errors.New("could not summarize the conversation: the model did not return a summary; raise the compact_at setting or start a new session")
+	}
+
+	return a.append(session, transcript.KindCompaction, transcript.Compaction{
+		Prompt:   summarize,
+		Text:     fmt.Sprintf(compacted, summary, objective),
+		Usage:    result.Usage,
+		Provider: a.ProviderName,
+		Model:    a.Model,
+	})
+}
+
+// summaryOf extracts the summary from a response to the summarize
+// instruction. A response that was cut short or that calls tools has none.
+func summaryOf(result protocol.CompleteResult) string {
+	if result.Stop != protocol.StopEnd {
+		return ""
+	}
+
+	var text strings.Builder
+
+	for _, block := range result.Message.Content {
+		if block.Type == protocol.BlockText {
+			text.WriteString(block.Text)
+		}
+	}
+
+	summary := text.String()
+
+	if _, after, found := strings.Cut(summary, "<summary>"); found {
+		summary, _, _ = strings.Cut(after, "</summary>")
+	}
+
+	return strings.TrimSpace(summary)
+}
+
+func (a *Agent) params(state transcript.State, messages []protocol.Message) protocol.CompleteParams {
+	return protocol.CompleteParams{
 		Model:     a.Model,
 		System:    state.System.Text,
-		Messages:  state.Messages,
+		Messages:  messages,
 		Tools:     state.System.Tools,
 		MaxTokens: a.MaxTokens,
 	}
+}
 
-	var result protocol.CompleteResult
-
-	streamed := false
-
-	onDelta := func(text string) {
-		streamed = true
-		a.Observer.Text(text)
-	}
-
+// complete sends one request. A request that fails for a transient reason is
+// sent again after a pause.
+func (a *Agent) complete(ctx context.Context, session store.Session, params protocol.CompleteParams, onDelta func(string)) (protocol.CompleteResult, error) {
 	for attempt := 0; ; attempt++ {
-		result, err = a.Provider.Complete(ctx, params, onDelta)
+		result, err := a.Provider.Complete(ctx, params, onDelta)
 
 		if err == nil {
-			break
+			return result, nil
 		}
 
 		if ctx.Err() != nil || !protocol.IsTransient(err) || attempt >= len(a.RetryWaits) {
@@ -301,6 +375,28 @@ func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.Compl
 			return result, ctx.Err()
 		case <-time.After(wait):
 		}
+	}
+}
+
+// turn sends the session to the provider and records the answer.
+func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.CompleteResult, error) {
+	state, err := a.state(session)
+
+	if err != nil {
+		return protocol.CompleteResult{}, err
+	}
+
+	streamed := false
+
+	onDelta := func(text string) {
+		streamed = true
+		a.Observer.Text(text)
+	}
+
+	result, err := a.complete(ctx, session, a.params(state, state.Messages), onDelta)
+
+	if err != nil {
+		return result, err
 	}
 
 	result.Message.Role = protocol.RoleAssistant

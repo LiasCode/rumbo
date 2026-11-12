@@ -139,10 +139,21 @@ as signed reasoning. The host stores it and returns it in place, unread and
 unchanged. A provider ignores opaque blocks it does not recognize, which is
 what makes switching providers mid-session safe.
 
+An opaque block is treated as valid only after the exact conversation that
+produced it. When the host changes what comes before, it does not send the
+block back: after a compaction nothing earlier is replayed at all, and after
+a change of system prompt the earlier opaque blocks are left out.
+
 ## What the host guarantees
 
 - **Append-only history.** The `messages` of a request extend those of the
   previous request in the session; earlier content never changes. `system` and
-  `tools` are stable across a session. A provider can cache the prefix.
+  `tools` are stable across a session. A provider can cache the prefix. The
+  one exception is a compaction: when the context is nearly full, the host
+  starts the conversation over from a summary, and the prefix is new from
+  there on.
+- **Summaries come through `complete`.** To compact, the host sends the
+  conversation with one more instruction and takes the text of the answer as
+  the summary. A provider needs nothing special for it.
 - **Complete tool results.** A call interrupted before it finished gets an
   error result, so the history is always valid.
