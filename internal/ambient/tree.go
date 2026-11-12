@@ -1,9 +1,11 @@
 package ambient
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +17,11 @@ const (
 	maxTreeLines = 150
 	maxTreeDepth = 8
 	maxTreeFiles = 20_000
+	// Files from this size on are shown with their length, so the model
+	// searches them instead of reading them whole.
+	largeFileBytes = 16_000
+	// Larger than this, a file is not read to count its lines.
+	countLinesUpTo = 8_000_000
 )
 
 // skippedDirs are never walked outside a git repository, where there is no
@@ -41,10 +48,22 @@ func tree(ctx context.Context, dir string) string {
 		root.insert(strings.Split(file, "/"))
 	}
 
-	lines := root.render(1, 0)
+	// The tree is rendered once per depth tried, and sizing a file means
+	// reading it, so each file is sized once.
+	sizes := map[string]string{}
+
+	describe := func(path string) string {
+		if _, known := sizes[path]; !known {
+			sizes[path] = size(filepath.Join(dir, path))
+		}
+
+		return sizes[path]
+	}
+
+	lines := root.render(describe, "", 1, 0)
 
 	for depth := 2; depth <= maxTreeDepth; depth++ {
-		deeper := root.render(depth, 0)
+		deeper := root.render(describe, "", depth, 0)
 
 		if len(deeper) > maxTreeLines {
 			break
@@ -138,9 +157,10 @@ func (n *node) insert(parts []string) {
 	child.insert(parts[1:])
 }
 
-// render lists the node's content. Directories at the depth limit are
-// collapsed to their file count.
-func (n *node) render(depth, level int) []string {
+// render lists the node's content, which lives at path. Directories at the
+// depth limit are collapsed to their file count, and describe adds what is
+// worth knowing about a file.
+func (n *node) render(describe func(path string) string, path string, depth, level int) []string {
 	indent := strings.Repeat("  ", level)
 	names := make([]string, 0, len(n.dirs))
 
@@ -162,12 +182,46 @@ func (n *node) render(depth, level int) []string {
 		}
 
 		lines = append(lines, indent+name+"/")
-		lines = append(lines, child.render(depth, level+1)...)
+		lines = append(lines, child.render(describe, filepath.Join(path, name), depth, level+1)...)
 	}
 
 	for _, file := range n.files {
-		lines = append(lines, indent+file)
+		lines = append(lines, indent+file+describe(filepath.Join(path, file)))
 	}
 
 	return lines
+}
+
+// size describes a large file, and is empty for an ordinary one. The figure
+// is rounded so that an edit to the file rarely changes the tree, which
+// would send the whole section to the model again.
+func size(path string) string {
+	info, err := os.Stat(path)
+
+	if err != nil || info.Size() < largeFileBytes {
+		return ""
+	}
+
+	if info.Size() > countLinesUpTo {
+		return fmt.Sprintf(" (%d MB)", info.Size()/1_000_000)
+	}
+
+	content, err := os.ReadFile(path)
+
+	if err != nil {
+		return ""
+	}
+
+	// Without line breaks, or with a NUL byte, it is not text to count.
+	lines := bytes.Count(content, []byte{'\n'})
+
+	if lines == 0 || bytes.IndexByte(content[:min(len(content), 8000)], 0) >= 0 {
+		return fmt.Sprintf(" (%d KB)", info.Size()/1000)
+	}
+
+	if lines < 1000 {
+		return fmt.Sprintf(" (~%d lines)", (lines+50)/100*100)
+	}
+
+	return fmt.Sprintf(" (~%.1fk lines)", float64(lines)/1000)
 }

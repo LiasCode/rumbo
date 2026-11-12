@@ -26,7 +26,7 @@ type Bash struct{}
 func (Bash) Def() protocol.ToolDef {
 	return protocol.ToolDef{
 		Name:        "bash",
-		Description: "Run a bash command in the working directory and return its combined output and exit status. Long output is cut to its end. Default timeout is 120 seconds.",
+		Description: "Run a bash command in the working directory and return its combined output and exit status. Long output is shortened to its beginning and end, and saved whole to a file you can search. Default timeout is 120 seconds.",
 		Schema: schema(`{
 			"command": {"type": "string", "description": "Command to run"},
 			"timeout": {"type": "integer", "description": "Timeout in seconds"}
@@ -61,7 +61,7 @@ func (Bash) Run(ctx context.Context, dir string, args json.RawMessage) (string, 
 	}
 
 	output, err := Shell(ctx, dir, input.Command, timeout)
-	output = tail(strings.TrimRight(output, "\n"))
+	output = clip(strings.TrimRight(output, "\n"))
 
 	if err != nil {
 		return "", fmt.Errorf("%s\n[%w]", output, err)

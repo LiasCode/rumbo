@@ -17,7 +17,7 @@ type Read struct{}
 func (Read) Def() protocol.ToolDef {
 	return protocol.ToolDef{
 		Name:        "read",
-		Description: "Read a text file. Large files are returned in windows; pass offset (1-based line) and limit to read further.",
+		Description: "Read a text file. Returns 500 lines per call unless limit says otherwise; pass offset (1-based line) to read further. For a large file, search with bash first and read only the part you need.",
 		Schema: schema(`{
 			"path": {"type": "string", "description": "File path, relative to the working directory or absolute"},
 			"offset": {"type": "integer", "description": "First line to read, starting at 1"},
@@ -67,22 +67,22 @@ func (Read) Run(_ context.Context, dir string, args json.RawMessage) (string, er
 		return "", fmt.Errorf("offset %d is past the end of the file (%d lines)", input.Offset, total)
 	}
 
-	limit := maxLines
+	limit := readLines
 
-	if input.Limit > 0 && input.Limit < limit {
-		limit = input.Limit
+	if input.Limit > 0 {
+		limit = min(input.Limit, maxReadLines)
 	}
 
 	end := start
 	size := 0
 
-	for end < total && end-start < limit && size+len(lines[end])+1 <= maxBytes {
+	for end < total && end-start < limit && size+len(lines[end])+1 <= maxReadBytes {
 		size += len(lines[end]) + 1
 		end++
 	}
 
 	if end == start {
-		return "", fmt.Errorf("line %d is longer than %d bytes; inspect it with bash instead", start+1, maxBytes)
+		return "", fmt.Errorf("line %d is longer than %d bytes; inspect it with bash instead", start+1, maxReadBytes)
 	}
 
 	text := strings.Join(lines[start:end], "\n")

@@ -49,8 +49,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 12. **Refresh during a run.** The tree and git state are collected only when
     an objective starts, not after the agent's own changes.
 13. **Bound the instructions.** A very large `AGENTS.md` is injected whole.
-14. **Recoverable truncated output.** What is cut from a tool result is lost.
-    Keep it and make it readable.
+44. **Saved output is never removed.** Long command output is saved to the
+    system's temporary directory and left there.
 
 ### Tools
 

@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,8 +66,50 @@ func TestBashReportsFailureAndKeepsTail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !strings.HasPrefix(output, "[output truncated: last 1500 of 5000 lines]") || !strings.HasSuffix(output, "\n5000") {
-		t.Fatalf("unexpected truncation: %q ... %q", output[:60], output[len(output)-20:])
+	// Long output keeps its beginning and its end, and the rest is in a file.
+	if len(output) > outputBytes+300 || !strings.HasPrefix(output, "1\n2\n") || !strings.HasSuffix(output, "\n5000") {
+		t.Fatalf("unexpected shortening: %d bytes, %q ... %q", len(output), output[:20], output[len(output)-20:])
+	}
+
+	_, after, found := strings.Cut(output, "lines, is in ")
+	path, _, _ := strings.Cut(after, ";")
+
+	if !found {
+		t.Fatalf("no saved file named in %q", output[outputBytes/4-200:outputBytes/4+300])
+	}
+
+	defer os.Remove(path)
+
+	saved, err := os.ReadFile(path)
+
+	if err != nil || strings.Count(string(saved), "\n") != 4999 {
+		t.Fatalf("saved output: %d lines, err = %v, want all 5000", strings.Count(string(saved), "\n")+1, err)
+	}
+
+	// Every line break but the one after the marker ends a line of output.
+	shown := strings.Count(output, "\n")
+	var omitted int
+	fmt.Sscanf(output[strings.Index(output, "[... ")+5:], "%d", &omitted)
+
+	if shown+omitted != 5000 {
+		t.Fatalf("%d lines shown and %d reported omitted do not add up to 5000", shown, omitted)
+	}
+}
+
+func TestReadDefaultsToASmallWindow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "big.txt"), []byte(strings.Repeat("line\n", 3000)), 0o644)
+
+	output, err := call(t, Read{}, dir, map[string]any{"path": "big.txt"})
+
+	if err != nil || !strings.HasSuffix(output, "[lines 1-500 of 3000; continue with offset 501]") {
+		t.Fatalf("default window: err = %v, tail = %q", err, output[len(output)-60:])
+	}
+
+	output, _ = call(t, Read{}, dir, map[string]any{"path": "big.txt", "limit": 9000})
+
+	if !strings.HasSuffix(output, "[lines 1-2000 of 3000; continue with offset 2001]") {
+		t.Fatalf("a large limit is capped: tail = %q", output[len(output)-60:])
 	}
 }
 

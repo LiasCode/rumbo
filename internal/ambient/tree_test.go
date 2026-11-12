@@ -33,3 +33,18 @@ func TestTreeCollapsesToBudget(t *testing.T) {
 		t.Fatal("ignored directory listed")
 	}
 }
+
+func TestTreeSaysHowLargeTheLargeFilesAre(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "small.go"), []byte("package x\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "settings.ini"), []byte(strings.Repeat("option = 1234\n", 3120)), 0o644)
+	os.WriteFile(filepath.Join(dir, "notes.md"), []byte(strings.Repeat("a line of ordinary prose\n", 840)), 0o644)
+	os.WriteFile(filepath.Join(dir, "logo.png"), append([]byte{0x89, 'P', 'N', 'G', 0}, make([]byte, 40_000)...), 0o644)
+
+	got := tree(context.Background(), dir)
+	want := "logo.png (40 KB)\nnotes.md (~800 lines)\nsettings.ini (~3.1k lines)\nsmall.go"
+
+	if got != want {
+		t.Fatalf("tree =\n%s\nwant\n%s", got, want)
+	}
+}

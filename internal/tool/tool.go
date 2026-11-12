@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,11 +30,17 @@ func Defaults() []Tool {
 	return []Tool{Read{}, Write{}, Edit{}, Bash{}}
 }
 
-// Output limits. Results beyond them are cut, and the cut says how to get the
-// rest, so one large file or log cannot flood the context.
+// Limits on what one call may put in the context. A tool result is paid for
+// again on every later request, so results are kept small and say how to get
+// the rest.
 const (
-	maxBytes = 40_000
-	maxLines = 1_500
+	// readLines is the window read returns when no limit is given.
+	readLines = 500
+	// maxReadLines and maxReadBytes bound a window whatever limit is asked.
+	maxReadLines = 2_000
+	maxReadBytes = 50_000
+	// outputBytes is how much of a command's output is returned inline.
+	outputBytes = 12_000
 )
 
 func decode(args json.RawMessage, into any) error {
@@ -56,29 +63,53 @@ func resolve(dir, path string) (string, error) {
 	return filepath.Join(dir, path), nil
 }
 
-// tail keeps the end of text within the output limits, because the end of a
-// command's output is where errors and results are.
-func tail(text string) string {
-	lines := strings.Split(text, "\n")
-	total := len(lines)
-	size := 0
-	start := total
-
-	for start > 0 && total-start < maxLines && size+len(lines[start-1])+1 <= maxBytes {
-		start--
-		size += len(lines[start]) + 1
+// clip returns output whole when it is small. Otherwise it returns the
+// beginning and the end, which is where a command says what it is doing and
+// how it ended, and saves the full output to a file the model can search.
+func clip(output string) string {
+	if len(output) <= outputBytes {
+		return output
 	}
 
-	if start == 0 {
-		return text
+	head := output[:outputBytes/4]
+	tail := output[len(output)-outputBytes*3/4:]
+
+	// Cut at line boundaries when there are any.
+	if index := strings.LastIndexByte(head, '\n'); index >= 0 {
+		head = head[:index]
 	}
 
-	// A single line larger than the limit is cut by bytes instead.
-	if start == total {
-		return fmt.Sprintf("[output truncated: last %d bytes of %d]\n%s", maxBytes, len(text), text[len(text)-maxBytes:])
+	if index := strings.IndexByte(tail, '\n'); index >= 0 {
+		tail = tail[index+1:]
 	}
 
-	return fmt.Sprintf("[output truncated: last %d of %d lines]\n%s", total-start, total, strings.Join(lines[start:], "\n"))
+	head = strings.ToValidUTF8(head, "")
+	tail = strings.ToValidUTF8(tail, "")
+
+	total := strings.Count(output, "\n") + 1
+	omitted := total - strings.Count(head, "\n") - strings.Count(tail, "\n") - 2
+	where := "the full output could not be saved"
+
+	if path, err := save(output); err == nil {
+		where = fmt.Sprintf("the full output, %d lines, is in %s; search it with grep or read it in windows", total, path)
+	}
+
+	return fmt.Sprintf("%s\n[... %d lines omitted; %s ...]\n%s", head, omitted, where, tail)
+}
+
+// save writes output to a file outside the project.
+func save(output string) (string, error) {
+	file, err := os.CreateTemp("", "rumbo-output-*.txt")
+
+	if err != nil {
+		return "", err
+	}
+
+	defer file.Close()
+
+	_, err = file.WriteString(output)
+
+	return file.Name(), err
 }
 
 func schema(properties string, required ...string) json.RawMessage {

@@ -103,8 +103,11 @@ resuming possible, and why a failure is never only on the screen.
 in, so two processes cannot interleave entries into a history that neither of
 them sent.
 
-**Tool output is bounded.** Results are cut to a fixed size, and the cut tells
-the model how to get the rest.
+**Tool output is bounded.** A result stays in the context and is paid for on
+every later request, so results are kept small: a file is read in windows,
+and long command output is reduced to its beginning and end, with the whole
+of it saved to a file the model can search. The tree marks the files that are
+large, so the model knows to search one before it reads it.
 
 **The host is driven only through the protocol.** It ignores the terminal's
 interrupt and writes nothing to the terminal. A front end decides what Ctrl-C
