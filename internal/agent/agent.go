@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rumbo/internal/ambient"
+	"rumbo/internal/project"
 	"rumbo/internal/provider"
 	"rumbo/internal/store"
 	"rumbo/internal/tool"
@@ -75,8 +76,11 @@ type Agent struct {
 	MaxTokens    int
 
 	// Checks run when the agent stops after changing the project. The agent
-	// is sent back to work at most MaxVerifyRounds times per run.
+	// is sent back to work at most MaxVerifyRounds times per run. ChecksDir
+	// is where they run; empty means the session's directory.
 	Checks          []string
+	ChecksDir       string
+	CheckTimeout    time.Duration
 	MaxVerifyRounds int
 
 	// CompactAt is the context size, in tokens, at which the conversation is
@@ -132,10 +136,20 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 }
 
 // loop asks the model and runs its tool calls until it stops, then verifies
-// the work. changed says whether the project may already have been modified.
-func (a *Agent) loop(ctx context.Context, session store.Session, objective string, changed bool) error {
+// the work. owed says the checks must run whether or not this loop changes
+// anything, because the project may already have been modified.
+func (a *Agent) loop(ctx context.Context, session store.Session, objective string, owed bool) error {
 	rounds := 0
 	cuts := 0
+
+	// What the project looks like before the work. Comparing against it is
+	// how the harness knows whether there is anything to verify, whichever
+	// tools or commands the model used.
+	before := ""
+
+	if len(a.Checks) > 0 && !owed {
+		before = project.Snapshot(ctx, session.Project)
+	}
 
 	for turns := 1; ; turns++ {
 		if a.MaxTurns > 0 && turns > a.MaxTurns {
@@ -173,21 +187,18 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 		cuts = 0
 
 		if len(calls) > 0 {
-			mutated, err := a.execute(ctx, session, calls)
-			changed = changed || mutated
-
-			if err != nil {
+			if err := a.execute(ctx, session, calls); err != nil {
 				return err
 			}
 
 			continue
 		}
 
-		if !changed || len(a.Checks) == 0 {
+		if len(a.Checks) == 0 || (!owed && project.Snapshot(ctx, session.Project) == before) {
 			return nil
 		}
 
-		result := verify.Run(ctx, session.Dir, a.Checks)
+		result := verify.Run(ctx, a.checksDir(session), a.Checks, a.CheckTimeout)
 
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -203,8 +214,11 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 			return fmt.Errorf("the checks still fail after %d attempt(s) to fix them", rounds)
 		}
 
+		// After a failure the checks run again at the next stop even if no
+		// project file changes: the fix may be outside it, such as installing
+		// a dependency.
 		rounds++
-		changed = false
+		owed = true
 
 		if err := a.append(session, transcript.KindHarness, transcript.Text{Text: feedback(objective, result)}); err != nil {
 			return err
@@ -445,35 +459,40 @@ func (a *Agent) continueCut(session store.Session, calls []protocol.Block) error
 	return nil
 }
 
-// execute runs the calls in order, records each result, and reports whether
-// any of them may have changed the project. Calls left without a result by a
-// cancel are closed by the transcript on the next request.
-func (a *Agent) execute(ctx context.Context, session store.Session, calls []protocol.Block) (bool, error) {
-	changed := false
-
+// execute runs the calls in order and records each result. Calls left
+// without a result by a cancel are closed by the transcript on the next
+// request.
+func (a *Agent) execute(ctx context.Context, session store.Session, calls []protocol.Block) error {
 	for _, call := range calls {
 		if ctx.Err() != nil {
-			return changed, ctx.Err()
+			return ctx.Err()
 		}
 
 		a.Observer.ToolStarted(call.Name, call.Args)
 
-		text, failed, mutates := a.call(ctx, session.Dir, call)
-		changed = changed || mutates
+		text, failed := a.call(ctx, session.Dir, call)
 
 		a.Observer.ToolFinished(call.Name, text, failed)
 
 		result := transcript.ToolResult{ID: call.ID, Name: call.Name, Text: text, IsError: failed}
 
 		if err := a.append(session, transcript.KindToolResult, result); err != nil {
-			return changed, err
+			return err
 		}
 	}
 
-	return changed, ctx.Err()
+	return ctx.Err()
 }
 
-func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text string, failed, mutates bool) {
+func (a *Agent) checksDir(session store.Session) string {
+	if a.ChecksDir != "" {
+		return a.ChecksDir
+	}
+
+	return session.Dir
+}
+
+func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text string, failed bool) {
 	for _, candidate := range a.Tools {
 		if candidate.Def().Name != call.Name {
 			continue
@@ -482,19 +501,19 @@ func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text
 		// Arguments arrive as the model generated them, so they are checked
 		// here, at the boundary, before a tool sees them.
 		if !json.Valid(call.Args) {
-			return "invalid arguments: not valid JSON", true, false
+			return "invalid arguments: not valid JSON", true
 		}
 
 		output, err := candidate.Run(ctx, dir, call.Args)
 
 		if err != nil {
-			return err.Error(), true, candidate.Mutates()
+			return err.Error(), true
 		}
 
-		return output, false, candidate.Mutates()
+		return output, false
 	}
 
-	return fmt.Sprintf("unknown tool %q", call.Name), true, false
+	return fmt.Sprintf("unknown tool %q", call.Name), true
 }
 
 func (a *Agent) state(session store.Session) (transcript.State, error) {
@@ -543,7 +562,7 @@ func toolCalls(message protocol.Message) []protocol.Block {
 // objective so a long run is pulled back to what the user asked for.
 func feedback(objective string, result verify.Result) string {
 	return fmt.Sprintf(
-		"[harness] The project's checks fail after your changes. Fix them, then finish.\n\n%s\n\nObjective, for reference:\n%s",
+		"[harness] The project's checks fail after your changes. Fix what your changes broke, then finish. If a failure was already there before your work and is unrelated to the objective, leave it, and say so in your report.\n\n%s\n\nObjective, for reference:\n%s",
 		result.Report, objective,
 	)
 }

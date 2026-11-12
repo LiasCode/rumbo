@@ -26,11 +26,6 @@ func (Read) Def() protocol.ToolDef {
 	}
 }
 
-// Mutates implements Tool.
-func (Read) Mutates() bool {
-	return false
-}
-
 // Run implements Tool.
 func (Read) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {

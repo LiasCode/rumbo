@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"rumbo/internal/project"
 	"rumbo/internal/store"
 	"rumbo/internal/verify"
 )
@@ -22,6 +24,7 @@ const (
 	keyMaxVerifyRounds = "max_verify_rounds"
 	keyMaxTurns        = "max_turns"
 	keyCompactAt       = "compact_at"
+	keyCheckTimeout    = "check_timeout"
 )
 
 var settingHelp = map[string]string{
@@ -31,6 +34,7 @@ var settingHelp = map[string]string{
 	keyMaxTokens:       `output token limit per response; unset uses the provider's default`,
 	keyMaxVerifyRounds: `times the agent is sent back to fix failing checks (default 3)`,
 	keyMaxTurns:        `model responses after which a run is stopped (default 150; 0 for no limit)`,
+	keyCheckTimeout:    `seconds each check may take (default 600)`,
 	keyCompactAt:       `context size in tokens at which the conversation is summarized (default 150000; 0 never)`,
 }
 
@@ -44,6 +48,8 @@ type config struct {
 	Provider        string
 	Model           string
 	Checks          []string
+	ChecksDir       string
+	CheckTimeout    int
 	MaxTokens       int
 	MaxVerifyRounds int
 	MaxTurns        int
@@ -110,13 +116,26 @@ func openStore() (store.Store, error) {
 	return database, nil
 }
 
-// loadConfig resolves the settings for a run in dir. A missing or malformed
-// required setting is an error; nothing is guessed.
-func loadConfig(settings store.Store, dir, modelFlag, frontendFlag string) (config, error) {
-	loaded := config{MaxVerifyRounds: 3, MaxTurns: 150, CompactAt: 150_000, Frontend: frontendFlag}
+// workingProject returns the current directory and the root of the project
+// it is part of. Project settings and sessions are kept by root.
+func workingProject() (dir, root string, err error) {
+	dir, err = os.Getwd()
+
+	if err != nil {
+		return "", "", err
+	}
+
+	return dir, project.Root(context.Background(), dir), nil
+}
+
+// loadConfig resolves the settings for a run in dir, a directory of the
+// project at root. A missing or malformed required setting is an error;
+// nothing is guessed.
+func loadConfig(settings store.Store, dir, root, modelFlag, frontendFlag string) (config, error) {
+	loaded := config{MaxVerifyRounds: 3, MaxTurns: 150, CompactAt: 150_000, CheckTimeout: 600, Frontend: frontendFlag}
 
 	if loaded.Frontend == "" {
-		value, found, err := lookup(settings, dir, keyFrontend)
+		value, found, err := lookup(settings, root, keyFrontend)
 
 		if err != nil {
 			return loaded, err
@@ -135,7 +154,7 @@ func loadConfig(settings store.Store, dir, modelFlag, frontendFlag string) (conf
 	model := modelFlag
 
 	if model == "" {
-		value, _, err := lookup(settings, dir, keyModel)
+		value, _, err := lookup(settings, root, keyModel)
 
 		if err != nil {
 			return loaded, err
@@ -153,33 +172,41 @@ func loadConfig(settings store.Store, dir, modelFlag, frontendFlag string) (conf
 	loaded.Provider = providerName
 	loaded.Model = modelName
 
-	checks, found, err := lookup(settings, dir, keyChecks)
+	checks, found, err := lookup(settings, root, keyChecks)
 
 	if err != nil {
 		return loaded, err
 	}
 
+	// Checks written by the user are the project's, and run at its root.
+	// Detected ones run where the files that define them are.
 	if found {
+		loaded.ChecksDir = root
+
 		if err := json.Unmarshal([]byte(checks), &loaded.Checks); err != nil {
 			return loaded, fmt.Errorf("setting %s must be a JSON array of commands: %w", keyChecks, err)
 		}
 	} else {
-		loaded.Checks = verify.Detect(dir)
+		loaded.Checks, loaded.ChecksDir = verify.Detect(dir, root)
 	}
 
-	if loaded.MaxTokens, err = lookupInt(settings, dir, keyMaxTokens, loaded.MaxTokens); err != nil {
+	if loaded.CheckTimeout, err = lookupInt(settings, root, keyCheckTimeout, loaded.CheckTimeout); err != nil {
 		return loaded, err
 	}
 
-	if loaded.MaxVerifyRounds, err = lookupInt(settings, dir, keyMaxVerifyRounds, loaded.MaxVerifyRounds); err != nil {
+	if loaded.MaxTokens, err = lookupInt(settings, root, keyMaxTokens, loaded.MaxTokens); err != nil {
 		return loaded, err
 	}
 
-	if loaded.MaxTurns, err = lookupInt(settings, dir, keyMaxTurns, loaded.MaxTurns); err != nil {
+	if loaded.MaxVerifyRounds, err = lookupInt(settings, root, keyMaxVerifyRounds, loaded.MaxVerifyRounds); err != nil {
 		return loaded, err
 	}
 
-	if loaded.CompactAt, err = lookupInt(settings, dir, keyCompactAt, loaded.CompactAt); err != nil {
+	if loaded.MaxTurns, err = lookupInt(settings, root, keyMaxTurns, loaded.MaxTurns); err != nil {
+		return loaded, err
+	}
+
+	if loaded.CompactAt, err = lookupInt(settings, root, keyCompactAt, loaded.CompactAt); err != nil {
 		return loaded, err
 	}
 

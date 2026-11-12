@@ -11,7 +11,7 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Project root (21), then verification (9, 10): what daily use still needs.
+1. Failures that were already there (45), then tests (46).
 2. The remaining blocks.
 
 ## Decisions for the owner
@@ -39,10 +39,12 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Verification
 
-9. **Detect real changes.** Any `bash` call counts as a change, so an `ls`
-   triggers the checks.
-10. **Fuller project checks.** Only Go, Rust, and npm scripts are detected.
-    No tests, and the time limit is fixed at ten minutes.
+45. **Failures that were already there.** The checks cannot tell a failure
+    the agent caused from one the project had before. The agent is told to
+    leave the second kind, but the run still ends as failed. Needs the checks
+    run once before the work, or on a clean copy.
+46. **Tests are opt-in.** No test suite is detected, only compilers and
+    linters, because suites can be slow and may already fail. Depends on 45.
 
 ### Context
 
@@ -71,8 +73,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## 2. Configuration
 
-21. **Project root.** Project settings and `-c` use the exact directory, so
-    they find nothing from a subdirectory. Resolve to the git root.
 22. **Validate on save.** `config set` accepts any value; the error appears
     when running.
 23. **`config unset`.** A setting cannot be removed.
@@ -80,8 +80,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     say what will apply or where it comes from.
 25. **Configurable limits.** Tool output size, tree budget, and timeouts are
     fixed in the code.
-26. **Schema version.** The database has no version number. Migrations will
-    need one.
 27. **Edit a registered program.** Changing a provider's config means running
     `add` again in full.
 28. **Built-in programs.** Deleted ones come back on the next start; they
@@ -93,8 +91,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     exact request of turn N, which is the proof that history is reproducible.
 31. **Entry metadata.** Duration, rumbo version, and request parameters are
     not stored.
-32. **Useful listing.** `sessions` shows only the current directory, sorts by
-    creation, and shows no last activity, turns, or tokens.
+32. **Useful listing.** `sessions` shows only the current project, and no
+    turns, tokens, or state (finished, failed, unfinished).
 33. **Delete, rename, prune.** The database only grows.
 34. **Accumulated usage.** No token totals per session.
 35. **File state.** History reproduces what the model was sent, not the

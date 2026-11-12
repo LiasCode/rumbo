@@ -25,7 +25,9 @@ the ones a change must not break.
   additive. An incompatible change needs a new protocol version and an update
   to `docs/protocol.md` or `docs/frontend-protocol.md` in the same change.
 - **Stored data keeps working.** Schema changes add tables or columns; they
-  never rewrite what a user's database already holds.
+  never rewrite what a user's database already holds. A change to the schema
+  is a new entry at the end of `migrations` in `internal/store/sqlite.go`,
+  never an edit to an earlier one.
 - **Settings are read once**, in `internal/cli/config.go`, and passed down.
 
 ## Minimalism

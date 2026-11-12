@@ -86,7 +86,9 @@ runs `rumbo serve` and speaks the same protocol on its stdin and stdout.
 ## Settings
 
 Stored in SQLite (`$RUMBO_DB`, default `~/.local/share/rumbo/rumbo.db`).
-`rumbo config` lists the keys; `-p` scopes a value to the current project.
+`rumbo config` lists the keys; `-p` scopes a value to the current project,
+which is the git repository the current directory is in. Project settings and
+sessions are found from any of its subdirectories.
 
 ```sh
 rumbo config set -p checks '["go vet ./...", "go test ./..."]'

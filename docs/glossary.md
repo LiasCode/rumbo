@@ -70,7 +70,14 @@ model without being asked.
 version of a section replaces the previous one.
 
 **Checks.** Commands that must succeed for the work to count as done. Detected
-from the project or set with the `checks` setting.
+from the project or set with the `checks` setting. They run when the agent
+stops and the project's files have changed since the run started.
+
+**Project.** The directory tree the work belongs to, identified by its root:
+the top of the git repository, or the directory itself outside one.
+
+**Snapshot.** A fingerprint of the project's files, by path, size, and
+modification time. Two equal snapshots mean nothing was touched in between.
 
 **Opaque block.** Provider-owned data inside an assistant message that the
 host stores and replays without reading.

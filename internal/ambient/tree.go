@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"rumbo/internal/project"
 )
 
 // Limits of the tree section. The tree is expanded level by level until it
@@ -16,7 +17,6 @@ import (
 const (
 	maxTreeLines = 150
 	maxTreeDepth = 8
-	maxTreeFiles = 20_000
 	// Files from this size on are shown with their length, so the model
 	// searches them instead of reading them whole.
 	largeFileBytes = 16_000
@@ -24,19 +24,9 @@ const (
 	countLinesUpTo = 8_000_000
 )
 
-// skippedDirs are never walked outside a git repository, where there is no
-// ignore file to consult.
-var skippedDirs = map[string]bool{
-	"node_modules": true, "vendor": true, "target": true, "dist": true, "build": true, "__pycache__": true,
-}
-
 // tree renders the project's files as an indented outline.
 func tree(ctx context.Context, dir string) string {
-	files := gitFiles(ctx, dir)
-
-	if files == nil {
-		files = walkFiles(dir)
-	}
+	files := project.Files(ctx, dir)
 
 	if len(files) == 0 {
 		return ""
@@ -78,54 +68,6 @@ func tree(ctx context.Context, dir string) string {
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-// gitFiles lists tracked and untracked files that are not ignored, or nil when
-// dir is not inside a git repository.
-func gitFiles(ctx context.Context, dir string) []string {
-	if strings.TrimSpace(run(ctx, dir, "git rev-parse --is-inside-work-tree 2>/dev/null")) != "true" {
-		return nil
-	}
-
-	output := run(ctx, dir, "git ls-files --cached --others --exclude-standard")
-	files := strings.Split(strings.TrimSpace(output), "\n")
-
-	if len(files) == 1 && files[0] == "" {
-		return []string{}
-	}
-
-	return files
-}
-
-func walkFiles(dir string) []string {
-	var files []string
-
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || path == dir {
-			return nil
-		}
-
-		name := entry.Name()
-
-		if entry.IsDir() {
-			if strings.HasPrefix(name, ".") || skippedDirs[name] {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		if len(files) >= maxTreeFiles {
-			return filepath.SkipAll
-		}
-
-		relative, _ := filepath.Rel(dir, path)
-		files = append(files, filepath.ToSlash(relative))
-
-		return nil
-	})
-
-	return files
 }
 
 // node is a directory in the tree: its subdirectories and its own files.

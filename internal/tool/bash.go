@@ -34,11 +34,6 @@ func (Bash) Def() protocol.ToolDef {
 	}
 }
 
-// Mutates implements Tool.
-func (Bash) Mutates() bool {
-	return true
-}
-
 // Run implements Tool.
 func (Bash) Run(ctx context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {

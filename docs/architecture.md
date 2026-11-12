@@ -60,6 +60,10 @@ model sees.
 
 **Verify** (`internal/verify`). Detects and runs the project's checks.
 
+**Project** (`internal/project`). Says what the project is: its root, its
+files, and a snapshot of them. The tree shown to the model and the decision
+to verify both come from the same file list.
+
 **Front end** (`internal/frontend`, `protocol`). The only way a person
 reaches the loop. The host sends it events and receives objectives and
 cancellations over the Agent Frontend Protocol. Inside the host, the
@@ -115,4 +119,11 @@ means and cancels with a message; diagnostics, including the provider's
 stderr, reach the user as events.
 
 **Stopping is a claim, not a fact.** The model declares the work finished by
-not calling tools. The harness checks the claim.
+not calling tools. The harness checks the claim: if the project's files are
+not what they were when the run started, the checks run. What decides is the
+state of the files, not which tools were called, so a file written by a shell
+command counts and a command that only looked does not.
+
+**A project is its root.** Settings and sessions belong to the top of the git
+repository, and are found from any directory inside it. A session still works
+in the directory it was started in.

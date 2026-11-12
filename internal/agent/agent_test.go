@@ -136,7 +136,7 @@ func TestRunVerifiesBeforeFinishing(t *testing.T) {
 		MaxVerifyRounds: 3,
 	}
 
-	session, err := database.CreateSession(dir, "test")
+	session, err := database.CreateSession(dir, dir, "test")
 
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +241,8 @@ func setup(t *testing.T, model *scripted) (*Agent, store.Store, store.Session, *
 
 	t.Cleanup(func() { database.Close() })
 
-	session, err := database.CreateSession(t.TempDir(), "test")
+	dir := t.TempDir()
+	session, err := database.CreateSession(dir, dir, "test")
 
 	if err != nil {
 		t.Fatal(err)
@@ -544,5 +545,41 @@ func TestCompactionFailsWithoutASummary(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(session.Dir, "b.txt")); err == nil {
 		t.Fatal("a tool call made instead of the summary was executed")
+	}
+}
+
+// The checks run when the project changed, however it was changed, and not
+// when a command only looked at it.
+func TestChecksRunOnlyWhenTheProjectChanged(t *testing.T) {
+	bash := func(id, command string) protocol.Block {
+		args, _ := json.Marshal(map[string]string{"command": command})
+
+		return protocol.Block{Type: protocol.BlockToolCall, ID: id, Name: "bash", Args: args}
+	}
+
+	model := &scripted{answers: []protocol.Message{
+		say(bash("call-1", "ls -la && cat nothing.txt || true")),
+		say(text("Looked around.")),
+		say(bash("call-2", "echo data > made-by-a-command.txt")),
+		say(text("Created it.")),
+	}}
+
+	worker, _, session, observer := setup(t, model)
+	worker.Checks = []string{"true"}
+
+	if err := worker.Run(context.Background(), session, "look"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(observer.verified) != 0 {
+		t.Fatal("the checks ran after a command that changed nothing")
+	}
+
+	if err := worker.Run(context.Background(), session, "create"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(observer.verified) != 1 {
+		t.Fatalf("checks ran %d times after a command created a file, want 1", len(observer.verified))
 	}
 }

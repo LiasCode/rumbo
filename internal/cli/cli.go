@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"rumbo/internal/agent"
 	"rumbo/internal/ambient"
@@ -171,8 +172,10 @@ func serve(database store.Store, args []string) error {
 type host struct {
 	database store.Store
 	settings config
-	info     protocol.FrontendInitializeParams
-	session  *store.Session
+	// root is the project the session belongs to.
+	root    string
+	info    protocol.FrontendInitializeParams
+	session *store.Session
 
 	conn    *frontend.Conn
 	process provider.Provider
@@ -197,13 +200,13 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, err
 	}
 
-	dir, err := os.Getwd()
+	dir, root, err := workingProject()
 
 	if err != nil {
 		return nil, err
 	}
 
-	created := &host{database: database}
+	created := &host{database: database, root: root}
 
 	switch {
 	case *sessionID != "":
@@ -214,19 +217,23 @@ func newHost(database store.Store, args []string) (*host, error) {
 		}
 
 		created.session = &found
-		dir = found.Dir
 
 	case *latest || *resume:
-		found, err := database.LatestSession(dir)
+		found, err := database.LatestSession(root)
 
 		if err != nil {
-			return nil, fmt.Errorf("no session to continue in %s: %w", dir, err)
+			return nil, fmt.Errorf("no session to continue in %s: %w", root, err)
 		}
 
 		created.session = &found
 	}
 
-	if created.settings, err = loadConfig(database, dir, *model, *frontendName); err != nil {
+	// A session keeps working where it started, wherever it is continued from.
+	if created.session != nil {
+		dir, created.root = created.session.Dir, created.session.Project
+	}
+
+	if created.settings, err = loadConfig(database, dir, created.root, *model, *frontendName); err != nil {
 		return nil, err
 	}
 
@@ -286,7 +293,7 @@ func (h *host) run(ctx context.Context, params protocol.RunParams) (string, erro
 	}
 
 	if h.session == nil {
-		created, err := h.database.CreateSession(h.info.Dir, render.FirstLine(params.Objective))
+		created, err := h.database.CreateSession(h.info.Dir, h.root, render.FirstLine(params.Objective))
 
 		if err != nil {
 			return "", err
@@ -345,6 +352,8 @@ func (h *host) start() error {
 		Model:           h.settings.Model,
 		MaxTokens:       h.settings.MaxTokens,
 		Checks:          h.settings.Checks,
+		ChecksDir:       h.settings.ChecksDir,
+		CheckTimeout:    time.Duration(h.settings.CheckTimeout) * time.Second,
 		MaxVerifyRounds: h.settings.MaxVerifyRounds,
 		MaxTurns:        h.settings.MaxTurns,
 		CompactAt:       int64(h.settings.CompactAt),

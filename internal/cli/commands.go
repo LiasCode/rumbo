@@ -155,7 +155,7 @@ func configUsage() string {
 
 	var out strings.Builder
 	out.WriteString("usage:\n  rumbo config list\n  rumbo config get [-p] <key>\n  rumbo config set [-p] <key> <value>\n\n")
-	out.WriteString("-p applies to the current directory's project instead of globally.\n\nkeys:\n")
+	out.WriteString("-p applies to the project the current directory is part of, instead of globally.\n\nkeys:\n")
 
 	for _, key := range keys {
 		fmt.Fprintf(&out, "  %-18s %s\n", key, settingHelp[key])
@@ -200,13 +200,13 @@ func configCommands(database store.Store, args []string) error {
 	scope := store.GlobalScope
 
 	if *project {
-		dir, err := os.Getwd()
+		_, root, err := workingProject()
 
 		if err != nil {
 			return err
 		}
 
-		scope = dir
+		scope = root
 	}
 
 	if len(rest) == 0 || settingHelp[rest[0]] == "" {
@@ -237,20 +237,20 @@ func configCommands(database store.Store, args []string) error {
 }
 
 func listSessions(database store.Store, _ []string) error {
-	dir, err := os.Getwd()
+	_, root, err := workingProject()
 
 	if err != nil {
 		return err
 	}
 
-	sessions, err := database.Sessions(dir)
+	sessions, err := database.Sessions(root)
 
 	if err != nil {
 		return err
 	}
 
 	for _, session := range sessions {
-		fmt.Printf("%s\t%s\t%s\n", session.ID, session.CreatedAt.Format("2006-01-02 15:04"), session.Title)
+		fmt.Printf("%s\t%s\t%s\n", session.ID, session.ActiveAt.Format("2006-01-02 15:04"), session.Title)
 	}
 
 	return nil

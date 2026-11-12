@@ -16,15 +16,32 @@ import (
 )
 
 const (
-	checkTimeout = 10 * time.Minute
 	// Failure output kept per check; the end is where compilers summarize.
 	maxOutput = 8_000
+	// DefaultTimeout is what a check gets when none is given.
+	DefaultTimeout = 10 * time.Minute
 )
 
-// Detect proposes checks for the project in dir from the files it finds.
-// Only fast, read-only checks are proposed; test suites are opt-in through the
-// checks setting.
-func Detect(dir string) []string {
+// Detect proposes checks for work done in dir, and the directory to run them
+// in. It looks in dir and then in each directory above it, up to root, and
+// uses the first one that says how the project is built: the checks of a
+// module apply to work anywhere inside it.
+//
+// Only fast checks that change nothing are proposed. Test suites are opt-in
+// through the checks setting, because they can be slow and may already fail.
+func Detect(dir, root string) (checks []string, where string) {
+	for current := dir; ; current = filepath.Dir(current) {
+		if checks := detectIn(current); len(checks) > 0 {
+			return checks, current
+		}
+
+		if current == root || current == filepath.Dir(current) {
+			return nil, dir
+		}
+	}
+}
+
+func detectIn(dir string) []string {
 	var checks []string
 
 	// vet also compiles every package, and unlike build it writes no binary
@@ -37,8 +54,16 @@ func Detect(dir string) []string {
 		checks = append(checks, "cargo check --quiet")
 	}
 
-	if script := npmScript(dir); script != "" {
+	switch script := npmScript(dir); {
+	case script != "":
 		checks = append(checks, "npm run --silent "+script)
+	case exists(dir, "tsconfig.json"):
+		// Without --no-install, npx would download a compiler on its own.
+		checks = append(checks, "npx --no-install tsc --noEmit")
+	}
+
+	if makeTarget(dir, "check") {
+		checks = append(checks, "make check")
 	}
 
 	return checks
@@ -51,12 +76,17 @@ type Result struct {
 	Report string
 }
 
-// Run executes each check in dir and reports the ones that fail.
-func Run(ctx context.Context, dir string, checks []string) Result {
+// Run executes each check in dir, giving each one timeout, and reports the
+// ones that fail.
+func Run(ctx context.Context, dir string, checks []string, timeout time.Duration) Result {
 	var failures []string
 
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+
 	for _, check := range checks {
-		output, err := tool.Shell(ctx, dir, check, checkTimeout)
+		output, err := tool.Shell(ctx, dir, check, timeout)
 
 		if err == nil {
 			continue
@@ -78,6 +108,23 @@ func exists(dir, name string) bool {
 	_, err := os.Stat(filepath.Join(dir, name))
 
 	return err == nil
+}
+
+// makeTarget reports whether the Makefile in dir defines the target.
+func makeTarget(dir, target string) bool {
+	raw, err := os.ReadFile(filepath.Join(dir, "Makefile"))
+
+	if err != nil {
+		return false
+	}
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, target+":") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // npmScript returns the first conventional check script the package defines.

@@ -33,12 +33,17 @@ type Program struct {
 	Config  json.RawMessage
 }
 
-// Session is one conversation, bound to the directory it works in.
+// Session is one conversation. Dir is the directory it works in; Project is
+// the root that directory belongs to, which is what sessions are listed and
+// continued by.
 type Session struct {
 	ID        string
 	Dir       string
+	Project   string
 	Title     string
 	CreatedAt time.Time
+	// ActiveAt is when the session was last used.
+	ActiveAt time.Time
 }
 
 // Entry is one immutable record of a session's history. Entries are only ever
@@ -68,10 +73,13 @@ type Store interface {
 	DeleteProgram(kind, name string) error
 	Programs(kind string) ([]Program, error)
 
-	CreateSession(dir, title string) (Session, error)
+	CreateSession(dir, project, title string) (Session, error)
 	Session(id string) (Session, error)
-	LatestSession(dir string) (Session, error)
-	Sessions(dir string) ([]Session, error)
+	// LatestSession returns the project's most recently used session.
+	LatestSession(project string) (Session, error)
+	// Sessions lists a project's sessions, most recently used first. An empty
+	// project lists the sessions of every project.
+	Sessions(project string) ([]Session, error)
 
 	// LockSession gives this process the session until release is called or
 	// the process ends. Two processes appending to one session would

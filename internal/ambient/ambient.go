@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"rumbo/internal/project"
 	"rumbo/internal/tool"
 	"rumbo/internal/transcript"
 )
@@ -86,12 +87,12 @@ var instructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 func instructions(ctx context.Context, dir string) string {
 	var dirs []string
 
-	root := strings.TrimSpace(run(ctx, dir, "git rev-parse --show-toplevel 2>/dev/null"))
+	root := project.Root(ctx, dir)
 
 	for current := dir; ; current = filepath.Dir(current) {
 		dirs = append([]string{current}, dirs...)
 
-		if root == "" || current == root || current == filepath.Dir(current) {
+		if current == root || current == filepath.Dir(current) {
 			break
 		}
 	}

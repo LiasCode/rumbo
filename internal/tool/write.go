@@ -26,11 +26,6 @@ func (Write) Def() protocol.ToolDef {
 	}
 }
 
-// Mutates implements Tool.
-func (Write) Mutates() bool {
-	return true
-}
-
 // Run implements Tool.
 func (Write) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {
@@ -74,11 +69,6 @@ func (Edit) Def() protocol.ToolDef {
 			"all": {"type": "boolean", "description": "Replace every occurrence instead of requiring a single one"}
 		}`, "path", "old", "new"),
 	}
-}
-
-// Mutates implements Tool.
-func (Edit) Mutates() bool {
-	return true
 }
 
 // Run implements Tool.

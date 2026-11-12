@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -54,6 +55,22 @@ CREATE TABLE IF NOT EXISTS entries (
 );
 `
 
+// migrations take a database from one schema version to the next. The
+// version is the number of migrations applied, kept in user_version. A
+// migration only adds: tables, columns, indexes, and values for what it adds.
+var migrations = []string{
+	// 1: sessions belong to a project root, so they are found from any of
+	// its subdirectories. Existing sessions take their own directory.
+	`ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT '';
+	 UPDATE sessions SET project = dir WHERE project = '';
+	 CREATE INDEX sessions_by_project ON sessions (project, created_at);`,
+}
+
+// sessionColumns are selected in the order scanSession reads them. Activity
+// is when the session was last used: its newest entry, or its creation.
+const sessionColumns = `id, dir, project, title, created_at,
+	COALESCE((SELECT MAX(created_at) FROM entries WHERE session_id = sessions.id), created_at) AS activity`
+
 // SQLite is the Store backed by a single SQLite file.
 type SQLite struct {
 	db   *sql.DB
@@ -78,7 +95,59 @@ func Open(path string) (*SQLite, error) {
 		return nil, fmt.Errorf("open database %s: %w", path, err)
 	}
 
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("upgrade database %s: %w", path, err)
+	}
+
 	return &SQLite{db: db, path: path}, nil
+}
+
+// migrate applies the migrations the database has not seen. It holds the
+// write lock while it looks and while it works, so two processes starting
+// together do not both apply the same one.
+func migrate(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+
+	var version int
+
+	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+		return err
+	}
+
+	if version > len(migrations) {
+		_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+		return fmt.Errorf("it was written by a newer rumbo (schema %d, this one knows %d)", version, len(migrations))
+	}
+
+	for ; version < len(migrations); version++ {
+		if _, err := conn.ExecContext(ctx, migrations[version]); err != nil {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+			return fmt.Errorf("migration %d: %w", version+1, err)
+		}
+	}
+
+	// PRAGMA takes no parameters; version is a loop counter, not input.
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+		_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+		return err
+	}
+
+	_, err = conn.ExecContext(ctx, `COMMIT`)
+
+	return err
 }
 
 // Close implements Store.
@@ -242,18 +311,18 @@ func (s *SQLite) Programs(kind string) ([]Program, error) {
 }
 
 // CreateSession implements Store.
-func (s *SQLite) CreateSession(dir, title string) (Session, error) {
+func (s *SQLite) CreateSession(dir, project, title string) (Session, error) {
 	raw := make([]byte, 4)
 
 	if _, err := rand.Read(raw); err != nil {
 		return Session{}, err
 	}
 
-	session := Session{ID: hex.EncodeToString(raw), Dir: dir, Title: title, CreatedAt: time.Now()}
+	session := Session{ID: hex.EncodeToString(raw), Dir: dir, Project: project, Title: title, CreatedAt: time.Now()}
 
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, dir, title, created_at) VALUES (?, ?, ?, ?)`,
-		session.ID, session.Dir, session.Title, session.CreatedAt.UnixMilli(),
+		`INSERT INTO sessions (id, dir, project, title, created_at) VALUES (?, ?, ?, ?, ?)`,
+		session.ID, session.Dir, session.Project, session.Title, session.CreatedAt.UnixMilli(),
 	)
 
 	return session, err
@@ -261,26 +330,26 @@ func (s *SQLite) CreateSession(dir, title string) (Session, error) {
 
 // Session implements Store.
 func (s *SQLite) Session(id string) (Session, error) {
-	row := s.db.QueryRow(`SELECT id, dir, title, created_at FROM sessions WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+sessionColumns+` FROM sessions WHERE id = ?`, id)
 
 	return scanSession(row)
 }
 
 // LatestSession implements Store.
-func (s *SQLite) LatestSession(dir string) (Session, error) {
+func (s *SQLite) LatestSession(project string) (Session, error) {
 	row := s.db.QueryRow(
-		`SELECT id, dir, title, created_at FROM sessions WHERE dir = ? ORDER BY created_at DESC LIMIT 1`,
-		dir,
+		`SELECT `+sessionColumns+` FROM sessions WHERE project = ? ORDER BY activity DESC LIMIT 1`,
+		project,
 	)
 
 	return scanSession(row)
 }
 
-// Sessions implements Store. An empty dir lists the sessions of every project.
-func (s *SQLite) Sessions(dir string) ([]Session, error) {
+// Sessions implements Store.
+func (s *SQLite) Sessions(project string) ([]Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, dir, title, created_at FROM sessions WHERE ? = '' OR dir = ? ORDER BY created_at DESC`,
-		dir, dir,
+		`SELECT `+sessionColumns+` FROM sessions WHERE ? = '' OR project = ? ORDER BY activity DESC`,
+		project, project,
 	)
 
 	if err != nil {
@@ -411,15 +480,16 @@ func scanProgram(row scanner) (Program, error) {
 
 func scanSession(row scanner) (Session, error) {
 	var session Session
-	var createdAt int64
+	var createdAt, activity int64
 
-	err := row.Scan(&session.ID, &session.Dir, &session.Title, &createdAt)
+	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &createdAt, &activity)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return session, ErrNotFound
 	}
 
 	session.CreatedAt = time.UnixMilli(createdAt)
+	session.ActiveAt = time.UnixMilli(activity)
 
 	return session, err
 }

@@ -17,9 +17,6 @@ import (
 // Tool is one capability offered to the model.
 type Tool interface {
 	Def() protocol.ToolDef
-	// Mutates reports whether a call may change the project, which is what
-	// makes the harness verify the work when the agent stops.
-	Mutates() bool
 	// Run executes the call in dir. A returned error is shown to the model as
 	// a failed result, so its message should say how to recover.
 	Run(ctx context.Context, dir string, args json.RawMessage) (string, error)
