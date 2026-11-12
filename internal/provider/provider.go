@@ -5,12 +5,16 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 
 	"rumbo/protocol"
 )
 
-// Provider produces assistant messages.
+// Provider produces assistant messages. It also says what can be chosen and
+// asked of it, which the host passes on without interpreting.
 type Provider interface {
 	Complete(ctx context.Context, params protocol.CompleteParams, onDelta func(text string)) (protocol.CompleteResult, error)
+	Description() protocol.Description
+	Invoke(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error)
 	Close() error
 }

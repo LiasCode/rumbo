@@ -13,10 +13,12 @@ import (
 // a person uses to give objectives and watch the work. It uses the same
 // framing as the provider protocol. See docs/frontend-protocol.md.
 
-// Frontend method names. initialize is shared with the provider protocol.
+// Frontend method names. initialize and invoke are shared with the provider
+// protocol.
 const (
-	MethodRun   = "run"
-	MethodEvent = "event"
+	MethodRun      = "run"
+	MethodEvent    = "event"
+	MethodDescribe = "describe"
 )
 
 // When the host starts a front end, the protocol is on these file
@@ -60,10 +62,25 @@ type FrontendInitializeParams struct {
 }
 
 // RunParams starts a run on Objective, or, with Resume, continues the
-// session's last run where it stopped. One run is active at a time.
+// session's last run where it stopped. One run is active at a time. Model
+// and Options choose, for this run, what the provider described; what is
+// left out keeps its stored value.
 type RunParams struct {
-	Objective string `json:"objective,omitempty"`
-	Resume    bool   `json:"resume,omitempty"`
+	Objective string          `json:"objective,omitempty"`
+	Resume    bool            `json:"resume,omitempty"`
+	Model     string          `json:"model,omitempty"`
+	Options   json.RawMessage `json:"options,omitempty"`
+}
+
+// DescribeResult is what the provider in use offers and what is in force.
+// The front end can build its choices from it without knowing the provider.
+type DescribeResult struct {
+	Provider string `json:"provider"`
+	// Model and Options are the values a run uses unless it says otherwise.
+	Model   string          `json:"model"`
+	Options json.RawMessage `json:"options,omitempty"`
+	// Offers is what the provider said can be chosen and asked of it.
+	Offers Description `json:"offers"`
 }
 
 // RunResult is sent when the run ends, however it ends. Error explains a
@@ -98,6 +115,8 @@ type Event struct {
 // written in Go.
 type FrontendConn struct {
 	frames chan Frame
+	// calling lets one request at a time wait for its answer.
+	calling sync.Mutex
 
 	mu     sync.Mutex
 	out    *json.Encoder
@@ -135,34 +154,58 @@ func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, Fronten
 // Run asks the host to work on objective and blocks until the run ends,
 // passing every event to onEvent.
 func (c *FrontendConn) Run(objective string, onEvent func(Event)) (RunResult, error) {
-	return c.run(RunParams{Objective: objective}, onEvent)
+	return c.Start(RunParams{Objective: objective}, onEvent)
 }
 
 // Resume asks the host to continue the session's unfinished run, and blocks
 // like Run.
 func (c *FrontendConn) Resume(onEvent func(Event)) (RunResult, error) {
-	return c.run(RunParams{Resume: true}, onEvent)
+	return c.Start(RunParams{Resume: true}, onEvent)
 }
 
-func (c *FrontendConn) run(request RunParams, onEvent func(Event)) (RunResult, error) {
+// Start asks the host for the run the params describe, and blocks like Run.
+func (c *FrontendConn) Start(params RunParams, onEvent func(Event)) (RunResult, error) {
+	var result RunResult
+
+	return result, c.request(MethodRun, params, &result, onEvent)
+}
+
+// Describe asks what the provider in use offers and what is in force.
+func (c *FrontendConn) Describe() (DescribeResult, error) {
+	var result DescribeResult
+
+	return result, c.request(MethodDescribe, struct{}{}, &result, nil)
+}
+
+// Invoke calls a function of the provider and returns its answer as JSON.
+func (c *FrontendConn) Invoke(name string, params json.RawMessage) (json.RawMessage, error) {
+	var result json.RawMessage
+
+	return result, c.request(MethodInvoke, InvokeParams{Name: name, Params: params}, &result, nil)
+}
+
+// request sends one request and waits for its answer, passing the events
+// that arrive meanwhile to onEvent.
+func (c *FrontendConn) request(method string, params, result any, onEvent func(Event)) error {
+	c.calling.Lock()
+	defer c.calling.Unlock()
+
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
 	c.mu.Unlock()
 
-	var result RunResult
+	raw, _ := json.Marshal(params)
 
-	params, _ := json.Marshal(request)
-
-	if err := c.send(Frame{ID: &id, Method: MethodRun, Params: params}); err != nil {
-		return result, err
+	if err := c.send(Frame{ID: &id, Method: method, Params: raw}); err != nil {
+		return err
 	}
 
 	for frame := range c.frames {
 		if frame.Method == MethodEvent {
 			var event Event
 
-			if json.Unmarshal(frame.Params, &event) == nil {
+			if onEvent != nil && json.Unmarshal(frame.Params, &event) == nil {
 				onEvent(event)
 			}
 
@@ -174,13 +217,13 @@ func (c *FrontendConn) run(request RunParams, onEvent func(Event)) (RunResult, e
 		}
 
 		if frame.Error != nil {
-			return result, frame.Error
+			return frame.Error
 		}
 
-		return result, json.Unmarshal(frame.Result, &result)
+		return json.Unmarshal(frame.Result, result)
 	}
 
-	return result, errors.New("the host exited")
+	return errors.New("the host exited")
 }
 
 // Cancel asks the host to stop the current run. Run still returns, with the

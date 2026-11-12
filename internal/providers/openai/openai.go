@@ -44,7 +44,50 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 		}
 	}
 
-	return protocol.InitializeResult{Protocol: protocol.Version, Name: "openai"}, nil
+	return protocol.InitializeResult{Protocol: protocol.Version, Name: "openai", Description: description}, nil
+}
+
+// description is what this provider lets the user choose and ask. It
+// describes no options: which ones a server accepts depends on the server.
+var description = protocol.Description{
+	Model: &protocol.Option{Type: protocol.OptionString, Values: "models", Description: "Model to use"},
+	Functions: []protocol.Function{{
+		Name:        "models",
+		Description: "List the models the server offers",
+	}},
+}
+
+// Invoke implements protocol.Invoker.
+func (h *Handler) Invoke(ctx context.Context, name string, _ json.RawMessage) (any, error) {
+	if name != "models" {
+		return nil, fmt.Errorf("unknown function %q", name)
+	}
+
+	response, err := h.send(ctx, http.MethodGet, "/models", nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer response.Body.Close()
+
+	var listed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil {
+		return nil, fmt.Errorf("invalid model list: %w", err)
+	}
+
+	var result protocol.ValuesResult
+
+	for _, model := range listed.Data {
+		result.Values = append(result.Values, protocol.Value{Value: model.ID})
+	}
+
+	return result, nil
 }
 
 type chatMessage struct {
@@ -109,11 +152,25 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 		return protocol.CompleteResult{}, err
 	}
 
-	url := strings.TrimRight(h.config.BaseURL, "/") + "/chat/completions"
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	response, err := h.send(ctx, http.MethodPost, "/chat/completions", body)
 
 	if err != nil {
 		return protocol.CompleteResult{}, err
+	}
+
+	defer response.Body.Close()
+
+	return collect(response.Body, emit)
+}
+
+// send makes one request to the server and returns its successful response,
+// whose body the caller closes. Failures worth retrying are marked transient.
+func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+	url := strings.TrimRight(h.config.BaseURL, "/") + path
+	httpRequest, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+
+	if err != nil {
+		return nil, err
 	}
 
 	httpRequest.Header.Set("Content-Type", "application/json")
@@ -127,28 +184,28 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 	// A request that never got an answer is worth sending again, unless it
 	// was the host that cancelled it.
 	if err != nil && ctx.Err() == nil {
-		return protocol.CompleteResult{}, protocol.Transient(err)
+		return nil, protocol.Transient(err)
 	}
 
 	if err != nil {
-		return protocol.CompleteResult{}, err
+		return nil, err
+	}
+
+	if response.StatusCode == http.StatusOK {
+		return response, nil
 	}
 
 	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		detail, _ := io.ReadAll(io.LimitReader(response.Body, 2000))
-		failure := fmt.Errorf("%s: %s", response.Status, strings.TrimSpace(string(detail)))
+	detail, _ := io.ReadAll(io.LimitReader(response.Body, 2000))
+	failure := fmt.Errorf("%s: %s", response.Status, strings.TrimSpace(string(detail)))
 
-		switch status := response.StatusCode; {
-		case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests, status >= 500:
-			return protocol.CompleteResult{}, protocol.Transient(failure)
-		}
-
-		return protocol.CompleteResult{}, failure
+	switch status := response.StatusCode; {
+	case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests, status >= 500:
+		return nil, protocol.Transient(failure)
 	}
 
-	return collect(response.Body, emit)
+	return nil, failure
 }
 
 func request(params protocol.CompleteParams) chatRequest {

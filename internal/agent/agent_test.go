@@ -67,6 +67,14 @@ func (s *scripted) Close() error {
 	return nil
 }
 
+func (s *scripted) Description() protocol.Description {
+	return protocol.Description{}
+}
+
+func (s *scripted) Invoke(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+	return nil, errors.New("no functions")
+}
+
 type silent struct {
 	notices []string
 	shown   string

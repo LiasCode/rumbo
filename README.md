@@ -53,6 +53,21 @@ rumbo provider add -config '{"base_url":"http://localhost:11434/v1"}' local '{se
 rumbo -m local/qwen3-coder "fix the failing test"
 ```
 
+## Models and options
+
+`model` is `<provider>/<model>`. What else can be chosen is up to each
+provider, which describes its own options and can list its own models; rumbo
+passes them along without knowing what they mean.
+
+```sh
+rumbo -o effort=high "review this module"                  # for one run
+rumbo config set options.anthropic '{"effort":"high"}'     # stored, for every run
+```
+
+In the terminal UI, `/options` shows what the provider offers and what is in
+force, including its models, and `/set <name> <value>` changes a choice for
+the runs that follow (`/set model <name>` for the model).
+
 ## Instructions
 
 rumbo gives the model the `AGENTS.md` (or `CLAUDE.md`) files it finds from the

@@ -18,8 +18,15 @@ import (
 	"rumbo/protocol"
 )
 
-// RunFunc works on one run request and returns the session it ran in.
-type RunFunc func(ctx context.Context, params protocol.RunParams) (session string, err error)
+// Handlers are what the host does for a front end.
+type Handlers struct {
+	// Run works on one run request and returns the session it ran in.
+	Run func(ctx context.Context, params protocol.RunParams) (session string, err error)
+	// Describe says what the provider offers and what is in force.
+	Describe func(ctx context.Context) (protocol.DescribeResult, error)
+	// Invoke calls a function of the provider.
+	Invoke func(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error)
+}
 
 // Conn is a connected front end. It implements agent.Observer by sending
 // events.
@@ -73,7 +80,7 @@ func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (
 
 // Serve handles the front end's requests until it disconnects. A run in
 // progress at that point is cancelled and waited for.
-func (c *Conn) Serve(run RunFunc) error {
+func (c *Conn) Serve(handlers Handlers) error {
 	var active sync.WaitGroup
 	var cancel context.CancelFunc
 	var mu sync.Mutex
@@ -130,7 +137,7 @@ func (c *Conn) Serve(run RunFunc) error {
 			go func() {
 				defer active.Done()
 
-				session, err := run(ctx, params)
+				session, err := handlers.Run(ctx, params)
 				result := protocol.RunResult{Status: protocol.RunDone, Session: session}
 
 				switch {
@@ -150,10 +157,55 @@ func (c *Conn) Serve(run RunFunc) error {
 				_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
 			}()
 
+		case protocol.MethodDescribe, protocol.MethodInvoke:
+			// These go to the provider, which answers one request at a time,
+			// so they wait for no run and are refused during one.
+			mu.Lock()
+			running := cancel != nil
+			mu.Unlock()
+
+			if running {
+				c.fail(frame.ID, protocol.CodeInvalidParams, "not while a run is in progress")
+				continue
+			}
+
+			c.answer(frame, handlers)
+
 		default:
 			c.fail(frame.ID, protocol.CodeMethodNotFound, "unknown method: "+frame.Method)
 		}
 	}
+}
+
+// answer serves a describe or an invoke.
+func (c *Conn) answer(frame protocol.Frame, handlers Handlers) {
+	if frame.ID == nil {
+		return
+	}
+
+	var result any
+	var err error
+
+	if frame.Method == protocol.MethodDescribe {
+		result, err = handlers.Describe(context.Background())
+	} else {
+		var params protocol.InvokeParams
+
+		if json.Unmarshal(frame.Params, &params) != nil || params.Name == "" {
+			c.fail(frame.ID, protocol.CodeInvalidParams, "invoke needs the name of a function")
+			return
+		}
+
+		result, err = handlers.Invoke(context.Background(), params)
+	}
+
+	if err != nil {
+		c.fail(frame.ID, protocol.CodeInternal, err.Error())
+		return
+	}
+
+	raw, _ := json.Marshal(result)
+	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
 }
 
 // Log returns a writer whose lines reach the front end as log events. It is

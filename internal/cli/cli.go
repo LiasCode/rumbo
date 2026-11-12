@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -41,6 +42,7 @@ Flags:
   -r            resume the unfinished run of that session, without a new objective
   -s <session>  continue the given session
   -m <model>    provider and model for this run, as provider/model
+  -o <n>=<v>    a provider option for this run, such as -o effort=high; may be repeated
   -f <name>     front end for this run (default: tui in a terminal, else plain)
 `
 
@@ -196,6 +198,9 @@ func newHost(database store.Store, args []string) (*host, error) {
 	model := flags.String("m", "", "")
 	frontendName := flags.String("f", "", "")
 
+	var options optionFlags
+	flags.Var(&options, "o", "")
+
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
@@ -233,7 +238,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		dir, created.root = created.session.Dir, created.session.Project
 	}
 
-	if created.settings, err = loadConfig(database, created.root, *model, *frontendName); err != nil {
+	if created.settings, err = loadConfig(database, created.root, *model, *frontendName, options.object()); err != nil {
 		return nil, err
 	}
 
@@ -275,7 +280,31 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 
 	h.conn = conn
 
-	return conn.Serve(h.run)
+	return conn.Serve(frontend.Handlers{Run: h.run, Describe: h.describe, Invoke: h.invoke})
+}
+
+// describe says what the provider offers and what a run uses by default.
+// It starts the provider, since only the provider can say.
+func (h *host) describe(context.Context) (protocol.DescribeResult, error) {
+	if err := h.start(); err != nil {
+		return protocol.DescribeResult{}, err
+	}
+
+	return protocol.DescribeResult{
+		Provider: h.settings.Provider,
+		Model:    h.settings.Model,
+		Options:  h.settings.Options,
+		Offers:   h.process.Description(),
+	}, nil
+}
+
+// invoke passes a function call to the provider, as it is.
+func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
+	if err := h.start(); err != nil {
+		return nil, err
+	}
+
+	return h.process.Invoke(ctx, params.Name, params.Params)
 }
 
 // run works on one run request. The provider and the session are created on
@@ -286,10 +315,22 @@ func (h *host) run(ctx context.Context, params protocol.RunParams) (string, erro
 		return "", errors.New("there is no session to resume")
 	}
 
-	if h.worker == nil {
-		if err := h.start(); err != nil {
-			return h.info.Session, err
-		}
+	if err := h.start(); err != nil {
+		return h.info.Session, err
+	}
+
+	// What the run does not choose keeps the value in force by default.
+	options, err := mergeOptions(h.settings.Options, params.Options)
+
+	if err != nil {
+		return h.info.Session, err
+	}
+
+	h.worker.Options = options
+	h.worker.Model = h.settings.Model
+
+	if params.Model != "" {
+		h.worker.Model = params.Model
 	}
 
 	if h.session == nil {
@@ -320,8 +361,12 @@ func (h *host) run(ctx context.Context, params protocol.RunParams) (string, erro
 	return h.session.ID, h.worker.Run(ctx, *h.session, params.Objective)
 }
 
-// start runs the provider and builds the agent around it.
+// start runs the provider and builds the agent around it, once.
 func (h *host) start() error {
+	if h.worker != nil {
+		return nil
+	}
+
 	program, err := h.database.Program(store.KindProvider, h.settings.Provider)
 
 	if err != nil {

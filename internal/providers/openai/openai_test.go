@@ -120,3 +120,34 @@ func TestTemporaryFailuresAreMarkedTransient(t *testing.T) {
 		t.Fatalf("unreachable server: err = %v, want transient", err)
 	}
 }
+
+func TestModelsFunctionListsWhatTheServerOffers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+
+		fmt.Fprint(w, `{"object":"list","data":[{"id":"qwen3-coder"},{"id":"llama4"}]}`)
+	}))
+
+	defer server.Close()
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY"})
+	described, _ := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
+
+	if described.Model == nil || described.Model.Values != "models" {
+		t.Fatalf("described = %+v", described)
+	}
+
+	result, err := handler.Invoke(context.Background(), "models", nil)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if listed := result.(protocol.ValuesResult); len(listed.Values) != 2 || listed.Values[1].Value != "llama4" {
+		t.Fatalf("models = %+v", listed)
+	}
+}

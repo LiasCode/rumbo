@@ -21,6 +21,7 @@ const Version = 1
 const (
 	MethodInitialize = "initialize"
 	MethodComplete   = "complete"
+	MethodInvoke     = "invoke"
 	MethodCancel     = "cancel"
 	MethodDelta      = "delta"
 	MethodShutdown   = "shutdown"
@@ -93,21 +94,88 @@ type InitializeParams struct {
 	Config   json.RawMessage `json:"config,omitempty"`
 }
 
-// InitializeResult identifies the provider.
+// InitializeResult identifies the provider and carries what it says about
+// itself.
 type InitializeResult struct {
 	Protocol int    `json:"protocol"`
 	Name     string `json:"name"`
+	Description
+}
+
+// Description is how a provider tells the host and the front end what can be
+// chosen and asked of it. The host does not interpret any of it: it passes
+// the description to the front end, the chosen options to the provider with
+// every request, and function calls through. All of it is optional.
+type Description struct {
+	// Model says how a model is chosen, usually by naming the function that
+	// lists them. Its Name is ignored.
+	Model *Option `json:"model,omitempty"`
+	// Options are what the provider accepts with a request, beyond the model.
+	Options []Option `json:"options,omitempty"`
+	// Functions are what the provider can be asked through invoke.
+	Functions []Function `json:"functions,omitempty"`
+}
+
+// Option types.
+const (
+	OptionString  = "string"
+	OptionNumber  = "number"
+	OptionBoolean = "boolean"
+)
+
+// Option describes one value that can be chosen. It is a deliberately small
+// subset of JSON Schema, so a front end can offer it without a validator.
+type Option struct {
+	Name        string `json:"name,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Enum lists the values a string option accepts, when they are fixed.
+	Enum []string `json:"enum,omitempty"`
+	// Values names the function that returns the accepted values, when they
+	// are not fixed. The function answers with a ValuesResult.
+	Values string `json:"values,omitempty"`
+	// Default is the value in force when none is chosen, for display.
+	Default json.RawMessage `json:"default,omitempty"`
+}
+
+// Function describes one operation of the provider.
+type Function struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Params      []Option `json:"params,omitempty"`
+}
+
+// InvokeParams calls a function of the provider.
+type InvokeParams struct {
+	Name   string          `json:"name"`
+	Params json.RawMessage `json:"params,omitempty"`
+}
+
+// ValuesResult is the answer of a function that an Option names in Values.
+// Any other function answers with whatever JSON it likes.
+type ValuesResult struct {
+	Values []Value `json:"values"`
+}
+
+// Value is one accepted value of an option, with what a person needs to
+// recognize it.
+type Value struct {
+	Value       string `json:"value"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // CompleteParams asks for one assistant message. The host always sends the
 // full history, and the history only ever grows by appending, so providers can
-// cache the prefix. MaxTokens of zero means the provider's default.
+// cache the prefix. MaxTokens of zero means the provider's default. Options
+// is an object with the values chosen for the options the provider described.
 type CompleteParams struct {
-	Model     string    `json:"model"`
-	System    string    `json:"system"`
-	Messages  []Message `json:"messages"`
-	Tools     []ToolDef `json:"tools,omitempty"`
-	MaxTokens int       `json:"max_tokens,omitempty"`
+	Model     string          `json:"model"`
+	System    string          `json:"system"`
+	Messages  []Message       `json:"messages"`
+	Tools     []ToolDef       `json:"tools,omitempty"`
+	MaxTokens int             `json:"max_tokens,omitempty"`
+	Options   json.RawMessage `json:"options,omitempty"`
 }
 
 // CompleteResult is the finished assistant message.

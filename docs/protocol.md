@@ -49,6 +49,9 @@ read them from the environment or from the provider's own storage.
 Result: `{"protocol":1,"name":"my-provider"}`. The host refuses a provider
 that answers with a different protocol version.
 
+The result may also carry what the provider says about itself. See
+[Describing the provider](#describing-the-provider).
+
 ### `complete` (request)
 
 ```json
@@ -64,6 +67,9 @@ that answers with a different protocol version.
 - `messages` is the whole conversation, every time. Roles alternate between
   `user` and `assistant`, starting with `user`.
 - `max_tokens` of `0` or absent means the provider's default.
+- `options`, when present, is an object with the values chosen for the
+  options the provider described. Answer with an error for a value or a name
+  you do not accept: the host does not check them.
 
 Result:
 
@@ -93,6 +99,16 @@ succeed unchanged later; any other code ends the run at once.
 {"jsonrpc":"2.0","id":2,"error":{"code":1,"message":"429 rate limited"}}
 ```
 
+### `invoke` (request)
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"invoke","params":{"name":"models","params":{}}}
+```
+
+Calls one of the functions the provider described. The result is whatever
+JSON the function returns; the host passes it to whoever asked, unread. A
+provider that described no functions answers with an error.
+
 ### `delta` (notification, provider to host)
 
 ```json
@@ -115,6 +131,58 @@ seconds.
 ### `shutdown` (request)
 
 Answer with `{}` and exit.
+
+## Describing the provider
+
+A provider can say what may be chosen and asked of it. The host understands
+none of it: it hands the description to the front end, sends the chosen
+values back with every `complete`, and relays `invoke`. That is how a front
+end offers a provider's settings without knowing the provider, and how a
+provider adds a setting without anything else changing.
+
+The description travels in the `initialize` result. Every part is optional.
+
+```json
+{"protocol": 1, "name": "my-provider",
+ "model":   {"type": "string", "values": "models", "description": "Model to use"},
+ "options": [
+   {"name": "effort", "type": "string", "enum": ["low", "high"], "default": "low",
+    "description": "How thorough the model is"},
+   {"name": "web", "type": "boolean", "description": "Let the model search the web"}],
+ "functions": [
+   {"name": "models", "description": "List the available models"}]}
+```
+
+**An option** is one value the provider accepts with a request:
+
+| Field | Meaning |
+|---|---|
+| `name` | The key it has in `options`. |
+| `type` | `string`, `number`, or `boolean`. |
+| `description` | For a person choosing it. |
+| `enum` | The accepted values of a string option, when they are fixed. |
+| `values` | The name of a function that returns the accepted values, when they are not. |
+| `default` | What applies when nothing is chosen. For display only. |
+
+This is a small subset of JSON Schema on purpose: a front end can offer it
+without a validator.
+
+**`model`** describes the model the same way, without a `name`. The model is
+not an option: it stays the `model` field of `complete`, because every
+provider has one and the host records it with each answer.
+
+**A function** has a `name`, a `description`, and `params`, a list of options
+describing its arguments. What it does and returns is the provider's own.
+
+One convention ties the two together. A function that an option names in
+`values` returns the accepted values in this shape, so a front end can build
+a picker from any provider:
+
+```json
+{"values": [{"value": "big-1", "label": "Big 1", "description": "Slow and careful"}]}
+```
+
+Only `value` is required.
 
 ## Content blocks
 

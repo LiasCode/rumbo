@@ -41,6 +41,16 @@ to the model.
 **Provider.** A program that produces assistant messages by speaking the Agent
 Provider Protocol. It owns the connection to a model and its credentials.
 
+**Description.** What a provider says about itself: how its model is
+chosen, the options it accepts, and the functions it can be asked. The host
+passes it on without interpreting it.
+
+**Option.** A value a provider accepts with a request, beyond the model,
+such as how thorough to be. Which options exist is the provider's decision.
+
+**Function.** An operation a provider offers through `invoke`, such as
+listing its models.
+
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
 provider.
 

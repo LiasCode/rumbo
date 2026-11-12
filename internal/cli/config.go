@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -36,8 +37,10 @@ const selfPlaceholder = "{self}"
 
 // config is everything a run reads from settings, resolved once.
 type config struct {
-	Frontend  string
-	Provider  string
+	Frontend string
+	Provider string
+	// Options are the provider option values in force by default.
+	Options   json.RawMessage
 	Model     string
 	MaxTokens int
 	MaxTurns  int
@@ -118,7 +121,7 @@ func workingProject() (dir, root string, err error) {
 
 // loadConfig resolves the settings for a run in the project at root. A
 // missing or malformed required setting is an error; nothing is guessed.
-func loadConfig(settings store.Store, root, modelFlag, frontendFlag string) (config, error) {
+func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flagOptions json.RawMessage) (config, error) {
 	loaded := config{MaxTurns: 150, CompactAt: 150_000, Frontend: frontendFlag}
 
 	if loaded.Frontend == "" {
@@ -159,7 +162,15 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string) (con
 	loaded.Provider = providerName
 	loaded.Model = modelName
 
-	var err error
+	stored, err := storedOptions(settings, root, providerName)
+
+	if err != nil {
+		return loaded, err
+	}
+
+	if loaded.Options, err = mergeOptions(stored, flagOptions); err != nil {
+		return loaded, err
+	}
 
 	if loaded.MaxTokens, err = lookupInt(settings, root, keyMaxTokens, loaded.MaxTokens); err != nil {
 		return loaded, err

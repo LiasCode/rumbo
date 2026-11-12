@@ -5,6 +5,7 @@ package tui
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -83,7 +84,9 @@ func Run(r io.Reader, w io.Writer) int {
 
 	switch {
 	case info.Resume:
-		ui.start("(resuming the unfinished run)", ui.conn.Resume)
+		ui.start("(resuming the unfinished run)", func(onEvent func(protocol.Event)) (protocol.RunResult, error) {
+			return ui.conn.Start(ui.choices(protocol.RunParams{Resume: true}), onEvent)
+		})
 	case info.Objective != "":
 		ui.submit(info.Objective)
 	}
@@ -109,6 +112,10 @@ type ui struct {
 	midLine bool
 	running bool
 	session string
+	// model and options are what the user chose here for the runs to come;
+	// empty means the stored values.
+	model   string
+	options map[string]json.RawMessage
 	notice  string
 	usage   render.Usage
 }
@@ -173,7 +180,13 @@ func (u *ui) footer() {
 		state = u.notice
 	}
 
-	status := fmt.Sprintf(" rumbo | %s/%s | %s", u.info.Provider, u.info.Model, state)
+	model := u.info.Model
+
+	if u.model != "" {
+		model = u.model
+	}
+
+	status := fmt.Sprintf(" rumbo | %s/%s | %s", u.info.Provider, model, state)
 
 	if u.session != "" {
 		status += " | session " + u.session
@@ -248,7 +261,7 @@ func (u *ui) show(event protocol.Event) {
 // submit starts a run on objective, unless one is already in progress.
 func (u *ui) submit(objective string) {
 	u.start(objective, func(onEvent func(protocol.Event)) (protocol.RunResult, error) {
-		return u.conn.Run(objective, onEvent)
+		return u.conn.Start(u.choices(protocol.RunParams{Objective: objective}), onEvent)
 	})
 }
 
@@ -349,7 +362,10 @@ func (u *ui) key(key rune) bool {
 		objective := strings.TrimSpace(string(u.input))
 		u.mu.Unlock()
 
-		if objective != "" {
+		switch {
+		case isCommand(objective):
+			u.command(objective)
+		case objective != "":
 			u.submit(objective)
 		}
 

@@ -65,6 +65,8 @@ type Assistant struct {
 	Usage    protocol.Usage   `json:"usage"`
 	Provider string           `json:"provider"`
 	Model    string           `json:"model"`
+	// Options are the provider options the request was sent with.
+	Options json.RawMessage `json:"options,omitempty"`
 }
 
 // ToolResult is the outcome of one tool call.
@@ -87,11 +89,12 @@ type Note struct {
 // holds a summary of that conversation. Prompt is the instruction that
 // produced the summary, kept so the request can be reproduced.
 type Compaction struct {
-	Prompt   string         `json:"prompt"`
-	Text     string         `json:"text"`
-	Usage    protocol.Usage `json:"usage"`
-	Provider string         `json:"provider"`
-	Model    string         `json:"model"`
+	Prompt   string          `json:"prompt"`
+	Text     string          `json:"text"`
+	Usage    protocol.Usage  `json:"usage"`
+	Provider string          `json:"provider"`
+	Model    string          `json:"model"`
+	Options  json.RawMessage `json:"options,omitempty"`
 }
 
 // Interrupted is the result given to a tool call that never got one, for

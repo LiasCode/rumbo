@@ -4,6 +4,7 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,7 +59,45 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 
 	h.client = sdk.NewClient(options...)
 
-	return protocol.InitializeResult{Protocol: protocol.Version, Name: "anthropic"}, nil
+	return protocol.InitializeResult{Protocol: protocol.Version, Name: "anthropic", Description: description}, nil
+}
+
+// description is what this provider lets the user choose and ask.
+var description = protocol.Description{
+	Model: &protocol.Option{Type: protocol.OptionString, Values: "models", Description: "Claude model to use"},
+	Options: []protocol.Option{{
+		Name:        "effort",
+		Type:        protocol.OptionString,
+		Enum:        []string{"low", "medium", "high", "xhigh", "max"},
+		Description: "How much the model thinks and how thorough it is. Without it, the model's own default applies.",
+	}},
+	Functions: []protocol.Function{{
+		Name:        "models",
+		Description: "List the models this account can use",
+	}},
+}
+
+// options are the values a request may carry, as described above.
+type options struct {
+	Effort string `json:"effort"`
+}
+
+// Invoke implements protocol.Invoker.
+func (h *Handler) Invoke(ctx context.Context, name string, _ json.RawMessage) (any, error) {
+	if name != "models" {
+		return nil, fmt.Errorf("unknown function %q", name)
+	}
+
+	var result protocol.ValuesResult
+
+	pages := h.client.Models.ListAutoPaging(ctx, sdk.ModelListParams{})
+
+	for pages.Next() {
+		model := pages.Current()
+		result.Values = append(result.Values, protocol.Value{Value: model.ID, Label: model.DisplayName})
+	}
+
+	return result, pages.Err()
 }
 
 // Complete implements protocol.Handler.
@@ -135,8 +174,20 @@ func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams,
 		request.MaxTokens = defaultMaxTokens
 	}
 
-	if h.config.Effort != "" {
-		request.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffort(h.config.Effort)}
+	// An option chosen for the request wins over the provider's configuration.
+	chosen := options{Effort: h.config.Effort}
+
+	if len(params.Options) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(params.Options))
+		decoder.DisallowUnknownFields()
+
+		if err := decoder.Decode(&chosen); err != nil {
+			return request, fmt.Errorf("invalid options: %w", err)
+		}
+	}
+
+	if chosen.Effort != "" {
+		request.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffort(chosen.Effort)}
 	}
 
 	for _, def := range params.Tools {

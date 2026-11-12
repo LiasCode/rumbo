@@ -55,6 +55,15 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 18. **Permissions.** There are none: the agent can write outside the project
     and run any command.
 
+### Provider options
+
+49. **Choices made in a front end are not stored.** `/set` in the terminal UI
+    lasts until it closes; only `rumbo config` and `-o` reach the database.
+50. **Functions are request and response only.** A provider cannot hold a
+    dialogue through one, which a browser login for a subscription needs.
+51. **The provider cannot be changed from a front end.** `describe` and
+    `/set model` work within the provider the host was started with.
+
 ### Steering
 
 19. **Messages during a run.** The loop accepts no correction from the user

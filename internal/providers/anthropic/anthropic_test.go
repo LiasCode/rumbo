@@ -156,3 +156,70 @@ func TestTemporaryFailuresAreMarkedTransient(t *testing.T) {
 		t.Fatalf("401: err = %v, want a permanent failure", err)
 	}
 }
+
+// The provider says what can be chosen, lists its models through a
+// function, and applies an option sent with a request.
+func TestDescriptionFunctionsAndOptions(t *testing.T) {
+	var completion map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			fmt.Fprint(w, `{"data":[
+				{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-01-01T00:00:00Z"},
+				{"type":"model","id":"claude-haiku-5-5","display_name":"Claude Haiku 5.5","created_at":"2026-01-01T00:00:00Z"}
+			],"has_more":false,"first_id":"claude-opus-5-5","last_id":"claude-haiku-5-5"}`)
+
+			return
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &completion)
+
+		w.Header().Set("x-should-retry", "false")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"type":"error","error":{"type":"invalid_request_error","message":"stop here"}}`)
+	}))
+
+	defer server.Close()
+
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	handler := New()
+	config, _ := json.Marshal(Config{BaseURL: server.URL, Effort: "low"})
+	described, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
+
+	if err != nil || described.Model == nil || described.Model.Values != "models" || described.Options[0].Name != "effort" || described.Functions[0].Name != "models" {
+		t.Fatalf("described = %+v, err = %v", described, err)
+	}
+
+	result, err := handler.Invoke(context.Background(), "models", nil)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if listed := result.(protocol.ValuesResult); len(listed.Values) != 2 || listed.Values[0] != (protocol.Value{Value: "claude-opus-5-5", Label: "Claude Opus 5.5"}) {
+		t.Fatalf("models = %+v", listed)
+	}
+
+	params := protocol.CompleteParams{
+		Model:    "claude-opus-5-5",
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "hi"}}}},
+		Options:  json.RawMessage(`{"effort":"high"}`),
+	}
+
+	handler.Complete(context.Background(), params, func(string) {})
+
+	// The option sent with the request wins over the configured one.
+	if sent, _ := json.Marshal(completion["output_config"]); string(sent) != `{"effort":"high"}` {
+		t.Fatalf("output_config = %s", sent)
+	}
+
+	params.Options = json.RawMessage(`{"temperature":2}`)
+
+	if _, err := handler.Complete(context.Background(), params, func(string) {}); err == nil || !strings.Contains(err.Error(), "invalid options") {
+		t.Fatalf("an option the provider did not describe: err = %v", err)
+	}
+}

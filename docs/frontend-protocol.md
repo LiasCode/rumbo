@@ -83,6 +83,10 @@ continues the session's last run where it stopped: one that failed, was
 cancelled, or was cut short by the host dying. It is an error when the last
 run finished.
 
+Two optional fields choose, for this run, among what the provider offers:
+`model`, and `options`, an object of option values. What is left out keeps
+the value in force, which `describe` reports.
+
 The result arrives when the run is over, however it ends:
 
 ```json
@@ -97,6 +101,48 @@ The result arrives when the run is over, however it ends:
 
 One run is active at a time. A `run` sent during another is answered with a
 JSON-RPC error.
+
+### `describe` (request, front end to host)
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"describe"}
+```
+
+Asks what the provider in use offers and what is in force. It is how a front
+end shows a model picker or a settings form for a provider it knows nothing
+about.
+
+```json
+{"provider": "anthropic",
+ "model": "claude-opus-5-5",
+ "options": {"effort": "high"},
+ "offers": {
+   "model": {"type": "string", "values": "models"},
+   "options": [{"name": "effort", "type": "string", "enum": ["low", "medium", "high"]}],
+   "functions": [{"name": "models", "description": "List the models this account can use"}]}}
+```
+
+- `model` and `options` are what a run uses unless it says otherwise: the
+  stored settings, with the command line's choices over them.
+- `offers` is the provider's own description, passed on unchanged. Its format
+  is specified in [the provider protocol](protocol.md#describing-the-provider).
+  Any part of it may be absent.
+
+The first `describe` starts the provider, so it can fail for the same reasons
+a first run can.
+
+### `invoke` (request, front end to host)
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"invoke","params":{"name":"models"}}
+```
+
+Calls a function the provider described, with `params` if it takes any. The
+host relays the call and the answer without reading either. A function that
+an option names in `values` answers with `{"values": [{"value", "label",
+"description"}]}`; any other answers with JSON of its own.
+
+`describe` and `invoke` are refused with an error while a run is in progress.
 
 ### `cancel` (notification, front end to host)
 

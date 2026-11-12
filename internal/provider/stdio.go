@@ -23,6 +23,8 @@ type Stdio struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	frames chan protocol.Frame
+	// description is what the provider said about itself on initialize.
+	description protocol.Description
 
 	mu     sync.Mutex
 	nextID int64
@@ -75,7 +77,22 @@ func Start(ctx context.Context, argv []string, config json.RawMessage, stderr io
 		return nil, fmt.Errorf("provider %q speaks protocol %d, host speaks %d", result.Name, result.Protocol, protocol.Version)
 	}
 
+	stdio.description = result.Description
+
 	return stdio, nil
+}
+
+// Description implements Provider.
+func (s *Stdio) Description() protocol.Description {
+	return s.description
+}
+
+// Invoke implements Provider.
+func (s *Stdio) Invoke(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := s.call(ctx, protocol.MethodInvoke, protocol.InvokeParams{Name: name, Params: params}, &result, nil)
+
+	return result, err
 }
 
 // Complete implements Provider.

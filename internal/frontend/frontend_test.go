@@ -2,8 +2,10 @@ package frontend
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"rumbo/protocol"
@@ -56,7 +58,7 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 	served := make(chan error, 1)
 
 	go func() {
-		served <- host.Serve(func(ctx context.Context, params protocol.RunParams) (string, error) {
+		served <- host.Serve(Handlers{Run: func(ctx context.Context, params protocol.RunParams) (string, error) {
 			objective := params.Objective
 
 			if params.Resume {
@@ -75,8 +77,45 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 			host.ToolFinished("bash", "boom", true)
 
 			return "s1", nil
+		},
+			Describe: func(context.Context) (protocol.DescribeResult, error) {
+				return protocol.DescribeResult{
+					Provider: "p",
+					Model:    "m",
+					Offers: protocol.Description{
+						Options: []protocol.Option{{Name: "effort", Type: protocol.OptionString, Enum: []string{"low", "high"}}},
+					},
+				}, nil
+			},
+			Invoke: func(_ context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
+				if params.Name != "models" {
+					return nil, errors.New("unknown function " + params.Name)
+				}
+
+				return json.RawMessage(`{"values":[{"value":"m"},{"value":"n"}]}`), nil
+			},
 		})
 	}()
+
+	// The front end learns what can be chosen, and calls a function, without
+	// knowing which provider is behind the host.
+	described, err := front.Describe()
+
+	if err != nil || described.Provider != "p" || len(described.Offers.Options) != 1 || described.Offers.Options[0].Enum[1] != "high" {
+		t.Fatalf("described = %+v, err = %v", described, err)
+	}
+
+	raw, err := front.Invoke("models", nil)
+
+	var listed protocol.ValuesResult
+
+	if err != nil || json.Unmarshal(raw, &listed) != nil || len(listed.Values) != 2 {
+		t.Fatalf("invoke = %s, err = %v", raw, err)
+	}
+
+	if _, err := front.Invoke("nope", nil); err == nil || !strings.Contains(err.Error(), "unknown function nope") {
+		t.Fatalf("an unknown function: err = %v", err)
+	}
 
 	var events []protocol.Event
 	result, err := front.Run("task", func(event protocol.Event) { events = append(events, event) })

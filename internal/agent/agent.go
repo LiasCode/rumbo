@@ -67,9 +67,11 @@ type Agent struct {
 	Tools      []tool.Tool
 	Collectors []ambient.Collector
 
-	// ProviderName and Model are recorded with every response.
+	// ProviderName, Model, and Options are recorded with every response.
+	// Options are the provider's own; the agent only carries them.
 	ProviderName string
 	Model        string
+	Options      json.RawMessage
 	MaxTokens    int
 
 	// CompactAt is the context size, in tokens, at which the conversation is
@@ -273,6 +275,7 @@ func (a *Agent) compact(ctx context.Context, session store.Session, objective st
 		Usage:    result.Usage,
 		Provider: a.ProviderName,
 		Model:    a.Model,
+		Options:  a.Options,
 	})
 }
 
@@ -307,6 +310,7 @@ func (a *Agent) params(state transcript.State, messages []protocol.Message) prot
 		Messages:  messages,
 		Tools:     state.System.Tools,
 		MaxTokens: a.MaxTokens,
+		Options:   a.Options,
 	}
 }
 
@@ -380,6 +384,7 @@ func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.Compl
 		Usage:    result.Usage,
 		Provider: a.ProviderName,
 		Model:    a.Model,
+		Options:  a.Options,
 	})
 
 	a.Observer.TurnFinished(result.Usage)

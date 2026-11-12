@@ -9,6 +9,12 @@ import (
 	"sync"
 )
 
+// Invoker is what a provider that describes functions also implements. The
+// result is sent to the caller as JSON.
+type Invoker interface {
+	Invoke(ctx context.Context, name string, params json.RawMessage) (any, error)
+}
+
 // Handler is what a provider implements. Serve turns it into a protocol
 // server, so a provider written in Go needs nothing else.
 type Handler interface {
@@ -68,6 +74,23 @@ func (s *server) dispatch(ctx context.Context, frame Frame) bool {
 		}
 
 		result, err := s.handler.Initialize(ctx, params)
+		s.reply(frame.ID, result, err)
+
+	case MethodInvoke:
+		var params InvokeParams
+
+		if !s.decode(frame, &params) {
+			return false
+		}
+
+		invoker, able := s.handler.(Invoker)
+
+		if !able {
+			s.reply(frame.ID, nil, &Error{Code: CodeMethodNotFound, Message: "this provider has no functions"})
+			return false
+		}
+
+		result, err := invoker.Invoke(ctx, params.Name, params.Params)
 		s.reply(frame.ID, result, err)
 
 	case MethodComplete:

@@ -161,6 +161,8 @@ func configUsage() string {
 		fmt.Fprintf(&out, "  %-18s %s\n", key, settingHelp[key])
 	}
 
+	fmt.Fprintf(&out, "  %-18s %s\n", optionsPrefix+"<provider>", "JSON object of option values sent to that provider with every request")
+
 	return strings.TrimRight(out.String(), "\n")
 }
 
@@ -209,7 +211,7 @@ func configCommands(database store.Store, args []string) error {
 		scope = root
 	}
 
-	if len(rest) == 0 || settingHelp[rest[0]] == "" {
+	if len(rest) == 0 || (settingHelp[rest[0]] == "" && !strings.HasPrefix(rest[0], optionsPrefix)) {
 		return errors.New(configUsage())
 	}
 
@@ -230,6 +232,12 @@ func configCommands(database store.Store, args []string) error {
 		return nil
 
 	case args[0] == "set" && len(rest) == 2:
+		if strings.HasPrefix(rest[0], optionsPrefix) {
+			if _, err := mergeOptions(json.RawMessage(rest[1])); err != nil {
+				return err
+			}
+		}
+
 		return database.SetSetting(scope, rest[0], rest[1])
 	}
 
