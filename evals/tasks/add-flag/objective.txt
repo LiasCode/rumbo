@@ -1,0 +1,1 @@
+Add a -json flag to this command. With the flag, the output is a JSON object with the fields "words" and "lines". Without it, the output stays as it is.

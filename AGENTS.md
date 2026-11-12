@@ -44,6 +44,20 @@ go test ./...
 go build -o rumbo ./cmd/rumbo
 ```
 
+## Measuring changes
+
+A change to the loop, the system prompt, the tools, or the ambient context
+changes how the model behaves, and tests cannot show that. Run the evaluation
+set before and after such a change and compare pass rate, turns, and tokens:
+
+```sh
+go run ./evals -selftest                          # the tasks themselves are sound
+go run ./evals -model anthropic/claude-opus-5-5   # needs a credential; costs tokens
+```
+
+Never run the second command without the owner asking for it. See
+[evals/README.md](evals/README.md).
+
 Tests never call a real model: the agent uses a scripted `Provider`, and the
 built-in providers are tested against local HTTP servers.
 

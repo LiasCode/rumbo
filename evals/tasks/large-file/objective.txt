@@ -1,0 +1,1 @@
+Change request_timeout to 45 in settings.ini.

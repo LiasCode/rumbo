@@ -1,0 +1,30 @@
+package inventory
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestRemoveHidden(t *testing.T) {
+	if err := Add("hidden-nut", 2); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Remove("hidden-nut"); err != nil {
+		t.Fatalf("Remove of an existing item failed: %v", err)
+	}
+
+	if got := Quantity("hidden-nut"); got != 0 {
+		t.Fatalf("Quantity after Remove = %d, want 0", got)
+	}
+
+	err := Remove("hidden-nut")
+
+	if err == nil {
+		t.Fatal("Remove of a missing item returned no error")
+	}
+
+	if !strings.HasPrefix(err.Error(), "inventory: ") {
+		t.Fatalf("error %q does not start with the project's prefix", err)
+	}
+}

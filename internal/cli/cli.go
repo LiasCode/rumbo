@@ -55,7 +55,6 @@ func (code exitCode) Error() string {
 func Main(args []string) int {
 	err := dispatch(args)
 
-
 	if code, ok := errors.AsType[exitCode](err); ok {
 		return int(code)
 	}

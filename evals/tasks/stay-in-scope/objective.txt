@@ -1,0 +1,1 @@
+Rename the function FetchUsr to FetchUser everywhere.

@@ -6,11 +6,13 @@ protocols and on external interfaces waits until this is done.
 Items are numbered so they can be referred to. Within a block they are in the
 order to do them. Remove an item when it is done.
 
+Measure every change to the loop, the prompt, or the tools with the
+evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
+
 ## Order
 
-1. Items 1 and 2: everything else depends on what they show.
-2. Loop correctness (3 to 8) together with 21 and 29: what daily use needs.
-3. The remaining blocks.
+1. Loop correctness (3 to 8) together with 21 and 29: what daily use needs.
+2. The remaining blocks.
 
 ## Decisions for the owner
 
@@ -18,13 +20,6 @@ order to do them. Remove an item when it is done.
 - **File restore points** (35): whether sessions should be able to undo
   changes to files.
 - **Windows** (39): whether it is in scope.
-
-## 0. Before anything else
-
-1. **Run against a real model.** Everything is verified only with simulated
-   providers. Needs a credential.
-2. **A small evaluation set.** Five to ten real, repeatable tasks, so each
-   change to the loop is measured.
 
 ## 1. Loop
 

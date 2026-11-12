@@ -1,0 +1,1 @@
+Add a function Remove(name string) error to the inventory package. It deletes the item, and fails when the item does not exist.

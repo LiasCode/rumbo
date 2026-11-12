@@ -44,9 +44,9 @@ type config struct {
 	MaxVerifyRounds int
 }
 
-// databasePath is where the SQLite file lives: RUMBO_DB, or the user's data
+// DatabasePath is where the SQLite file lives: RUMBO_DB, or the user's data
 // directory.
-func databasePath() (string, error) {
+func DatabasePath() (string, error) {
 	if path := os.Getenv("RUMBO_DB"); path != "" {
 		return path, nil
 	}
@@ -77,7 +77,7 @@ var builtins = []struct {
 
 // openStore opens the database and registers the built-in programs.
 func openStore() (store.Store, error) {
-	path, err := databasePath()
+	path, err := DatabasePath()
 
 	if err != nil {
 		return nil, err

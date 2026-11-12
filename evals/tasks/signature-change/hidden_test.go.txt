@@ -1,0 +1,17 @@
+package netutil
+
+import "testing"
+
+func TestParsePortHidden(t *testing.T) {
+	port, err := ParsePort("8080")
+
+	if err != nil || port != 8080 {
+		t.Fatalf("ParsePort(8080) = %d, %v", port, err)
+	}
+
+	for _, text := range []string{"x", "0", "70000", ""} {
+		if _, err := ParsePort(text); err == nil {
+			t.Fatalf("ParsePort(%q) returned no error", text)
+		}
+	}
+}
