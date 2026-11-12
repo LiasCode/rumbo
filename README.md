@@ -69,9 +69,21 @@ force, including its models, and `/set <name> <value>` changes a choice for
 the runs that follow (`/set model <name>` for the model).
 
 Other commands come from the host: `/status`, `/sessions`, `/open <session>`,
-`/new`, `/providers`, `/use <provider> <model>`, `/compact`, and `/quit`.
-`/help` lists them. The terminal UI knows none of them in advance; it builds
-them from what the host and the provider describe, and so can any front end.
+`/new`, `/delete <session>`, `/providers`, `/use <provider> <model>`,
+`/compact`, and `/quit`. A command that cannot be undone, such as `/delete`,
+asks for a `yes` first.
+
+What a command acts on is always marked: `[host]` is rumbo itself, the same
+with any provider, and `[provider <name>]` is what reaches the model. Answers,
+errors, and diagnostics carry the mark of where they came from.
+`/help` lists every command, the provider's included. Tab completes a command
+and then its arguments: sessions after `/open`, providers after `/use`,
+options and their values after `/set`. While a command is being typed, the
+status bar shows what it could become.
+
+The terminal UI knows none of this in advance; it builds the commands and
+their completions from what the host and the provider describe, and so can
+any front end.
 
 ## Instructions
 

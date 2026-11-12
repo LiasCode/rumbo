@@ -387,6 +387,40 @@ func (s *SQLite) Sessions(project string) ([]Session, error) {
 	return sessions, rows.Err()
 }
 
+// DeleteSession implements Store.
+func (s *SQLite) DeleteSession(id string) error {
+	tx, err := s.db.Begin()
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM entries WHERE session_id = ?`, id); err != nil {
+		return err
+	}
+
+	result, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+
+	if err != nil {
+		return err
+	}
+
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// The lock file has nothing left to guard.
+	_ = os.Remove(filepath.Join(filepath.Dir(s.path), "locks", id+".lock"))
+
+	return nil
+}
+
 // LockSession implements Store. The lock is a file lock next to the
 // database, because the system drops it when the process dies, however it
 // dies; a row in a table would outlive a crash.

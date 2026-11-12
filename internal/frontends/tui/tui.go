@@ -34,6 +34,8 @@ const (
 	styleBold    = escape + "[1m"
 	styleDim     = escape + "[2m"
 	styleRed     = escape + "[31m"
+	styleCyan    = escape + "[36m"
+	styleMagenta = escape + "[35m"
 	styleYellow  = escape + "[33m"
 	styleReverse = escape + "[7m"
 )
@@ -129,6 +131,10 @@ type ui struct {
 	// empty means the stored values.
 	model   string
 	options map[string]json.RawMessage
+	// described is what the provider said it offers, once it was asked.
+	described *protocol.DescribeResult
+	// pending is a function that asked to be confirmed and waits for a yes.
+	pending func() (answer, error)
 	notice  string
 	usage   render.Usage
 }
@@ -189,6 +195,13 @@ func (u *ui) footer() {
 		state = "working (Ctrl-C cancels)"
 	}
 
+	// While a command is being typed, the bar shows what it could become.
+	if typed := string(u.input); strings.HasPrefix(typed, "/") && !strings.Contains(typed, " ") {
+		if matches := narrow(u.commandNames(), typed); len(matches) > 0 {
+			state = "Tab: " + suggest(matches)
+		}
+	}
+
 	if u.notice != "" {
 		state = u.notice
 	}
@@ -199,7 +212,7 @@ func (u *ui) footer() {
 		model = u.model
 	}
 
-	status := fmt.Sprintf(" rumbo | %s/%s | %s", u.info.Provider, model, state)
+	status := fmt.Sprintf(" rumbo | provider %s, model %s | %s", u.info.Provider, model, state)
 
 	if u.session != "" {
 		status += " | session " + u.session
@@ -267,7 +280,15 @@ func (u *ui) show(event protocol.Event) {
 		u.footer()
 
 	case protocol.EventLog:
-		u.line(styleYellow, event.Text)
+		// A log line is the provider's own output or something the host
+		// did; which one is said, since they call for different fixes.
+		source := fromHost
+
+		if event.Source == protocol.TargetProvider {
+			source = fromProvider
+		}
+
+		u.line("", u.label(source)+" "+styleYellow+event.Text)
 	}
 }
 
@@ -376,11 +397,31 @@ func (u *ui) key(key rune) bool {
 		u.mu.Unlock()
 
 		switch {
+		case u.confirm(objective):
 		case isCommand(objective):
 			u.command(objective)
 		case objective != "":
 			u.submit(objective)
 		}
+
+		return true
+
+	case '\t': // Tab: complete a command or its argument.
+		line, online := string(u.input), !u.running
+		u.mu.Unlock()
+
+		if !strings.HasPrefix(line, "/") {
+			return true
+		}
+
+		// Completing may ask the host for values, so it runs unlocked.
+		completed, hint := u.complete(line, online)
+
+		u.mu.Lock()
+		u.input = []rune(completed)
+		u.notice = hint
+		u.footer()
+		u.mu.Unlock()
 
 		return true
 

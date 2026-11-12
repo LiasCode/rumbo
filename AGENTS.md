@@ -5,7 +5,8 @@ the ones a change must not break.
 
 ## Invariants
 
-- **Entries are append-only.** Never update or delete an entry.
+- **Entries are append-only.** Never update or delete an entry of a session.
+  The one way history goes away is a user deleting a whole session.
 - **Only `transcript.Build` decides what the model sees.** Do not add, drop,
   or rewrite messages between the store and the provider. Anything meant for
   the model becomes an entry.

@@ -43,6 +43,15 @@ var hostFunctions = []hostFunction{
 		call:     (*host).newSession,
 	},
 	{
+		Function: protocol.Function{
+			Name:        "delete",
+			Description: "Delete a session of this project and its history",
+			Params:      []protocol.Option{{Name: "session", Type: protocol.OptionString, Values: "sessions"}},
+			Confirm:     "This deletes the session and everything recorded in it, for good. Files it changed stay as they are.",
+		},
+		call: (*host).deleteSession,
+	},
+	{
 		Function: protocol.Function{Name: "providers", Description: "List the registered providers"},
 		call:     (*host).listProviders,
 	},
@@ -231,6 +240,41 @@ func (h *host) openSession(_ context.Context, params map[string]string) (protoco
 	h.info.Dir = found.Dir
 
 	return protocol.HostResult{Text: fmt.Sprintf("continuing session %s (%s) in %s", found.ID, found.Title, found.Dir)}, nil
+}
+
+// deleteSession removes a session for good. One that another rumbo process
+// is using is left alone.
+func (h *host) deleteSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	found, err := h.database.Session(params["session"])
+
+	if err != nil {
+		return protocol.HostResult{}, fmt.Errorf("session %s: %w", params["session"], err)
+	}
+
+	if found.Project != h.root {
+		return protocol.HostResult{}, fmt.Errorf("session %s belongs to %s; start rumbo there to delete it", found.ID, found.Project)
+	}
+
+	// The session in use here is let go of first; any other must be free.
+	if h.session != nil && h.session.ID == found.ID {
+		h.release()
+		h.session = nil
+		h.info.Session = ""
+	} else {
+		unlock, err := h.database.LockSession(found.ID)
+
+		if err != nil {
+			return protocol.HostResult{}, fmt.Errorf("session %s: %w", found.ID, err)
+		}
+
+		defer unlock()
+	}
+
+	if err := h.database.DeleteSession(found.ID); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: fmt.Sprintf("deleted session %s (%s)", found.ID, found.Title)}, nil
 }
 
 func (h *host) newSession(context.Context, map[string]string) (protocol.HostResult, error) {

@@ -173,7 +173,7 @@ What is happening in the active run. `type` selects the fields:
 | `tool_started` | `name`, `args` | The agent calls a tool. |
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage` | One model response finished, with its token counts. |
-| `log` | `text` | A diagnostic from the provider, or something the host did on its own, such as retrying a request. |
+| `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for something the host did on its own, such as retrying a request. |
 
 A front end ignores event types and fields it does not know. New ones may be
 added without a new protocol version.
@@ -188,7 +188,9 @@ commands, menu entries, or buttons without knowing them beforehand. A host
 that gains a function gives every front end a new command.
 
 They arrive in `initialize`, as `functions`, each with a `name`, a
-`description`, and `params`. They are called with `invoke` and
+`description`, and `params`. A function with a `confirm` text cannot be
+undone: a front end shows that text and calls the function only after the
+person agrees. They are called with `invoke` and
 `"target": "host"`:
 
 ```json
@@ -219,6 +221,7 @@ The functions of this version:
 | `sessions` | | Lists the project's sessions, most recently used first. |
 | `open` | `session` | Continues another session of the project. |
 | `new` | | Makes the next task start a new session. |
+| `delete` | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `providers` | | Lists the registered providers. |
 | `use` | `provider`, `model` | Changes provider and model for the tasks that follow. The session goes on. |
 | `compact` | | Replaces the conversation with a summary now. |

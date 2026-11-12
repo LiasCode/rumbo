@@ -120,7 +120,8 @@ type RunResult struct {
 //   - tool_started: Name, Args.
 //   - tool_finished: Name, Result, Failed.
 //   - turn: Usage of one model response.
-//   - log: Text, a diagnostic line from the host or the provider.
+//   - log: Text, and Source saying whose line it is: the provider's own
+//     output, or something the host did, such as retrying a request.
 type Event struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text,omitempty"`
@@ -129,6 +130,7 @@ type Event struct {
 	Args     json.RawMessage `json:"args,omitempty"`
 	Result   string          `json:"result,omitempty"`
 	Failed   bool            `json:"failed,omitempty"`
+	Source   string          `json:"source,omitempty"`
 	Usage    *Usage          `json:"usage,omitempty"`
 }
 

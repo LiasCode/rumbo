@@ -233,7 +233,7 @@ type logWriter struct {
 
 func (w logWriter) Write(data []byte) (int, error) {
 	if text := string(bytes.TrimRight(data, "\n")); text != "" {
-		w.conn.event(protocol.Event{Type: protocol.EventLog, Text: text})
+		w.conn.event(protocol.Event{Type: protocol.EventLog, Text: text, Source: protocol.TargetProvider})
 	}
 
 	return len(data), nil
@@ -241,7 +241,7 @@ func (w logWriter) Write(data []byte) (int, error) {
 
 // Notice implements agent.Observer.
 func (c *Conn) Notice(text string) {
-	c.event(protocol.Event{Type: protocol.EventLog, Text: text})
+	c.event(protocol.Event{Type: protocol.EventLog, Text: text, Source: protocol.TargetHost})
 }
 
 // ContextUpdated implements agent.Observer.

@@ -172,7 +172,10 @@ not an option: it stays the `model` field of `complete`, because every
 provider has one and the host records it with each answer.
 
 **A function** has a `name`, a `description`, and `params`, a list of options
-describing its arguments. What it does and returns is the provider's own.
+describing its arguments. What it does and returns is the provider's own. A
+function that cannot be undone adds `confirm`, a sentence saying what it
+does; a front end shows it and calls the function only after the person
+agrees.
 
 One convention ties the two together. A function that an option names in
 `values` returns the accepted values in this shape, so a front end can build

@@ -92,6 +92,41 @@ func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 		unlock()
 	}
 
+	// Deleting removes the session and its history, and nothing else.
+	kept, _ := h.database.CreateSession("/repo", "/repo", "kept")
+	h.database.Append(older.ID, "user", map[string]string{"text": "hi"})
+
+	if _, err := h.invokeHost(context.Background(), "delete", []byte(`{"session":"`+foreign[0].ID+`"}`)); err == nil {
+		t.Fatal("a session of another project was deleted")
+	}
+
+	held, _ := h.database.LockSession(kept.ID)
+
+	if _, err := h.invokeHost(context.Background(), "delete", []byte(`{"session":"`+kept.ID+`"}`)); err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Fatalf("deleting a session in use elsewhere: err = %v", err)
+	}
+
+	held()
+
+	if deleted := call(t, h, "delete", `{"session":"`+older.ID+`"}`); !strings.Contains(deleted.Text, "older work") {
+		t.Fatalf("delete = %q", deleted.Text)
+	}
+
+	if entries, _ := h.database.Entries(older.ID); len(entries) != 0 {
+		t.Fatal("the entries of a deleted session are still there")
+	}
+
+	if remaining := call(t, h, "sessions", ""); len(remaining.Values) != 1 || remaining.Values[0].Value != kept.ID {
+		t.Fatalf("after delete: %+v", remaining.Values)
+	}
+
+	// Deleting the session in use leaves the front end without one.
+	call(t, h, "open", `{"session":"`+kept.ID+`"}`)
+
+	if gone := call(t, h, "delete", `{"session":"`+kept.ID+`"}`); gone.State.Session != "" || h.session != nil {
+		t.Fatalf("after deleting the open session: %+v", gone.State)
+	}
+
 	if providers := call(t, h, "providers", ""); len(providers.Values) != 2 || providers.Values[1].Value != "second" {
 		t.Fatalf("providers = %+v", providers.Values)
 	}

@@ -64,6 +64,12 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     text values, and they cannot report progress while they work, which
     `compact` would use.
 
+### Terminal UI
+
+53. **Completion shows values, not what they are.** After `/open`, Tab lists
+    session ids without their titles, because the status bar has one line.
+54. **The input line is a single line with no cursor movement or history.**
+
 ### Steering
 
 19. **Messages during a run.** The loop accepts no correction from the user
@@ -93,7 +99,9 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     not stored.
 32. **Useful listing.** `sessions` shows only the current project, and no
     turns, tokens, or state (finished, failed, unfinished).
-33. **Delete, rename, prune.** The database only grows.
+33. **Rename and prune.** A session can be deleted, one at a time and from a
+    front end only. There is no renaming, no deleting by age, and no
+    `rumbo sessions rm`.
 34. **Accumulated usage.** No token totals per session.
 35. **File state.** History reproduces what the model was sent, not the
     files: no restore points and no undo.

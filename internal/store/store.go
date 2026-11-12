@@ -81,6 +81,9 @@ type Store interface {
 	// project lists the sessions of every project.
 	Sessions(project string) ([]Session, error)
 
+	// DeleteSession removes a session and its entries for good.
+	DeleteSession(id string) error
+
 	// LockSession gives this process the session until release is called or
 	// the process ends. Two processes appending to one session would
 	// interleave their entries into a history neither of them sent.

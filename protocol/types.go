@@ -138,11 +138,15 @@ type Option struct {
 	Default json.RawMessage `json:"default,omitempty"`
 }
 
-// Function describes one operation of the provider.
+// Function describes one operation of the provider or of the host.
 type Function struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	Params      []Option `json:"params,omitempty"`
+	// Confirm, when set, says the function cannot be undone and what it
+	// does. A front end shows it and calls the function only after the
+	// person agrees.
+	Confirm string `json:"confirm,omitempty"`
 }
 
 // InvokeParams calls a function of the provider.
