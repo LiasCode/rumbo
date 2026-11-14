@@ -370,10 +370,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 	u.line(styleBold, "\n"+prompt+label)
 	u.mu.Unlock()
 
-	u.wait.Add(1)
-
-	go func() {
-		defer u.wait.Done()
+	u.wait.Go(func() {
 
 		named := func(run int64) {
 			u.mu.Lock()
@@ -392,7 +389,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 		defer u.mu.Unlock()
 
 		u.end(started, result, err)
-	}()
+	})
 }
 
 // end shows how a run ended. One that worked in the background says so in
@@ -484,10 +481,7 @@ func (u *ui) steer(text string) {
 	u.footer()
 	u.mu.Unlock()
 
-	u.wait.Add(1)
-
-	go func() {
-		defer u.wait.Done()
+	u.wait.Go(func() {
 
 		err := u.conn.SteerRun(run, text)
 
@@ -507,7 +501,7 @@ func (u *ui) steer(text string) {
 		}
 
 		u.footer()
-	}()
+	})
 }
 
 // readKeys edits the input line until the user quits or stdin ends.
@@ -656,7 +650,8 @@ func readSequence(keys *bufio.Reader) (string, error) {
 		return "", keys.UnreadRune()
 	}
 
-	sequence := string(first)
+	var sequence strings.Builder
+	sequence.WriteString(string(first))
 
 	for {
 		next, _, err := keys.ReadRune()
@@ -665,13 +660,13 @@ func readSequence(keys *bufio.Reader) (string, error) {
 			return "", err
 		}
 
-		sequence += string(next)
+		sequence.WriteString(string(next))
 
 		if next >= 0x40 && next <= 0x7e {
-			return sequence, nil
+			return sequence.String(), nil
 		}
 
-		if len(sequence) > 32 {
+		if len(sequence.String()) > 32 {
 			return "", errors.New("escape sequence too long")
 		}
 	}
