@@ -24,12 +24,12 @@ import (
 	"rumbo/protocol"
 )
 
-const usage = `rumbo - a minimal coding agent harness
+const usage = `rumbo - a minimal agent harness
 
 Usage:
   rumbo [flags] [objective]      work in the current directory, in a front end
   rumbo serve [flags]            be the host for a front end on stdin/stdout
-  rumbo sessions                 list the sessions of the current directory
+  rumbo sessions                 list the sessions of the current project
   rumbo log <session>            print a session's entries as JSON lines
   rumbo config ...               read and write settings
   rumbo provider ...             manage providers
@@ -38,7 +38,7 @@ Usage:
   rumbo attach <name>            run a built-in front end on descriptors 3/4
 
 Flags:
-  -c            continue the latest session of the current directory
+  -c            continue the latest session of the current project
   -r            resume the unfinished run of that session, without a new objective
   -s <session>  continue the given session
   -m <model>    provider and model for this run, as provider/model

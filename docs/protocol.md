@@ -57,7 +57,7 @@ The result may also carry what the provider says about itself. See
 ```json
 {"jsonrpc":"2.0","id":2,"method":"complete","params":{
   "model": "some-model",
-  "system": "You are a coding agent...",
+  "system": "You are an agent running in rumbo...",
   "messages": [ ... ],
   "tools": [{"name":"bash","description":"...","schema":{ JSON Schema }}],
   "max_tokens": 0

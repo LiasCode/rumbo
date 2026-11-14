@@ -1,4 +1,4 @@
-// Command rumbo is a minimal coding agent harness.
+// Command rumbo is a minimal agent harness.
 package main
 
 import (
