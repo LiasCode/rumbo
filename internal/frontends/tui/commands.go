@@ -250,7 +250,7 @@ func (u *ui) help() string {
 	}
 
 	fmt.Fprintf(&out, "\n%-28s %s\n", commandHelp, "Show this list")
-	out.WriteString("Tab completes a command and its arguments. Anything else you type is a task.")
+	out.WriteString("Tab completes a command and its arguments. Up and Down bring back what you entered before. Anything else you type is a task.")
 
 	return out.String()
 }

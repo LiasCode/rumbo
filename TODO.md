@@ -55,7 +55,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 53. **Completion shows values, not what they are.** After `/open`, Tab lists
     session ids without their titles, because the status bar has one line.
-54. **The input line is a single line with no cursor movement or history.**
+54. **The input line is a single line with no cursor movement.** Its history
+    lasts as long as the terminal UI.
 
 ### Concurrency
 

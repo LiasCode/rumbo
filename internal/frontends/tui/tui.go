@@ -124,6 +124,12 @@ type ui struct {
 	height  int
 	input   []rune
 	midLine bool
+	// history is what was entered here, oldest first, for Up and Down to
+	// bring back. recalled is the line of it in the input, len(history)
+	// when none is, and draft is what was being typed before going back.
+	history  []string
+	recalled int
+	draft    []rune
 	// here is the run in the current session, which the screen follows, and
 	// away are the runs left working in other sessions.
 	here *job
@@ -528,6 +534,13 @@ func (u *ui) readKeys(keys *bufio.Reader) {
 				pasting = true
 			case "[201~":
 				pasting = false
+
+			// The arrows move through what was entered, as Ctrl-P and
+			// Ctrl-N do.
+			case "[A", "OA":
+				u.key(0x10)
+			case "[B", "OB":
+				u.key(0x0e)
 			}
 
 			continue
@@ -551,6 +564,12 @@ func (u *ui) key(key rune) bool {
 	switch key {
 	case '\r', '\n':
 		line, running := strings.TrimSpace(string(u.input)), u.here != nil
+
+		// The answer to a confirmation is not worth bringing back.
+		if line != "" && u.pending == nil {
+			u.remember(line)
+		}
+
 		u.mu.Unlock()
 
 		switch {
@@ -624,6 +643,12 @@ func (u *ui) key(key rune) bool {
 		u.layout(u.height - 2)
 		u.midLine = false
 
+	case 0x10: // Ctrl-P, or Up: the line entered before.
+		u.recall(-1)
+
+	case 0x0e: // Ctrl-N, or Down: the line entered after, or the one being typed.
+		u.recall(1)
+
 	default:
 		if key >= 0x20 {
 			u.input = append(u.input, key)
@@ -635,6 +660,41 @@ func (u *ui) key(key rune) bool {
 	u.mu.Unlock()
 
 	return true
+}
+
+// remember adds a line that was entered to the history, unless it repeats
+// the one before, and leaves the history at its end. The caller holds the
+// lock.
+func (u *ui) remember(line string) {
+	if last := len(u.history) - 1; last < 0 || u.history[last] != line {
+		u.history = append(u.history, line)
+	}
+
+	u.recalled = len(u.history)
+	u.draft = nil
+}
+
+// recall puts another line of the history in the input: an older one for a
+// step back, a newer one for a step forward, and past the newest what was
+// being typed. The caller holds the lock.
+func (u *ui) recall(step int) {
+	next := u.recalled + step
+
+	if next < 0 || next > len(u.history) {
+		return
+	}
+
+	if u.recalled == len(u.history) {
+		u.draft = slices.Clone(u.input)
+	}
+
+	u.recalled = next
+
+	if next == len(u.history) {
+		u.input = u.draft
+	} else {
+		u.input = []rune(u.history[next])
+	}
 }
 
 // readSequence consumes the rest of an escape sequence, so arrow keys and
