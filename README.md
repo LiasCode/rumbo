@@ -177,6 +177,7 @@ The same can be done from a front end, through functions of the host:
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md): the parts and their boundaries
+- [docs/use-cases.md](docs/use-cases.md): what the host, providers, and front ends must and can do
 - [docs/protocol.md](docs/protocol.md): the Agent Provider Protocol
 - [docs/frontend-protocol.md](docs/frontend-protocol.md): the Agent Frontend Protocol
 - [docs/glossary.md](docs/glossary.md): terms

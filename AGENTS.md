@@ -3,6 +3,10 @@
 Read [docs/architecture.md](docs/architecture.md) first. The rules below are
 the ones a change must not break.
 
+[docs/use-cases.md](docs/use-cases.md) says what the host, providers, and
+front ends must, can, and must not do. A change that adds, removes, or
+changes one of those updates it in the same change.
+
 ## Invariants
 
 - **Entries are append-only.** Never update or delete an entry of a session.
