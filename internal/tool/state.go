@@ -9,32 +9,37 @@ import (
 )
 
 // Set is the built-in tools together with what they share for the life of a
-// host: which files the model has seen, and the processes it left running.
+// host: which files the model has seen, the processes it left running, and
+// the files the tools saved for it.
 type Set struct {
-	seen *seen
-	jobs *jobs
+	seen  *seen
+	jobs  *jobs
+	saved *saved
 }
 
 // NewSet returns the built-in tools, ready to use.
 func NewSet() *Set {
-	return &Set{seen: &seen{stamps: map[string]stamp{}}, jobs: &jobs{}}
+	return &Set{seen: newSeen(), jobs: &jobs{}, saved: &saved{}}
 }
 
 // Separate returns a set for another session. It keeps its own record of
 // the files its model has seen, since one model has not read what another
-// did, and shares the processes left running, which stop with the host.
+// did, and shares the processes left running and the files saved, which go
+// with the host.
 func (s *Set) Separate() *Set {
-	return &Set{seen: &seen{stamps: map[string]stamp{}}, jobs: s.jobs}
+	return &Set{seen: newSeen(), jobs: s.jobs, saved: s.saved}
 }
 
 // Tools returns the tools in the order they are declared to the model.
 func (s *Set) Tools() []Tool {
-	return []Tool{Read{seen: s.seen}, Write{seen: s.seen}, Edit{seen: s.seen}, Bash{jobs: s.jobs}}
+	return []Tool{Read{seen: s.seen}, Write{seen: s.seen}, Edit{seen: s.seen}, Bash{jobs: s.jobs, saved: s.saved}}
 }
 
-// Close stops the processes the model started in the background.
+// Close stops the processes the model started in the background, and then
+// removes the files the tools saved, which those processes wrote to.
 func (s *Set) Close() {
 	s.jobs.stopAll()
+	s.saved.remove()
 }
 
 // seen remembers the state of each file as the model last saw it, so a file
@@ -43,6 +48,10 @@ func (s *Set) Close() {
 type seen struct {
 	mu     sync.Mutex
 	stamps map[string]stamp
+}
+
+func newSeen() *seen {
+	return &seen{stamps: map[string]stamp{}}
 }
 
 type stamp struct {
@@ -128,4 +137,51 @@ func (j *jobs) stopAll() {
 	}
 
 	j.groups = nil
+}
+
+// saved is the directory where the tools keep what they save for the model:
+// the whole of a long output, and what a background process writes. It is
+// made when first needed and removed with the host, so nothing is left in
+// the system's temporary directory. A nil saved creates files there and
+// removes nothing.
+type saved struct {
+	mu  sync.Mutex
+	dir string
+}
+
+// create makes a new file, named from pattern as os.CreateTemp names it.
+func (s *saved) create(pattern string) (*os.File, error) {
+	if s == nil {
+		return os.CreateTemp("", pattern)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.dir == "" {
+		dir, err := os.MkdirTemp("", "rumbo-*")
+
+		if err != nil {
+			return nil, err
+		}
+
+		s.dir = dir
+	}
+
+	return os.CreateTemp(s.dir, pattern)
+}
+
+// remove deletes the directory and everything in it.
+func (s *saved) remove() {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.dir != "" {
+		_ = os.RemoveAll(s.dir)
+		s.dir = ""
+	}
 }

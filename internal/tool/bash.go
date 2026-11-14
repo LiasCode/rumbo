@@ -22,7 +22,8 @@ const (
 
 // Bash runs a shell command in the working directory.
 type Bash struct {
-	jobs *jobs
+	jobs  *jobs
+	saved *saved
 }
 
 // Def implements Tool.
@@ -65,7 +66,7 @@ func (b Bash) Run(ctx context.Context, dir string, args json.RawMessage) (string
 	}
 
 	output, err := Shell(ctx, dir, input.Command, timeout)
-	output = clip(strings.TrimRight(output, "\n"))
+	output = clip(strings.TrimRight(output, "\n"), b.saved)
 
 	if err != nil {
 		return "", fmt.Errorf("%s\n[%w]", output, err)
@@ -86,7 +87,7 @@ const settle = time.Second
 // start runs command without waiting for it to end. It outlives the tool
 // call and the run, and is stopped when the host exits.
 func (b Bash) start(dir, command string) (string, error) {
-	log, err := os.CreateTemp("", "rumbo-background-*.log")
+	log, err := b.saved.create("rumbo-background-*.log")
 
 	if err != nil {
 		return "", err
@@ -115,7 +116,7 @@ func (b Bash) start(dir, command string) (string, error) {
 	case err := <-ended:
 		output, _ := os.ReadFile(log.Name())
 		_ = os.Remove(log.Name())
-		text := clip(strings.TrimRight(string(output), "\n"))
+		text := clip(strings.TrimRight(string(output), "\n"), b.saved)
 
 		if err != nil {
 			return "", fmt.Errorf("%s\n[ended at once: %w]", text, err)

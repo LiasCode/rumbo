@@ -32,14 +32,12 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     read once is paid for on every later request. Dropping old ones needs the
     provider's help, because editing earlier turns invalidates the reasoning
     blocks that came after.
-44. **Saved output is never removed.** Long command output is saved to the
-    system's temporary directory and left there.
 
 ### Tools
 
 48. **Background processes end with the host.** A process started with
     `background` is stopped when rumbo exits, so it does not survive between
-    one-shot runs, and its log file is left in the temporary directory.
+    one-shot runs.
 ### Provider options
 
 49. **Keeping a choice takes a second step.** `/set` in the terminal UI lasts

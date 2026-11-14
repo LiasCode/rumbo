@@ -58,7 +58,8 @@ tokens on every request, and a shell already reaches everything else. The
 tools keep a little state. Each session has its own record of the files its
 model has seen, so a model cannot replace a file whole without knowing what
 is in it, even one another session's model read. The processes left running
-in the background are the host's, so they are stopped when it exits.
+in the background, and the files the tools save for the model, are the
+host's: they go when it exits.
 
 **Ambient context** (`internal/ambient`). The little the model is told
 without asking: the environment it runs in, and the user's instruction files.
@@ -144,7 +145,7 @@ works in one session at a time.
 **Tool output is bounded.** A result stays in the context and is paid for on
 every later request, so results are kept small: a file is read in windows,
 and long command output is reduced to its beginning and end, with the whole
-of it saved to a file the model can search.
+of it saved to a file the model can search while the host lasts.
 
 **The host is driven only through the protocol.** It ignores the terminal's
 interrupt and writes nothing to the terminal. A front end decides what Ctrl-C

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -23,9 +22,10 @@ type Tool interface {
 }
 
 // Defaults returns the built-in tools, for callers that have nothing to
-// clean up afterwards.
+// clean up afterwards: what they save stays in the system's temporary
+// directory, and the processes they start are not tracked.
 func Defaults() []Tool {
-	return NewSet().Tools()
+	return (&Set{seen: newSeen()}).Tools()
 }
 
 // Limits on what one call may put in the context. A tool result is paid for
@@ -64,7 +64,7 @@ func resolve(dir, path string) (string, error) {
 // clip returns output whole when it is small. Otherwise it returns the
 // beginning and the end, which is where a command says what it is doing and
 // how it ended, and saves the full output to a file the model can search.
-func clip(output string) string {
+func clip(output string, saved *saved) string {
 	if len(output) <= outputBytes {
 		return output
 	}
@@ -88,7 +88,7 @@ func clip(output string) string {
 	omitted := total - strings.Count(head, "\n") - strings.Count(tail, "\n") - 2
 	where := "the full output could not be saved"
 
-	if path, err := save(output); err == nil {
+	if path, err := save(output, saved); err == nil {
 		where = fmt.Sprintf("the full output, %d lines, is in %s; search it with grep or read it in windows", total, path)
 	}
 
@@ -96,8 +96,8 @@ func clip(output string) string {
 }
 
 // save writes output to a file outside the project.
-func save(output string) (string, error) {
-	file, err := os.CreateTemp("", "rumbo-output-*.txt")
+func save(output string, saved *saved) (string, error) {
+	file, err := saved.create("rumbo-output-*.txt")
 
 	if err != nil {
 		return "", err

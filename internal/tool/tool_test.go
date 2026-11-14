@@ -173,6 +173,8 @@ func TestBashBackgroundReturnsAtOnceAndIsStoppedOnClose(t *testing.T) {
 	set := NewSet()
 	bash := set.Tools()[3]
 
+	defer set.Close()
+
 	started := time.Now()
 	output, err := call(t, bash, dir, map[string]any{"command": "echo serving; sleep 60", "background": true})
 
@@ -189,8 +191,6 @@ func TestBashBackgroundReturnsAtOnceAndIsStoppedOnClose(t *testing.T) {
 	_, after, _ := strings.Cut(output, "Its output is in ")
 	log, _, _ := strings.Cut(after, ". Stop it")
 
-	defer os.Remove(log)
-
 	if content, _ := os.ReadFile(log); string(content) != "serving\n" {
 		t.Fatalf("log = %q", content)
 	}
@@ -204,6 +204,10 @@ func TestBashBackgroundReturnsAtOnceAndIsStoppedOnClose(t *testing.T) {
 
 	if syscall.Kill(-group, 0) == nil {
 		t.Fatal("the background process survived the close")
+	}
+
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Fatalf("the log of a stopped process is still there: %v", err)
 	}
 
 	// A command that fails at once is reported as a failure, not as started.
@@ -235,5 +239,38 @@ func TestSeparateSetsKeepTheirOwnReads(t *testing.T) {
 
 	if first.jobs != second.jobs {
 		t.Fatal("the sets do not share their background processes")
+	}
+}
+
+// What the tools save for the model goes with the host: the whole of a long
+// output is kept in a directory of the set's own until the set is closed,
+// and then nothing is left.
+func TestSavedOutputIsRemovedWithTheSet(t *testing.T) {
+	set := NewSet()
+	bash := set.Tools()[3]
+
+	defer set.Close()
+
+	output, err := call(t, bash, t.TempDir(), map[string]any{"command": "seq 1 20000"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, after, found := strings.Cut(output, " lines, is in ")
+	path, _, _ := strings.Cut(after, ";")
+
+	if !found || !strings.HasPrefix(filepath.Base(filepath.Dir(path)), "rumbo-") {
+		t.Fatalf("the output does not say where the rest is: %q", path)
+	}
+
+	if content, err := os.ReadFile(path); err != nil || !strings.HasSuffix(string(content), "\n20000") {
+		t.Fatalf("the saved output: err = %v", err)
+	}
+
+	set.Close()
+
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("the saved output is still there after close: %v", err)
 	}
 }
