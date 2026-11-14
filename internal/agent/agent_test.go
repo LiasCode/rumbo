@@ -689,3 +689,118 @@ func command(id, line string) protocol.Block {
 
 	return protocol.Block{Type: protocol.BlockToolCall, ID: id, Name: "bash", Args: args}
 }
+
+// told is an Inbox where the user speaks once the model has received a
+// given number of requests.
+type told struct {
+	model *scripted
+	said  map[int][]string
+}
+
+func (t *told) Take(record func(string) error) error {
+	asked := len(t.model.requests)
+	texts := t.said[asked]
+	delete(t.said, asked)
+
+	for _, text := range texts {
+		if err := record(text); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func lastText(message protocol.Message) string {
+	return message.Content[len(message.Content)-1].Text
+}
+
+// What the user says while a tool runs reaches the model with the tool's
+// result, and the run keeps the objective it had.
+func TestSteerReachesTheNextTurn(t *testing.T) {
+	model := &scripted{answers: []protocol.Message{
+		say(write("call-1", "a.txt", "one")),
+		say(text("Done.")),
+	}}
+
+	worker, database, session, _ := setup(t, model)
+	worker.Inbox = &told{model: model, said: map[int][]string{1: {"name it b.txt instead"}}}
+
+	if err := worker.Run(context.Background(), session, "write a file"); err != nil {
+		t.Fatal(err)
+	}
+
+	second := model.requests[1].Messages
+	last := second[len(second)-1]
+
+	if last.Role != protocol.RoleUser || len(last.Content) != 2 || last.Content[0].Type != protocol.BlockToolResult || last.Content[1].Text != "name it b.txt instead" {
+		t.Fatalf("the second request ends with %+v", last)
+	}
+
+	entries, _ := database.Entries(session.ID)
+
+	if got := kinds(entries); got != "system user assistant tool_result steer assistant note" {
+		t.Fatalf("entries = %q", got)
+	}
+
+	if state, _ := transcript.Build(entries); state.Objective != "write a file" || state.Unfinished {
+		t.Fatalf("after the run: objective %q, unfinished %t", state.Objective, state.Unfinished)
+	}
+}
+
+// What the user says as the model finishes keeps the run going, so the
+// model reads it before the run ends.
+func TestSteerAsTheModelFinishesKeepsTheRunGoing(t *testing.T) {
+	model := &scripted{answers: []protocol.Message{
+		say(text("Done.")),
+		say(text("Added the tests too.")),
+	}}
+
+	worker, database, session, _ := setup(t, model)
+	worker.Inbox = &told{model: model, said: map[int][]string{1: {"add tests as well"}}}
+
+	if err := worker.Run(context.Background(), session, "fix it"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(model.requests) != 2 || lastText(model.requests[1].Messages[len(model.requests[1].Messages)-1]) != "add tests as well" {
+		t.Fatalf("requests = %d, the last one = %+v", len(model.requests), model.requests[len(model.requests)-1].Messages)
+	}
+
+	if got := notes(t, database, session); got != "done" {
+		t.Fatalf("notes = %q", got)
+	}
+}
+
+// A request that does not fit drops its last step, but not what the user
+// said during it: that is said again after the summary.
+func TestSteerSurvivesAnOverflow(t *testing.T) {
+	tooLong := protocol.Overflow(errors.New("prompt is too long"))
+
+	model := &scripted{answers: []protocol.Message{
+		say(write("call-1", "a.txt", "one")),
+		say(command("call-2", "echo a very long log")),
+		say(text("<summary>Wrote a.txt, then looked at a log.</summary>")),
+		say(text("Done.")),
+	}}
+
+	worker, _, session, _ := setup(t, model)
+	worker.Inbox = &told{model: model, said: map[int][]string{2: {"keep the log short"}}}
+	model.failAt = map[int]error{2: tooLong}
+
+	if err := worker.Run(context.Background(), session, "inspect the log"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The request that overflowed carried it, the summary was asked without
+	// it, and the request after the summary carries it again.
+	if lastText(model.requests[2].Messages[len(model.requests[2].Messages)-1]) != "keep the log short" {
+		t.Fatalf("the overflowing request ends with %+v", model.requests[2].Messages)
+	}
+
+	after := model.requests[4].Messages
+
+	if len(after) != 1 || !strings.Contains(after[0].Content[0].Text, "looked at a log") || lastText(after[0]) != "keep the log short" {
+		t.Fatalf("after the recovery the model saw %+v", after)
+	}
+}

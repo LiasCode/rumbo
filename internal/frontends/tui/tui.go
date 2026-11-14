@@ -128,7 +128,10 @@ type ui struct {
 	running bool
 	// asking is true while a command waits for its answer. Commands can be
 	// asked during a run; the host says which ones wait for it.
-	asking  bool
+	asking bool
+	// telling counts what was typed to the run and has not reached the
+	// model yet.
+	telling int
 	session string
 	// model and options are what the user chose here for the runs to come;
 	// empty means the stored values.
@@ -195,6 +198,8 @@ func (u *ui) footer() {
 	state := "ready"
 
 	switch {
+	case u.running && u.telling > 0:
+		state = fmt.Sprintf("working; %d message(s) wait for its next turn (Ctrl-C cancels)", u.telling)
 	case u.running:
 		state = "working (Ctrl-C cancels)"
 	case u.asking:
@@ -366,6 +371,43 @@ func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protoco
 	}()
 }
 
+// steer tells the run in progress text. It is shown once the model has it,
+// which is where the model reads it. If the run ends first, the text goes
+// back to the input line, to be sent as a task.
+func (u *ui) steer(text string) {
+	u.mu.Lock()
+	u.input = nil
+	u.notice = ""
+	u.telling++
+	u.footer()
+	u.mu.Unlock()
+
+	u.wait.Add(1)
+
+	go func() {
+		defer u.wait.Done()
+
+		err := u.conn.Steer(text)
+
+		u.mu.Lock()
+		defer u.mu.Unlock()
+
+		u.telling--
+
+		switch {
+		case err == nil:
+			u.line(styleBold, "\n"+prompt+text)
+		case len(u.input) == 0:
+			u.line(styleRed, err.Error())
+			u.input = []rune(text)
+		default:
+			u.line(styleRed, err.Error()+": "+text)
+		}
+
+		u.footer()
+	}()
+}
+
 // readKeys edits the input line until the user quits or stdin ends.
 func (u *ui) readKeys(keys *bufio.Reader) {
 	pasting := false
@@ -412,15 +454,17 @@ func (u *ui) key(key rune) bool {
 
 	switch key {
 	case '\r', '\n':
-		objective := strings.TrimSpace(string(u.input))
+		line, running := strings.TrimSpace(string(u.input)), u.running
 		u.mu.Unlock()
 
 		switch {
-		case u.confirm(objective):
-		case isCommand(objective):
-			u.command(objective)
-		case objective != "":
-			u.submit(objective)
+		case u.confirm(line):
+		case isCommand(line):
+			u.command(line)
+		case line != "" && running:
+			u.steer(line)
+		case line != "":
+			u.submit(line)
 		}
 
 		return true

@@ -17,6 +17,7 @@ import (
 // protocol.
 const (
 	MethodRun      = "run"
+	MethodSteer    = "steer"
 	MethodEvent    = "event"
 	MethodDescribe = "describe"
 )
@@ -91,6 +92,12 @@ type RunParams struct {
 	Resume    bool            `json:"resume,omitempty"`
 	Model     string          `json:"model,omitempty"`
 	Options   json.RawMessage `json:"options,omitempty"`
+}
+
+// SteerParams is what the user says to the run in progress. It reaches the
+// model before its next request, and the run's objective stays as it was.
+type SteerParams struct {
+	Text string `json:"text"`
 }
 
 // DescribeResult is what the provider in use offers and what is in force.
@@ -206,6 +213,15 @@ func (c *FrontendConn) Start(params RunParams, onEvent func(Event)) (RunResult, 
 	var result RunResult
 
 	return result, c.request(MethodRun, params, &result, onEvent)
+}
+
+// Steer tells the run in progress text, and returns once it is recorded for
+// the model's next request. An error means it never will be: no run is in
+// progress, or the run ended first.
+func (c *FrontendConn) Steer(text string) error {
+	var result struct{}
+
+	return c.request(MethodSteer, SteerParams{Text: text}, &result, nil)
 }
 
 // Describe asks what the provider in use offers and what is in force.

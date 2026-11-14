@@ -35,6 +35,14 @@ type Observer interface {
 	Notice(text string)
 }
 
+// Inbox holds what the user says to a run while it works. The loop looks
+// before every request, so what was said reaches the model at its next turn.
+type Inbox interface {
+	// Take passes what was said since the last call to record, in order,
+	// and stops at the first error, which it returns.
+	Take(record func(text string) error) error
+}
+
 // DefaultRetryWaits are the pauses before each retry of a request that
 // failed for a transient reason. After the last one the run fails.
 var DefaultRetryWaits = []time.Duration{2 * time.Second, 10 * time.Second, 30 * time.Second, time.Minute}
@@ -71,6 +79,8 @@ type Agent struct {
 	Observer   Observer
 	Tools      []tool.Tool
 	Collectors []ambient.Collector
+	// Inbox, when set, is how the user speaks to a run in progress.
+	Inbox Inbox
 
 	// ProviderName, Model, and Options are recorded with every response.
 	// Options are the provider's own; the agent only carries them.
@@ -134,11 +144,21 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 func (a *Agent) loop(ctx context.Context, session store.Session, objective string) error {
 	cuts := 0
 	shed := false
+	// said is what the user told the run since the model last answered.
+	var said []string
 
 	for turns := 1; ; turns++ {
 		if a.MaxTurns > 0 && turns > a.MaxTurns {
 			return fmt.Errorf("the run was stopped after %d turns (the max_turns setting); resume it to continue", a.MaxTurns)
 		}
+
+		heard, err := a.listen(session)
+
+		if err != nil {
+			return err
+		}
+
+		said = append(said, heard...)
 
 		if err := a.compact(ctx, session, objective); err != nil {
 			return err
@@ -151,7 +171,7 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 		if protocol.IsOverflow(err) && !shed {
 			shed = true
 
-			if err := a.shed(ctx, session, objective); err != nil {
+			if err := a.shed(ctx, session, objective, said); err != nil {
 				return err
 			}
 
@@ -163,6 +183,7 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 		}
 
 		shed = false
+		said = nil
 		calls := toolCalls(reply.Message)
 
 		switch reply.Stop {
@@ -191,8 +212,39 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 			continue
 		}
 
+		// The model is done, unless the user said something it has not read.
+		if said, err = a.listen(session); err != nil {
+			return err
+		}
+
+		if len(said) > 0 {
+			continue
+		}
+
 		return nil
 	}
+}
+
+// listen records what the user told the run since the loop last looked, so
+// the model reads it in its next request, and returns it.
+func (a *Agent) listen(session store.Session) ([]string, error) {
+	if a.Inbox == nil {
+		return nil, nil
+	}
+
+	var heard []string
+
+	err := a.Inbox.Take(func(text string) error {
+		if err := a.append(session, transcript.KindSteer, transcript.Text{Text: text}); err != nil {
+			return err
+		}
+
+		heard = append(heard, text)
+
+		return nil
+	})
+
+	return heard, err
 }
 
 // finish records how the run ended, so the session shows it and a later
@@ -287,8 +339,9 @@ func (a *Agent) compact(ctx context.Context, session store.Session, objective st
 
 // shed recovers from a request that did not fit in the model's context. The
 // last step is what tipped it over, so the conversation is summarized without
-// it, and the model is told that step was lost.
-func (a *Agent) shed(ctx context.Context, session store.Session, objective string) error {
+// it, and the model is told that step was lost. What the user said during
+// that step is not lost with it: said is recorded again after the summary.
+func (a *Agent) shed(ctx context.Context, session store.Session, objective string, said []string) error {
 	state, err := a.state(session)
 
 	if err != nil {
@@ -308,7 +361,17 @@ func (a *Agent) shed(ctx context.Context, session store.Session, objective strin
 
 	a.Observer.Notice("the request did not fit in the model's context; summarizing the conversation without its last step and trying again")
 
-	return a.summarize(ctx, session, state, state.Messages[:last], objective, shedNote)
+	if err := a.summarize(ctx, session, state, state.Messages[:last], objective, shedNote); err != nil {
+		return err
+	}
+
+	for _, text := range said {
+		if err := a.append(session, transcript.KindSteer, transcript.Text{Text: text}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // summarize asks the model for a summary of the conversation, as one more

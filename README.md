@@ -106,8 +106,9 @@ rumbo -m mine/some-model "..."
 ## Front ends
 
 In a terminal rumbo starts `tui`: the conversation scrolls above a status bar
-and an input line. Enter sends a task, Ctrl-C cancels the run or quits when
-idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the model's
+and an input line. Enter sends a task; during a run it tells the run what you
+typed, which the model reads before its next turn. Ctrl-C cancels the run or
+quits when idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the model's
 text to stdout and progress to stderr. `-f <name>` or the `frontend` setting
 picks one.
 

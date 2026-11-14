@@ -407,6 +407,7 @@ func (h *host) start() error {
 		Store:        h.database,
 		Provider:     process,
 		Observer:     h.conn,
+		Inbox:        h.conn,
 		Tools:        h.tools.Tools(),
 		Collectors:   ambient.Defaults(),
 		ProviderName: h.settings.Provider,

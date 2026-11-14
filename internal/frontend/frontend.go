@@ -1,6 +1,6 @@
 // Package frontend is the host side of the Agent Frontend Protocol. It turns
-// a pair of streams into the agent's Observer and into run requests, so the
-// loop never knows what kind of front end is attached.
+// a pair of streams into the agent's Observer and Inbox and into run
+// requests, so the loop never knows what kind of front end is attached.
 package frontend
 
 import (
@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -33,7 +34,7 @@ type Handlers struct {
 }
 
 // Conn is a connected front end. It implements agent.Observer by sending
-// events.
+// events, and agent.Inbox with what the front end tells the run.
 type Conn struct {
 	reader *bufio.Reader
 	// stopped ends Serve after the request being answered.
@@ -41,6 +42,20 @@ type Conn struct {
 
 	mu  sync.Mutex
 	out *json.Encoder
+
+	// steering guards steers and listening. steers are what the front end
+	// told the run in progress and the loop has not taken yet; listening is
+	// true from when a run is accepted until it ends.
+	steering  sync.Mutex
+	steers    []steer
+	listening bool
+}
+
+// steer is something the front end told a run, and the request to answer
+// once it is recorded.
+type steer struct {
+	id   *int64
+	text string
 }
 
 // Connect performs the initialize handshake over r and w.
@@ -138,6 +153,10 @@ func (c *Conn) Serve(handlers Handlers) error {
 			cancel = cancelRun
 			mu.Unlock()
 
+			// Before the next frame is read, so a steer sent right after the
+			// run is held for it.
+			c.listen()
+
 			active.Add(1)
 
 			go func() {
@@ -154,6 +173,8 @@ func (c *Conn) Serve(handlers Handlers) error {
 					result.Error = err.Error()
 				}
 
+				c.deafen()
+
 				mu.Lock()
 				cancelRun()
 				cancel = nil
@@ -162,6 +183,16 @@ func (c *Conn) Serve(handlers Handlers) error {
 				raw, _ := json.Marshal(result)
 				_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
 			}()
+
+		case protocol.MethodSteer:
+			var params protocol.SteerParams
+
+			if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || strings.TrimSpace(params.Text) == "" {
+				c.fail(frame.ID, protocol.CodeInvalidParams, "steer needs an id and a text")
+				continue
+			}
+
+			c.hold(frame.ID, params.Text)
 
 		case protocol.MethodDescribe, protocol.MethodInvoke:
 			mu.Lock()
@@ -222,6 +253,67 @@ func (c *Conn) answer(frame protocol.Frame, handlers Handlers, running bool) {
 
 	raw, _ := json.Marshal(result)
 	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
+}
+
+// Take implements agent.Inbox. Each steer is answered once its text is
+// recorded, so the front end knows it reached the model.
+func (c *Conn) Take(record func(text string) error) error {
+	c.steering.Lock()
+	taken := c.steers
+	c.steers = nil
+	c.steering.Unlock()
+
+	for index, steer := range taken {
+		if err := record(steer.text); err != nil {
+			// The run fails on this error, so the rest will not be recorded.
+			for _, left := range taken[index:] {
+				c.fail(left.id, protocol.CodeInternal, err.Error())
+			}
+
+			return err
+		}
+
+		_ = c.send(protocol.Frame{ID: steer.id, Result: json.RawMessage(`{}`)})
+	}
+
+	return nil
+}
+
+// hold keeps what the front end told the run until the loop takes it.
+func (c *Conn) hold(id *int64, text string) {
+	c.steering.Lock()
+	listening := c.listening
+
+	if listening {
+		c.steers = append(c.steers, steer{id: id, text: text})
+	}
+
+	c.steering.Unlock()
+
+	if !listening {
+		c.fail(id, protocol.CodeInvalidParams, "no run is in progress; send it as a new task")
+	}
+}
+
+// listen starts holding steers for a run.
+func (c *Conn) listen() {
+	c.steering.Lock()
+	defer c.steering.Unlock()
+
+	c.listening = true
+}
+
+// deafen stops holding steers when a run ends. What the run did not take
+// will never reach the model, so it fails.
+func (c *Conn) deafen() {
+	c.steering.Lock()
+	left := c.steers
+	c.steers, c.listening = nil, false
+	c.steering.Unlock()
+
+	for _, steer := range left {
+		c.fail(steer.id, protocol.CodeInvalidParams, "the run ended before this reached the model; send it as a new task")
+	}
 }
 
 // Stop makes Serve return once the request in hand is answered, which

@@ -33,9 +33,10 @@ user's instructions, not from the host.
 
 **Agent loop** (`internal/agent`). Records the objective, asks the provider
 for a message, runs the tool calls in it, and repeats until the model stops
-calling tools. Around that it retries requests that fail for a passing
-reason, continues responses cut by the output limit, compacts a full context,
-and records how the run ended. The loop knows only interfaces.
+calling tools. Before each request it records what the user said to the run
+meanwhile, from its `Inbox`. Around that it retries requests that fail for a
+passing reason, continues responses cut by the output limit, compacts a full
+context, and records how the run ended. The loop knows only interfaces.
 
 **Provider** (`internal/provider`, `protocol`). The only way to reach a model.
 The host starts a provider process and speaks the Agent Provider Protocol to
@@ -71,9 +72,9 @@ model sees.
 to starts.
 
 **Front end** (`internal/frontend`, `protocol`). The only way a person
-reaches the loop. The host sends it events and receives objectives and
-cancellations over the Agent Frontend Protocol. Inside the host, the
-connection is the loop's `Observer`. The built-in front ends
+reaches the loop. The host sends it events and receives objectives, steers,
+and cancellations over the Agent Frontend Protocol. Inside the host, the
+connection is the loop's `Observer` and its `Inbox`. The built-in front ends
 (`internal/frontends`) are served by the same binary through `rumbo attach
 <name>` and cross the same protocol as one a user writes. A front end either
 is started by the host, which leaves it the terminal, or starts the host

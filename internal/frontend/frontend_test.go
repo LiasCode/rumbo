@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"rumbo/protocol"
 )
@@ -245,5 +246,86 @@ func TestHostAnswersDuringARun(t *testing.T) {
 
 	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status, running false" {
 		t.Fatalf("host function after the run = %+v, err = %v", answer, err)
+	}
+}
+
+func TestSteerReachesTheRunInProgress(t *testing.T) {
+	host, front, _ := connect(t, "")
+	finish := make(chan struct{})
+
+	go host.Serve(Handlers{
+		Run: func(ctx context.Context, params protocol.RunParams) (string, error) {
+			host.Text("started")
+
+			// The loop looks between turns; here it looks until it hears.
+			var heard []string
+
+			for len(heard) == 0 {
+				host.Take(func(text string) error {
+					heard = append(heard, text)
+					return nil
+				})
+
+				time.Sleep(time.Millisecond)
+			}
+
+			host.Text("heard " + strings.Join(heard, ", "))
+			<-finish
+
+			return "s1", nil
+		},
+	})
+
+	if err := front.Steer("too early"); err == nil || !strings.Contains(err.Error(), "no run is in progress") {
+		t.Fatalf("a steer without a run: err = %v", err)
+	}
+
+	started := make(chan struct{})
+	finished := make(chan []protocol.Event, 1)
+
+	go func() {
+		var events []protocol.Event
+
+		front.Run("task", func(event protocol.Event) {
+			events = append(events, event)
+
+			if event.Text == "started" {
+				close(started)
+			}
+		})
+
+		finished <- events
+	}()
+
+	<-started
+
+	// Answered once the run has recorded it.
+	if err := front.Steer("use v2"); err != nil {
+		t.Fatal(err)
+	}
+
+	// What the run never takes fails when the run ends.
+	late := make(chan error, 1)
+
+	go func() { late <- front.Steer("too late") }()
+
+	for held := 0; held == 0; time.Sleep(time.Millisecond) {
+		host.steering.Lock()
+		held = len(host.steers)
+		host.steering.Unlock()
+	}
+
+	close(finish)
+
+	if err := <-late; err == nil || !strings.Contains(err.Error(), "the run ended before") {
+		t.Fatalf("a steer the run never took: err = %v", err)
+	}
+
+	if events := <-finished; len(events) != 2 || events[1].Text != "heard use v2" {
+		t.Fatalf("run events = %+v", events)
+	}
+
+	if err := front.Steer("after"); err == nil || !strings.Contains(err.Error(), "no run is in progress") {
+		t.Fatalf("a steer after the run: err = %v", err)
 	}
 }

@@ -6,12 +6,16 @@ objective.
 **Run.** The work from an objective until the model stops calling tools, or
 the run fails or is cancelled. A session holds one or more runs.
 
+**Steer.** What the user says to a run while it works. It reaches the model
+before the next request, as the user's words, and leaves the objective as it
+was. A steer that comes as the model finishes keeps the run going.
+
 **Session.** A conversation bound to a project directory, stored as a list of
 entries.
 
 **Entry.** One immutable record in a session. Kinds: `system` (prompt and tool
 declarations in force), `context` (ambient sections that changed), `user` (an
-objective), `assistant` (a model response), `tool_result`, `harness` (a
+objective), `steer`, `assistant` (a model response), `tool_result`, `harness` (a
 message from the harness to the model, such as being told a run was
 interrupted), `compaction`, and `note`.
 

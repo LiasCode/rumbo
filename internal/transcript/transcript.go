@@ -18,6 +18,7 @@ const (
 	KindSystem     = "system"
 	KindContext    = "context"
 	KindUser       = "user"
+	KindSteer      = "steer"
 	KindAssistant  = "assistant"
 	KindToolResult = "tool_result"
 	KindHarness    = "harness"
@@ -53,7 +54,9 @@ type Context struct {
 	Sections []Section `json:"sections"`
 }
 
-// Text is the payload of user and harness entries.
+// Text is the payload of user, steer, and harness entries. A user entry is
+// an objective; a steer is what the user said to a run while it worked,
+// which leaves the objective as it was.
 type Text struct {
 	Text string `json:"text"`
 }
@@ -199,7 +202,7 @@ func (b *builder) add(entry store.Entry) error {
 			b.state.Unfinished = false
 		}
 
-	case KindUser, KindHarness:
+	case KindUser, KindSteer, KindHarness:
 		var text Text
 
 		if err := json.Unmarshal(entry.Payload, &text); err != nil {

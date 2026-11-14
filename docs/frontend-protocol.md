@@ -162,6 +162,21 @@ answer during a run.
 Stops the active run. Its `run` request is still answered, with the
 `cancelled` status. The session stays usable.
 
+### `steer` (request, front end to host)
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"steer","params":{"text":"use the v2 endpoint instead"}}
+```
+
+Tells the active run something while it works. The text reaches the model
+before its next request, as the user's words, and the run's objective stays
+as it was. If the model was about to finish, the run goes on so the model
+reads it.
+
+The result, `{}`, arrives once the text is recorded for the model. An error
+means it never will be: no run is in progress, or the run ended first. A
+front end can offer the text as a new `run` then.
+
 ### `event` (notification, host to front end)
 
 ```json

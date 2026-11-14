@@ -14,8 +14,9 @@ the ones a change must not break.
   output in the system prompt, tool declarations, or anything else that lands
   early in a request. A changed prefix silently disables provider caching.
 - **Parts meet at interfaces.** `agent` depends on `provider.Provider`,
-  `tool.Tool`, `ambient.Collector`, `store.Store`, and `agent.Observer`, never
-  on an implementation. Wiring happens only in `internal/cli`.
+  `tool.Tool`, `ambient.Collector`, `store.Store`, `agent.Observer`, and
+  `agent.Inbox`, never on an implementation. Wiring happens only in
+  `internal/cli`.
 - **Built-in providers and front ends get no shortcut.** They are separate
   processes reached through the protocols, like the ones users write. The
   host never renders anything and never calls a model API.
