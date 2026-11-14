@@ -123,3 +123,44 @@ func TestPoolClose(t *testing.T) {
 		t.Fatalf("a request after close: err = %v", err)
 	}
 }
+
+// A process that dies during a request fails it as transient, which the
+// loop retries, and the retry goes to a new process.
+func TestAProcessThatDiesFailsItsRequestAsTransient(t *testing.T) {
+	pool, started := testPool(t)
+
+	if err := pool.Ready(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	dying := pool.idle[0].(*Stdio)
+	failed := make(chan error, 1)
+
+	go func() {
+		_, err := ask(pool, context.Background(), "hang")
+		failed <- err
+	}()
+
+	// The request has taken the process once the pool has none idle.
+	for {
+		pool.mu.Lock()
+		taken := len(pool.idle) == 0
+		pool.mu.Unlock()
+
+		if taken {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	dying.cmd.Process.Kill()
+
+	if err := <-failed; !protocol.IsTransient(err) {
+		t.Fatalf("the request of a process that died: err = %v", err)
+	}
+
+	if answer, err := ask(pool, context.Background(), "again"); err != nil || answer != "again" || started.Load() != 2 {
+		t.Fatalf("answer = %q, err = %v, started %d", answer, err, started.Load())
+	}
+}

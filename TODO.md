@@ -28,8 +28,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Correctness
 
-40. **Provider process death.** When a provider process exits during a run,
-    the run fails. The next request starts another process.
 41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
     itself on end of input, and does not stop a running tool.
 

@@ -169,8 +169,10 @@ func (s *Stdio) call(ctx context.Context, method string, params, result any, onD
 			return ctx.Err()
 
 		case frame, open := <-s.frames:
+			// A process that died is replaced by the next request, so the
+			// same request can succeed when it is sent again.
 			if !open {
-				return errors.New("provider exited")
+				return protocol.Transient(errors.New("the provider process exited"))
 			}
 
 			if frame.Method == protocol.MethodDelta && onDelta != nil {
@@ -220,16 +222,20 @@ func (s *Stdio) send(frame protocol.Frame, params any) error {
 		return err
 	}
 
-	_, err = s.stdin.Write(append(line, '\n'))
+	if _, err := s.stdin.Write(append(line, '\n')); err != nil {
+		return protocol.Transient(fmt.Errorf("the provider process could not be reached: %w", err))
+	}
 
-	return err
+	return nil
 }
 
 // read forwards the provider's frames until its stdout closes. Lines that are
 // not JSON are skipped so a stray print does not break the session.
 func (s *Stdio) read(stdout io.Reader) {
-	defer close(s.exited)
+	// Exited is true by the time a request sees the frames end, so the
+	// process is not given back to a pool.
 	defer close(s.frames)
+	defer close(s.exited)
 
 	reader := bufio.NewReader(stdout)
 

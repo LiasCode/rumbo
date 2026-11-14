@@ -37,8 +37,10 @@ reports it, and the host summarizes the conversation before it fills.
 it, when the context is nearly full. It is an entry like any other: what came
 before stays stored and the request is rebuilt from the summary on.
 
-**Transient failure.** A provider error that can succeed if the same request
-is sent again later. The host retries it; any other failure ends the run.
+**Transient failure.** A failed request that can succeed if the same request
+is sent again later: an error the provider marks so, or the provider process
+dying, since another process takes its place. The host retries it; any other
+failure ends the run.
 
 **Transcript.** The interpretation of a session's entries as the request sent
 to the model.
