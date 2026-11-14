@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -60,5 +62,44 @@ func TestAConfirmationAnswerIsNotKept(t *testing.T) {
 
 	if u.key(0x10); string(u.input) != "/delete 4cf0261c" {
 		t.Fatalf("up after the answer: %q", string(u.input))
+	}
+}
+
+// A function's secret question takes the next line typed: the function gets
+// it, the screen never shows it, and the history does not keep it.
+func TestASecretAnswerIsNeitherShownNorKept(t *testing.T) {
+	var drawn bytes.Buffer
+
+	u := screen()
+	u.out = &drawn
+	answered := make(chan string, 1)
+
+	go func() {
+		answer, _ := talk{ui: u}.Ask(context.Background(), "the code the page shows", true)
+		answered <- answer
+	}()
+
+	for asked := false; !asked; {
+		u.mu.Lock()
+		asked = u.question != nil
+		u.mu.Unlock()
+	}
+
+	for _, key := range "s3cret" {
+		u.key(key)
+	}
+
+	u.key('\r')
+
+	if answer := <-answered; answer != "s3cret" {
+		t.Fatalf("the function got %q", answer)
+	}
+
+	if strings.Contains(drawn.String(), "s3cret") || !strings.Contains(drawn.String(), "••••••") {
+		t.Fatal("the screen showed the secret, or did not show that something was typed")
+	}
+
+	if len(u.history) != 0 {
+		t.Fatalf("history = %q", u.history)
 	}
 }

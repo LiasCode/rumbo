@@ -182,6 +182,30 @@ Runs do not keep `describe` and `invoke` waiting: a provider answers one
 request at a time, so the host starts another process of it when every one
 it has is busy.
 
+A provider's function can talk with the person while it works, as a login
+does. What it says arrives as `text` events whose `invoke` is the id of this
+request, and what it asks as an [`ask`](#ask-request-host-to-front-end).
+It takes as long as the person does; `cancel` with its `invoke` gives it
+up.
+
+### `ask` (request, host to front end)
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"ask","params":{"invoke":3,"text":"Paste the code the page shows","secret":true}}
+```
+
+A question for the person, from the function of the `invoke` request `invoke`.
+The front end shows it and answers with what the person typed:
+
+```json
+{"jsonrpc":"2.0","id":2,"result":{"text":"4711-0815"}}
+```
+
+or with an error when the person declines. With `secret` the answer, such as
+a password, is not shown while it is typed, nor kept afterwards. A front end
+that is not following that `invoke` answers with an error. The host does not
+record questions or answers.
+
 ### `cancel` (notification, front end to host)
 
 ```json
@@ -191,6 +215,9 @@ it has is busy.
 Stops the run whose `run` request had the id `run`; without it, every run in
 progress. Each `run` request is still answered, with the `cancelled` status.
 The sessions stay usable.
+
+With `invoke` instead, it gives up a function in progress, named by the id
+of its `invoke` request, which then answers with an error.
 
 ### `steer` (request, front end to host)
 
@@ -224,7 +251,7 @@ selects the other fields:
 | `type` | Fields | Meaning |
 |---|---|---|
 | `context` | `sections` | Ambient context sent to the model, by section name. |
-| `text` | `text` | A piece of the model's visible answer, in order. |
+| `text` | `text` | A piece of the model's visible answer, in order. With `invoke` instead of `run`, something a provider's function says while it works. |
 | `tool_started` | `name`, `args` | The agent calls a tool. |
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |

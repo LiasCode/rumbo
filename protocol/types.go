@@ -10,6 +10,7 @@
 package protocol
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 )
@@ -25,6 +26,9 @@ const (
 	MethodCancel     = "cancel"
 	MethodDelta      = "delta"
 	MethodShutdown   = "shutdown"
+	// MethodAsk is in both protocols: a function of the provider asks the
+	// host a question for the person, and the host asks the front end.
+	MethodAsk = "ask"
 )
 
 // Block types.
@@ -204,16 +208,44 @@ type CompleteResult struct {
 	ContextWindow int64   `json:"context_window,omitempty"`
 }
 
-// DeltaParams streams visible text while a completion is running. Deltas are
-// for display only; the CompleteResult is the authoritative message.
+// DeltaParams streams visible text while the request with the given id is
+// running. For a completion, deltas are pieces of the answer, for display
+// only; the CompleteResult is the authoritative message. For a function,
+// each delta is something the function says to the person while it works.
 type DeltaParams struct {
 	ID   int64  `json:"id"`
 	Text string `json:"text"`
 }
 
-// CancelParams asks the provider to abort the completion with the given id.
+// CancelParams asks the provider to abort the request with the given id: a
+// completion, or a function.
 type CancelParams struct {
 	ID int64 `json:"id"`
+}
+
+// AskParams is a question for the person, which a function asks while it
+// works. ID is the id of the invoke it belongs to. A Secret answer, such as
+// a password, is not shown while it is typed, and nothing on its way
+// records it.
+type AskParams struct {
+	ID     int64  `json:"id"`
+	Text   string `json:"text"`
+	Secret bool   `json:"secret,omitempty"`
+}
+
+// AskResult is the person's answer to a question.
+type AskResult struct {
+	Text string `json:"text"`
+}
+
+// Dialog is how a function talks with the person while it works, such as a
+// login that shows where to sign in and asks for the code it gets back.
+type Dialog interface {
+	// Say shows text to the person.
+	Say(text string)
+	// Ask shows a question and waits for the answer. It fails when the
+	// person declines, or when ctx ends.
+	Ask(ctx context.Context, question string, secret bool) (string, error)
 }
 
 // Frame is a JSON-RPC 2.0 message: a request (ID and Method), a notification

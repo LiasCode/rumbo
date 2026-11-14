@@ -120,14 +120,42 @@ Calls one of the functions the provider described. The result is whatever
 JSON the function returns; the host passes it to whoever asked, unread. A
 provider that described no functions answers with an error.
 
+A function can talk with the person while it works, as a login does when it
+says where to sign in and asks for the code it gets back. What it says is a
+`delta` with the id of the `invoke`, and what it asks is an `ask`. It can
+take as long as the person does; the host sets no limit, and sends `cancel`
+when the person gives up. In Go, a provider whose functions talk implements
+`DialogInvoker` instead of `Invoker`.
+
 ### `delta` (notification, provider to host)
 
 ```json
 {"jsonrpc":"2.0","method":"delta","params":{"id":2,"text":"Let me look"}}
 ```
 
-Visible text of the running completion `id`, for display. Optional. The
-`complete` result is the authoritative message.
+Visible text of the running request `id`, for display. Optional. For a
+`complete` it is a piece of the answer, and the result is the authoritative
+message. For an `invoke` it is something the function says to the person,
+shown as it arrives.
+
+### `ask` (request, provider to host)
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"ask","params":{"id":3,"text":"Paste the code the page shows","secret":true}}
+```
+
+A question for the person, from the function of the running `invoke` `id`.
+The request's own id is the provider's to choose, an integer. The host asks
+the front end and answers with what the person typed:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"text":"4711-0815"}}
+```
+
+or with an error when the person declines, the function is cancelled, or
+nobody can be asked, such as when the question belongs to no `invoke` in
+progress. With `secret` the answer, such as a password, is not shown while
+it is typed, and the host and the front end record it nowhere.
 
 ### `cancel` (notification, host to provider)
 
@@ -135,9 +163,9 @@ Visible text of the running completion `id`, for display. Optional. The
 {"jsonrpc":"2.0","method":"cancel","params":{"id":2}}
 ```
 
-Abort completion `id`. The provider must still answer the request, normally
-with an error. The host kills a provider that does not answer within a few
-seconds.
+Abort request `id`: a completion, or a function. The provider must still
+answer the request, normally with an error. The host kills a provider that
+does not answer within a few seconds.
 
 ### `shutdown` (request)
 

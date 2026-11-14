@@ -37,6 +37,8 @@ nothing and knows no model API.
   runs cancelled and recorded, its tools and providers stopped.
 - Stop the processes the model left running in the background, and remove
   the files the tools saved, when it exits.
+- Record nothing a provider's function asks or is told. A secret answer goes
+  from the front end to the provider, and nowhere else.
 - Check a setting when it is stored, and refuse to start with one that is
   missing or malformed instead of guessing.
 - Keep the protocols compatible: what it adds is optional.
@@ -102,6 +104,9 @@ nothing and knows no model API.
 - Pass a provider's description to the front end, send the chosen options
   with every request, and relay calls to its functions, understanding none of
   them.
+- Relay what a provider's function says to the person and asks of them while
+  it works, and the answers back, and give the function up when the person
+  does.
 - Serve the built-in providers itself (`rumbo provide <name>`), over the same
   protocol as any other.
 
@@ -183,6 +188,9 @@ the Agent Provider Protocol on its stdin and stdout.
 - Offer functions, such as listing its models. One that cannot be undone
   asks to be confirmed, and one that an option names returns the values the
   option accepts.
+- Talk with the person while a function works: say things, and ask
+  questions, marking an answer secret when it is one, such as the code a
+  sign-in gives. The function takes as long as the person does.
 - Read the configuration registered with it.
 - Keep what it needs to continue a conversation, such as signed reasoning,
   in opaque blocks the host returns unchanged.
@@ -220,6 +228,8 @@ speaks the Agent Frontend Protocol with the host.
 - Decide what Ctrl-C means, and cancel through the protocol.
 - Show the confirmation a function asks for, and call the function only
   after the person agrees.
+- Answer a question a provider's function asks through it, with what the
+  person typed or with an error, and neither show nor keep a secret answer.
 - Wait for an answer when one request has to take effect before another.
 
 ### Can
@@ -234,6 +244,8 @@ speaks the Agent Frontend Protocol with the host.
 - Ask what the provider offers and call its functions, call the host's
   functions, and build commands, pickers, and completion from their
   descriptions without knowing them beforehand.
+- Show what a provider's function says while it works, ask the person what
+  it asks, and give the function up.
 - Take what it is attached to, its directory, session, provider, and model,
   from the host's answers instead of remembering it.
 - Be started by rumbo, with the terminal and with the protocol on file
@@ -258,10 +270,13 @@ speaks the Agent Frontend Protocol with the host.
   <name>]`, by where they come from.
 - `/new` or `/open` during a run leaves the run working in the background.
   The status bar counts those runs, and a line says when each one ends.
+- What a provider's function says shows marked as the provider's. Its
+  question takes the next line typed; a secret one shows as dots and is kept
+  nowhere, not even in the history.
 - Up and Down, or Ctrl-P and Ctrl-N, bring back what was entered. Ctrl-C
-  cancels the run, else clears the input, else quits; Ctrl-D quits; Ctrl-U
-  clears the line, Ctrl-W deletes a word, and Ctrl-L redraws. Pasted line
-  breaks stay text.
+  gives up a provider's function in progress, else cancels the run, else
+  clears the input, else quits; Ctrl-D quits; Ctrl-U clears the line, Ctrl-W
+  deletes a word, and Ctrl-L redraws. Pasted line breaks stay text.
 - The status bar shows the provider, the model, what is happening, the
   session, the size of the context, and the tokens spent.
 - It gives the terminal back as it found it, when it quits or the host ends.

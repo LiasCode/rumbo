@@ -159,7 +159,7 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 				},
 			}, nil
 		},
-		Invoke: func(_ context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
+		Invoke: func(_ context.Context, params protocol.InvokeParams, _ protocol.Dialog) (json.RawMessage, error) {
 			if params.Name != "models" {
 				return nil, errors.New("unknown function " + params.Name)
 			}
@@ -402,5 +402,91 @@ func TestShutdownEndsServeAsADisconnect(t *testing.T) {
 
 	if err := <-served; err != nil {
 		t.Fatalf("serve after shutdown: %v", err)
+	}
+}
+
+// listener is the front end's Dialog in a test: it keeps what it is told,
+// and answers with answer, or waits until the call ends when answer is
+// empty, telling asked that a question came.
+type listener struct {
+	said   []string
+	secret bool
+	answer string
+	asked  chan struct{}
+}
+
+func (l *listener) Say(text string) {
+	l.said = append(l.said, text)
+}
+
+func (l *listener) Ask(ctx context.Context, _ string, secret bool) (string, error) {
+	l.secret = secret
+
+	if l.asked != nil {
+		close(l.asked)
+	}
+
+	if l.answer == "" {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+
+	return l.answer, nil
+}
+
+// What a provider's function says and asks reaches the front end that
+// called it, and the answer goes back; a cancel stops a function that
+// waits for one.
+func TestAFunctionTalksThroughTheFrontEnd(t *testing.T) {
+	host, front, _ := connect(t, "")
+
+	go host.Serve(Handlers{
+		Run: working,
+		Invoke: func(ctx context.Context, params protocol.InvokeParams, dialog protocol.Dialog) (json.RawMessage, error) {
+			dialog.Say("open https://example.test/device")
+
+			code, err := dialog.Ask(ctx, "the code the page shows", true)
+
+			if err != nil {
+				return nil, err
+			}
+
+			return json.Marshal(map[string]string{"code": code})
+		},
+	})
+
+	someone := &listener{answer: "4711"}
+	var called int64
+
+	result, err := front.InvokeWith("login", nil, func(id int64) { called = id }, someone)
+
+	if err != nil || string(result) != `{"code":"4711"}` || called == 0 {
+		t.Fatalf("result = %s, err = %v, id %d", result, err, called)
+	}
+
+	if len(someone.said) != 1 || someone.said[0] != "open https://example.test/device" || !someone.secret {
+		t.Fatalf("said %q, secret %t", someone.said, someone.secret)
+	}
+
+	// A function called without a dialog cannot be answered for.
+	if _, err := front.Invoke("login", nil); err == nil || !strings.Contains(err.Error(), "cannot answer") {
+		t.Fatalf("a question nobody follows: err = %v", err)
+	}
+
+	waiting := &listener{asked: make(chan struct{})}
+	ended := make(chan error, 1)
+	ids := make(chan int64, 1)
+
+	go func() {
+		_, err := front.InvokeWith("login", nil, func(id int64) { ids <- id }, waiting)
+		ended <- err
+	}()
+
+	id := <-ids
+	<-waiting.asked
+	front.CancelInvoke(id)
+
+	if err := <-ended; err == nil || !strings.Contains(err.Error(), "cancelled before it finished") {
+		t.Fatalf("a cancelled function: err = %v", err)
 	}
 }

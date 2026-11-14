@@ -30,6 +30,9 @@ type Stdio struct {
 
 	mu     sync.Mutex
 	nextID int64
+	// writing lets an answer to a function's question be written while a
+	// call waits for its response.
+	writing sync.Mutex
 }
 
 // Start runs argv as a provider and performs the initialize handshake. The
@@ -69,7 +72,7 @@ func Start(ctx context.Context, argv []string, config json.RawMessage, stderr io
 	var result protocol.InitializeResult
 	params := protocol.InitializeParams{Protocol: protocol.Version, Config: config}
 
-	if err := stdio.call(ctx, protocol.MethodInitialize, params, &result, nil); err != nil {
+	if err := stdio.call(ctx, protocol.MethodInitialize, params, &result, nil, nil); err != nil {
 		_ = stdio.Close()
 		return nil, fmt.Errorf("initialize provider: %w", err)
 	}
@@ -90,9 +93,15 @@ func (s *Stdio) Description() protocol.Description {
 }
 
 // Invoke implements Provider.
-func (s *Stdio) Invoke(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error) {
+func (s *Stdio) Invoke(ctx context.Context, name string, params json.RawMessage, dialog protocol.Dialog) (json.RawMessage, error) {
 	var result json.RawMessage
-	err := s.call(ctx, protocol.MethodInvoke, protocol.InvokeParams{Name: name, Params: params}, &result, nil)
+	var onDelta func(string)
+
+	if dialog != nil {
+		onDelta = dialog.Say
+	}
+
+	err := s.call(ctx, protocol.MethodInvoke, protocol.InvokeParams{Name: name, Params: params}, &result, onDelta, dialog)
 
 	return result, err
 }
@@ -100,7 +109,7 @@ func (s *Stdio) Invoke(ctx context.Context, name string, params json.RawMessage)
 // Complete implements Provider.
 func (s *Stdio) Complete(ctx context.Context, params protocol.CompleteParams, onDelta func(text string)) (protocol.CompleteResult, error) {
 	var result protocol.CompleteResult
-	err := s.call(ctx, protocol.MethodComplete, params, &result, onDelta)
+	err := s.call(ctx, protocol.MethodComplete, params, &result, onDelta, nil)
 
 	return result, err
 }
@@ -120,7 +129,7 @@ func (s *Stdio) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), gracePeriod)
 	defer cancel()
 
-	_ = s.call(ctx, protocol.MethodShutdown, struct{}{}, nil, nil)
+	_ = s.call(ctx, protocol.MethodShutdown, struct{}{}, nil, nil, nil)
 	_ = s.stdin.Close()
 
 	done := make(chan error, 1)
@@ -141,13 +150,18 @@ func (s *Stdio) Close() error {
 
 // call sends one request and waits for its response. A provider answers one
 // request at a time, so calls are serialized; a Pool keeps a process for
-// each request that runs at once.
-func (s *Stdio) call(ctx context.Context, method string, params, result any, onDelta func(text string)) error {
+// each request that runs at once. What a function asks while the call works
+// goes to dialog.
+func (s *Stdio) call(ctx context.Context, method string, params, result any, onDelta func(text string), dialog protocol.Dialog) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.nextID++
 	id := s.nextID
+
+	// A question still open when the call ends is no longer the person's.
+	asking, stopAsking := context.WithCancel(ctx)
+	defer stopAsking()
 
 	if err := s.send(protocol.Frame{ID: &id, Method: method}, params); err != nil {
 		return err
@@ -185,6 +199,13 @@ func (s *Stdio) call(ctx context.Context, method string, params, result any, onD
 				continue
 			}
 
+			// The answer can take as long as the person does, so it is
+			// waited for apart, and a cancel can still be sent meanwhile.
+			if frame.Method == protocol.MethodAsk && frame.ID != nil {
+				go s.ask(asking, *frame.ID, frame.Params, id, dialog)
+				continue
+			}
+
 			if frame.ID == nil || *frame.ID != id || frame.Method != "" {
 				continue
 			}
@@ -206,6 +227,32 @@ func (s *Stdio) call(ctx context.Context, method string, params, result any, onD
 	}
 }
 
+// ask passes a question a function asked to the person, through dialog,
+// and the answer back. A question that belongs to no function in progress,
+// or that nobody can answer, is declined.
+func (s *Stdio) ask(ctx context.Context, request int64, raw json.RawMessage, call int64, dialog protocol.Dialog) {
+	var params protocol.AskParams
+
+	reply := protocol.Frame{ID: &request}
+
+	switch {
+	case json.Unmarshal(raw, &params) != nil:
+		reply.Error = &protocol.Error{Code: protocol.CodeInvalidParams, Message: "ask needs the id of its invoke and a text"}
+
+	case dialog == nil || params.ID != call:
+		reply.Error = &protocol.Error{Code: protocol.CodeInvalidParams, Message: "there is no one to ask: the question belongs to no function in progress"}
+
+	default:
+		if answer, err := dialog.Ask(ctx, params.Text, params.Secret); err != nil {
+			reply.Error = &protocol.Error{Code: protocol.CodeInternal, Message: err.Error()}
+		} else {
+			reply.Result, _ = json.Marshal(protocol.AskResult{Text: answer})
+		}
+	}
+
+	_ = s.write(reply)
+}
+
 func (s *Stdio) send(frame protocol.Frame, params any) error {
 	raw, err := json.Marshal(params)
 
@@ -213,14 +260,22 @@ func (s *Stdio) send(frame protocol.Frame, params any) error {
 		return err
 	}
 
-	frame.JSONRPC = "2.0"
 	frame.Params = raw
+
+	return s.write(frame)
+}
+
+func (s *Stdio) write(frame protocol.Frame) error {
+	frame.JSONRPC = "2.0"
 
 	line, err := json.Marshal(frame)
 
 	if err != nil {
 		return err
 	}
+
+	s.writing.Lock()
+	defer s.writing.Unlock()
 
 	if _, err := s.stdin.Write(append(line, '\n')); err != nil {
 		return protocol.Transient(fmt.Errorf("the provider process could not be reached: %w", err))

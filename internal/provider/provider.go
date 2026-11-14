@@ -15,6 +15,9 @@ import (
 type Provider interface {
 	Complete(ctx context.Context, params protocol.CompleteParams, onDelta func(text string)) (protocol.CompleteResult, error)
 	Description() protocol.Description
-	Invoke(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error)
+	// Invoke calls a function of the provider, which talks with the person
+	// through dialog while it works. A nil dialog lets it say and ask
+	// nothing.
+	Invoke(ctx context.Context, name string, params json.RawMessage, dialog protocol.Dialog) (json.RawMessage, error)
 	Close() error
 }

@@ -51,7 +51,8 @@ user writes. Credentials belong to the provider; the
 host never sees them. A provider also describes itself: the options it
 accepts and the functions it can be asked, such as listing its models. The
 host stores the chosen values, sends them with every request, and relays
-function calls, without knowing what any of them mean.
+function calls, and what a function says to the person and asks of them
+while it works, without knowing what any of them mean.
 
 **Tools** (`internal/tool`). What the model can do: read, write, and edit
 files, and run commands. The set is small because every declared tool costs

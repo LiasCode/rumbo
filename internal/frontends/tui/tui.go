@@ -149,8 +149,20 @@ type ui struct {
 	described *protocol.DescribeResult
 	// pending is a function that asked to be confirmed and waits for a yes.
 	pending func() (answer, error)
-	notice  string
-	usage   render.Usage
+	// invoking is the id of the provider's function in progress, which
+	// Ctrl-C cancels, and question is what that function asked, waiting for
+	// the next line typed.
+	invoking int64
+	question *question
+	notice   string
+	usage    render.Usage
+}
+
+// question is what a function asked the person, and where the answer goes.
+// A secret one is not shown while it is typed, nor kept.
+type question struct {
+	secret bool
+	answer chan string
 }
 
 // job is a run this front end started, and the session it works in. A run
@@ -214,6 +226,10 @@ func (u *ui) footer() {
 	state := "ready"
 
 	switch {
+	case u.question != nil && u.question.secret:
+		state = "type the answer, which is not shown; Enter sends it, Ctrl-C gives up"
+	case u.question != nil:
+		state = "type the answer; Enter sends it, Ctrl-C gives up"
 	case u.here != nil && u.telling > 0:
 		state = fmt.Sprintf("working; %d message(s) wait for its next turn (Ctrl-C cancels)", u.telling)
 	case u.here != nil:
@@ -258,6 +274,11 @@ func (u *ui) footer() {
 
 	// The end of a long input stays visible, since that is where typing happens.
 	visible := u.input
+
+	if u.question != nil && u.question.secret {
+		visible = []rune(strings.Repeat("•", len(u.input)))
+	}
+
 	room := u.width - len(prompt) - 1
 
 	if len(visible) > room {
@@ -563,6 +584,14 @@ func (u *ui) key(key rune) bool {
 
 	switch key {
 	case '\r', '\n':
+		// The line answers what a function asked, when it asked something.
+		if asked := u.question; asked != nil {
+			u.answer(asked)
+			u.mu.Unlock()
+
+			return true
+		}
+
 		line, running := strings.TrimSpace(string(u.input)), u.here != nil
 
 		// The answer to a confirmation is not worth bringing back.
@@ -586,9 +615,10 @@ func (u *ui) key(key rune) bool {
 
 	case '\t': // Tab: complete a command or its argument.
 		line := string(u.input)
+		answering := u.question != nil
 		u.mu.Unlock()
 
-		if !strings.HasPrefix(line, "/") {
+		if !strings.HasPrefix(line, "/") || answering {
 			return true
 		}
 
@@ -603,8 +633,10 @@ func (u *ui) key(key rune) bool {
 
 		return true
 
-	case 0x03: // Ctrl-C: cancel the run here, else clear the input, else quit.
+	case 0x03: // Ctrl-C: cancel the function or the run here, else clear the input, else quit.
 		switch {
+		case u.invoking != 0:
+			u.conn.CancelInvoke(u.invoking)
 		case u.here != nil:
 			// The id is known as soon as the run is sent; until then, a
 			// second press cancels it.

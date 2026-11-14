@@ -102,6 +102,11 @@ A provider is a program that answers `initialize` and `complete` on stdin and
 stdout. [examples/provider.py](examples/provider.py) is a complete one, and
 [docs/protocol.md](docs/protocol.md) is the specification.
 
+A provider can offer functions, which every front end shows as commands. A
+function can talk with the person while it works, as a login does when it
+says where to sign in and asks for the code it gets back; the example's
+`greet` shows how.
+
 ```sh
 rumbo provider add mine /path/to/my-provider
 rumbo -m mine/some-model "..."

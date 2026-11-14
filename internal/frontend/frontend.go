@@ -28,8 +28,9 @@ type Handlers struct {
 	Run func(params protocol.RunParams, run *Run) (Work, error)
 	// Describe says what the provider offers and what is in force.
 	Describe func(ctx context.Context) (protocol.DescribeResult, error)
-	// Invoke calls a function of the provider.
-	Invoke func(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error)
+	// Invoke calls a function of the provider, which talks with the person
+	// through dialog while it works.
+	Invoke func(ctx context.Context, params protocol.InvokeParams, dialog protocol.Dialog) (json.RawMessage, error)
 	// Host calls a function of the host.
 	Host func(ctx context.Context, name string, params json.RawMessage) (protocol.HostResult, error)
 	// Slow says which functions of the host reach a provider. Those, like
@@ -50,9 +51,15 @@ type Conn struct {
 	mu  sync.Mutex
 	out *json.Encoder
 
-	// running guards runs, the runs in progress by the id of their request.
+	// running guards what follows: the runs in progress and the cancels of
+	// what is answered in the background, both by the id of their request,
+	// and the questions sent to the front end and not answered yet, by the
+	// id of the host's own request.
 	running sync.Mutex
 	runs    map[int64]*Run
+	calls   map[int64]context.CancelFunc
+	asked   map[int64]chan protocol.Frame
+	nextID  int64
 
 	// quit is closed to end Serve at once, as a disconnect would.
 	quit     chan struct{}
@@ -67,9 +74,17 @@ type read struct {
 
 // Connect performs the initialize handshake over r and w.
 func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (*Conn, error) {
-	conn := &Conn{reader: bufio.NewReader(r), out: json.NewEncoder(w), runs: map[int64]*Run{}, quit: make(chan struct{})}
+	conn := &Conn{
+		reader: bufio.NewReader(r),
+		out:    json.NewEncoder(w),
+		runs:   map[int64]*Run{},
+		calls:  map[int64]context.CancelFunc{},
+		asked:  map[int64]chan protocol.Frame{},
+		quit:   make(chan struct{}),
+		nextID: 1,
+	}
 
-	id := int64(1)
+	id := conn.nextID
 	info.Protocol = protocol.Version
 	params, _ := json.Marshal(info)
 
@@ -116,7 +131,7 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 	defer active.Wait()
 	defer stop()
-	defer c.cancel(0)
+	defer c.cancel(protocol.CancelRunParams{})
 	defer c.Shutdown()
 
 	reads := c.reading()
@@ -142,11 +157,17 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 		switch frame.Method {
 		case protocol.MethodCancel:
-			// A cancel that names no run cancels them all.
+			// A cancel that names nothing cancels every run.
 			var params protocol.CancelRunParams
 			_ = json.Unmarshal(frame.Params, &params)
 
-			c.cancel(params.Run)
+			c.cancel(params)
+
+		// The front end answers a question the host asked it.
+		case "":
+			if frame.ID != nil {
+				c.answered(frame)
+			}
 
 		case protocol.MethodRun:
 			c.start(frame, handlers, &active)
@@ -156,13 +177,13 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 		case protocol.MethodDescribe, protocol.MethodInvoke:
 			if c.slow(frame, handlers) {
-				active.Add(1)
+				call, cancel := c.track(ctx, frame.ID)
 
-				go func() {
-					defer active.Done()
+				active.Go(func() {
+					defer cancel()
 
-					c.answer(ctx, frame, handlers)
-				}()
+					c.answer(call, frame, handlers)
+				})
 
 				continue
 			}
@@ -250,15 +271,46 @@ func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitG
 	}()
 }
 
-// cancel stops the run whose request has id, or every run for zero.
-func (c *Conn) cancel(id int64) {
+// cancel stops the function named by its invoke, or the run named by its
+// request, or every run when it names neither.
+func (c *Conn) cancel(params protocol.CancelRunParams) {
 	c.running.Lock()
 	defer c.running.Unlock()
 
-	for runID, run := range c.runs {
-		if id == 0 || id == runID {
+	if params.Invoke != 0 {
+		if cancel := c.calls[params.Invoke]; cancel != nil {
+			cancel()
+		}
+
+		return
+	}
+
+	for id, run := range c.runs {
+		if params.Run == 0 || params.Run == id {
 			run.cancel()
 		}
+	}
+}
+
+// track gives a request answered in the background a context of its own,
+// so a cancel can name it. The returned cancel also forgets it.
+func (c *Conn) track(ctx context.Context, id *int64) (context.Context, context.CancelFunc) {
+	call, cancel := context.WithCancel(ctx)
+
+	if id == nil {
+		return call, cancel
+	}
+
+	c.running.Lock()
+	c.calls[*id] = cancel
+	c.running.Unlock()
+
+	return call, func() {
+		c.running.Lock()
+		delete(c.calls, *id)
+		c.running.Unlock()
+
+		cancel()
 	}
 }
 
@@ -349,7 +401,12 @@ func (c *Conn) answer(ctx context.Context, frame protocol.Frame, handlers Handle
 		result, err = handlers.Describe(ctx)
 
 	default:
-		result, err = handlers.Invoke(ctx, params)
+		result, err = handlers.Invoke(ctx, params, talk{conn: c, invoke: *frame.ID})
+	}
+
+	// One the front end cancelled says so, in words for the person.
+	if err != nil && ctx.Err() != nil {
+		err = errors.New("cancelled before it finished")
 	}
 
 	if err != nil {

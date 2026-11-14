@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -338,7 +339,18 @@ func (u *ui) host(function protocol.Function, params json.RawMessage) (answer, e
 
 // provider calls a function of the provider and shows what it answers.
 func (u *ui) provider(function protocol.Function, params json.RawMessage) (answer, error) {
-	raw, err := u.conn.Invoke(function.Name, params)
+	named := func(id int64) {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+
+		u.invoking = id
+	}
+
+	raw, err := u.conn.InvokeWith(function.Name, params, named, talk{ui: u})
+
+	u.mu.Lock()
+	u.invoking = 0
+	u.mu.Unlock()
 
 	if err != nil {
 		return answer{source: fromProvider}, err
@@ -351,6 +363,72 @@ func (u *ui) provider(function protocol.Function, params json.RawMessage) (answe
 	}
 
 	return answer{source: fromProvider, text: string(raw)}, nil
+}
+
+// talk is the Dialog of a provider's function: what it says is shown marked
+// as the provider's, and what it asks is answered by the next line typed.
+type talk struct {
+	ui *ui
+}
+
+func (t talk) Say(text string) {
+	u := t.ui
+
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	u.line("", u.label(fromProvider)+" "+text)
+}
+
+func (t talk) Ask(ctx context.Context, text string, secret bool) (string, error) {
+	u := t.ui
+	asked := &question{secret: secret, answer: make(chan string, 1)}
+
+	u.mu.Lock()
+	u.question = asked
+	u.input = nil
+	u.notice = ""
+	u.line("", u.label(fromProvider)+" "+text)
+	u.mu.Unlock()
+
+	select {
+	case answer := <-asked.answer:
+		return answer, nil
+
+	case <-ctx.Done():
+		u.mu.Lock()
+		defer u.mu.Unlock()
+
+		// What was typed of a secret answer goes with the question.
+		if u.question == asked {
+			u.question = nil
+
+			if secret {
+				u.input = nil
+			}
+
+			u.footer()
+		}
+
+		return "", ctx.Err()
+	}
+}
+
+// answer gives the line typed to the question waiting for it. A secret
+// answer is not shown, and no answer is kept in the history. The caller
+// holds the lock.
+func (u *ui) answer(asked *question) {
+	text := string(u.input)
+	shown := text
+
+	if asked.secret {
+		shown = "(not shown)"
+	}
+
+	u.question = nil
+	u.input = nil
+	u.line(styleBold, "\n"+prompt+shown)
+	asked.answer <- text
 }
 
 // list shows values one per line, with what describes each.

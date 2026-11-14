@@ -54,7 +54,7 @@ func (p *Pool) Complete(ctx context.Context, params protocol.CompleteParams, onD
 }
 
 // Invoke implements Provider.
-func (p *Pool) Invoke(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error) {
+func (p *Pool) Invoke(ctx context.Context, name string, params json.RawMessage, dialog protocol.Dialog) (json.RawMessage, error) {
 	process, err := p.take(ctx)
 
 	if err != nil {
@@ -63,7 +63,7 @@ func (p *Pool) Invoke(ctx context.Context, name string, params json.RawMessage) 
 
 	defer p.give(process)
 
-	return process.Invoke(ctx, name, params)
+	return process.Invoke(ctx, name, params, dialog)
 }
 
 // Description implements Provider. It is empty until a process has

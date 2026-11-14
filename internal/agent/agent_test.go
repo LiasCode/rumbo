@@ -78,7 +78,7 @@ func (s *scripted) Description() protocol.Description {
 	return protocol.Description{}
 }
 
-func (s *scripted) Invoke(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+func (s *scripted) Invoke(context.Context, string, json.RawMessage, protocol.Dialog) (json.RawMessage, error) {
 	return nil, errors.New("no functions")
 }
 

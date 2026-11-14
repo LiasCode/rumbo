@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,9 +101,21 @@ type RunParams struct {
 }
 
 // CancelRunParams names the run to cancel by the id of its run request.
-// Without one, every run in progress is cancelled.
+// Without one, every run in progress is cancelled. Invoke names instead a
+// function in progress, by the id of its invoke request.
 type CancelRunParams struct {
-	Run int64 `json:"run,omitempty"`
+	Run    int64 `json:"run,omitempty"`
+	Invoke int64 `json:"invoke,omitempty"`
+}
+
+// FrontendAskParams is a question the host asks the front end for the
+// person, on behalf of the function called with the invoke whose id is
+// Invoke. A Secret answer is not shown while it is typed, and is not
+// recorded.
+type FrontendAskParams struct {
+	Invoke int64  `json:"invoke"`
+	Text   string `json:"text"`
+	Secret bool   `json:"secret,omitempty"`
 }
 
 // SteerParams is what the user says to a run in progress, named by the id of
@@ -135,7 +148,9 @@ type RunResult struct {
 // Event is something that happened during a run. Run is the id of the run
 // request it belongs to and Session the session that run works in; both
 // are empty for what belongs to no run, such as a provider's diagnostics.
-// Type says which other fields are set:
+// Invoke is set instead on what a function says while it works: a text
+// event naming the invoke request of that function. Type says which other
+// fields are set:
 //
 //   - context: Sections, the names of the ambient sections sent to the model.
 //   - text: Text, a piece of the model's visible answer.
@@ -150,6 +165,7 @@ type Event struct {
 	Type     string          `json:"type"`
 	Run      int64           `json:"run,omitempty"`
 	Session  string          `json:"session,omitempty"`
+	Invoke   int64           `json:"invoke,omitempty"`
 	Text     string          `json:"text,omitempty"`
 	Sections []string        `json:"sections,omitempty"`
 	Name     string          `json:"name,omitempty"`
@@ -180,6 +196,16 @@ type FrontendConn struct {
 	runs []int64
 	// gone is set once the host has closed the connection.
 	gone bool
+	// talking are the dialogs of the functions called with InvokeWith and
+	// not answered yet, by the id of their invoke request.
+	talking map[int64]talking
+}
+
+// talking is the dialog of one function call, and a context that ends with
+// the call, so a question left open is dropped.
+type talking struct {
+	dialog Dialog
+	ctx    context.Context
 }
 
 // DialFrontend answers the host's initialize on r and w and returns the
@@ -203,7 +229,7 @@ func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, Fronten
 		return nil, params, fmt.Errorf("host speaks protocol %d, front end speaks %d", params.Protocol, Version)
 	}
 
-	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}}
+	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}, talking: map[int64]talking{}}
 	result, _ := json.Marshal(InitializeResult{Protocol: Version, Name: name})
 
 	if err := conn.send(Frame{ID: frame.ID, Result: result}); err != nil {
@@ -267,6 +293,54 @@ func (c *FrontendConn) Invoke(name string, params json.RawMessage) (json.RawMess
 	var result json.RawMessage
 
 	return result, c.request(MethodInvoke, InvokeParams{Name: name, Params: params}, &result, nil)
+}
+
+// InvokeWith calls a function of the provider like Invoke, and lets it talk
+// with the person while it works: what it says goes to dialog.Say, and what
+// it asks to dialog.Ask, whose context ends with the call. onID, when set,
+// is told the id of the invoke request, which names the call to
+// CancelInvoke.
+func (c *FrontendConn) InvokeWith(name string, params json.RawMessage, onID func(int64), dialog Dialog) (json.RawMessage, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var call int64
+
+	named := func(id int64) {
+		call = id
+
+		c.mu.Lock()
+		c.talking[id] = talking{dialog: dialog, ctx: ctx}
+		c.mu.Unlock()
+
+		if onID != nil {
+			onID(id)
+		}
+	}
+
+	defer func() {
+		c.mu.Lock()
+		delete(c.talking, call)
+		c.mu.Unlock()
+	}()
+
+	said := func(event Event) {
+		if event.Type == EventText {
+			dialog.Say(event.Text)
+		}
+	}
+
+	var result json.RawMessage
+
+	return result, c.exchange(MethodInvoke, InvokeParams{Name: name, Params: params}, &result, named, said)
+}
+
+// CancelInvoke asks the host to stop a function called with InvokeWith,
+// named by the id of its invoke request. The call returns with an error.
+func (c *FrontendConn) CancelInvoke(invoke int64) {
+	raw, _ := json.Marshal(CancelRunParams{Invoke: invoke})
+
+	_ = c.send(Frame{Method: MethodCancel, Params: raw})
 }
 
 // InvokeHost calls a function of the host.
@@ -386,6 +460,12 @@ func (c *FrontendConn) read(reader *bufio.Reader) {
 			break
 		}
 
+		// A question the host asks for a function this front end called.
+		if frame.Method == MethodAsk && frame.ID != nil {
+			c.question(frame)
+			continue
+		}
+
 		if frames := c.route(frame); frames != nil {
 			frames <- frame
 		}
@@ -412,10 +492,16 @@ func (c *FrontendConn) route(frame Frame) chan Frame {
 
 	if frame.Method == MethodEvent {
 		var event struct {
-			Run int64 `json:"run"`
+			Run    int64 `json:"run"`
+			Invoke int64 `json:"invoke"`
 		}
 
 		_ = json.Unmarshal(frame.Params, &event)
+
+		// What a function says goes to whoever called it.
+		if event.Invoke != 0 {
+			return c.waiting[event.Invoke]
+		}
 
 		// What names no run, such as a provider's diagnostics, or comes from
 		// a host that does not name runs, goes to the run sent first.
@@ -439,6 +525,35 @@ func (c *FrontendConn) route(frame Frame) chan Frame {
 	c.runs = slices.DeleteFunc(c.runs, func(run int64) bool { return run == *frame.ID })
 
 	return frames
+}
+
+// question answers a question the host asks for a function called with
+// InvokeWith, through that call's dialog. The answer waits for the person,
+// so it is given in the background.
+func (c *FrontendConn) question(frame Frame) {
+	var params FrontendAskParams
+
+	_ = json.Unmarshal(frame.Params, &params)
+
+	c.mu.Lock()
+	call, found := c.talking[params.Invoke]
+	c.mu.Unlock()
+
+	id := *frame.ID
+
+	go func() {
+		reply := Frame{ID: &id}
+
+		if !found {
+			reply.Error = &Error{Code: CodeInvalidParams, Message: "this front end is not following that function, so it cannot answer for it"}
+		} else if answer, err := call.dialog.Ask(call.ctx, params.Text, params.Secret); err != nil {
+			reply.Error = &Error{Code: CodeInternal, Message: err.Error()}
+		} else {
+			reply.Result, _ = json.Marshal(AskResult{Text: answer})
+		}
+
+		_ = c.send(reply)
+	}()
 }
 
 // readFrame returns the next well-formed frame, skipping lines that are not

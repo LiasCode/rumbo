@@ -4,8 +4,7 @@ rumbo is a general agent harness: it is not tied to programming, it does not
 judge the model's work, and it sends no context beyond the environment and
 the user's instructions.
 
-What is left on our side: the loop, configuration, and sessions. Work on the
-protocols and on external interfaces waits until this is done.
+What is left on our side: the loop, configuration, and sessions.
 
 Items are numbered so they can be referred to. Within a block they are in the
 order to do them. Remove an item when it is done.
@@ -45,8 +44,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     `/setting options.<provider> {...}`.
 55. **Stored settings apply from the next start.** The host reads them once,
     so `/setting max_turns 40` does nothing to the session that stored it.
-50. **Functions are request and response only.** A provider cannot hold a
-    dialogue through one, which a browser login for a subscription needs.
 52. **Host functions take only text.** Their parameters are an object of
     text values, and they cannot report progress while they work, which
     `compact` would use.

@@ -395,8 +395,9 @@ func (h *host) describe(ctx context.Context) (protocol.DescribeResult, error) {
 }
 
 // invoke calls a function of the current session's provider, passed on as
-// it is.
-func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
+// it is. What the function says and asks while it works goes through
+// dialog, unread.
+func (h *host) invoke(ctx context.Context, params protocol.InvokeParams, dialog protocol.Dialog) (json.RawMessage, error) {
 	h.mu.Lock()
 	name := h.current.provider
 	h.mu.Unlock()
@@ -407,7 +408,7 @@ func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.R
 		return nil, err
 	}
 
-	return pool.Invoke(ctx, params.Name, params.Params)
+	return pool.Invoke(ctx, params.Name, params.Params, dialog)
 }
 
 func (h *host) close() {
