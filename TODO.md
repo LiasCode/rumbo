@@ -15,7 +15,7 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Concurrency (56, 57).
+1. Concurrency (57).
 2. The remaining blocks.
 
 ## Decisions for the owner
@@ -28,8 +28,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Correctness
 
-40. **Provider process death.** When the provider exits mid-session the run
-    fails and the host does not start it again; only a new `rumbo` does.
+40. **Provider process death.** When a provider process exits during a run,
+    the run fails. The next request starts another process.
 41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
     itself on end of input, and does not stop a running tool.
 
@@ -70,8 +70,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 The owner decided what this covers: these, in this order.
 
-56. **Several sessions in one host.** A host serves one session at a time, so
-    an interface with tabs, or several agents at once, needs a process each.
 57. **Subagents.** The agent cannot hand part of a task to another agent.
 20. **Changing model mid-session.** It works, but is untested with reasoning
     blocks left by another provider.
@@ -82,6 +80,10 @@ The owner decided what this covers: these, in this order.
     code.
 
 ## 3. Sessions
+
+59. **A session's provider lasts as long as the host.** `use` changes the
+    provider of a session until rumbo exits; the next rumbo takes it from
+    the settings again.
 
 30. **Reproduce a request.** `log` prints entries. A command should print the
     exact request of turn N, which is the proof that history is reproducible.

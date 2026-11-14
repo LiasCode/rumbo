@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 )
 
@@ -84,20 +85,32 @@ type HostState struct {
 }
 
 // RunParams starts a run on Objective, or, with Resume, continues the
-// session's last run where it stopped. One run is active at a time. Model
-// and Options choose, for this run, what the provider described; what is
-// left out keeps its stored value.
+// session's last run where it stopped. Session names the session of the
+// project to run in, and New asks for a new one; with neither, the run goes
+// to the current session. A session has one run at a time. Model and
+// Options choose, for this run, what the provider described; what is left
+// out keeps its stored value.
 type RunParams struct {
 	Objective string          `json:"objective,omitempty"`
 	Resume    bool            `json:"resume,omitempty"`
+	Session   string          `json:"session,omitempty"`
+	New       bool            `json:"new,omitempty"`
 	Model     string          `json:"model,omitempty"`
 	Options   json.RawMessage `json:"options,omitempty"`
 }
 
-// SteerParams is what the user says to the run in progress. It reaches the
+// CancelRunParams names the run to cancel by the id of its run request.
+// Without one, every run in progress is cancelled.
+type CancelRunParams struct {
+	Run int64 `json:"run,omitempty"`
+}
+
+// SteerParams is what the user says to a run in progress, named by the id of
+// its run request; without one, to the only run in progress. It reaches the
 // model before its next request, and the run's objective stays as it was.
 type SteerParams struct {
 	Text string `json:"text"`
+	Run  int64  `json:"run,omitempty"`
 }
 
 // DescribeResult is what the provider in use offers and what is in force.
@@ -119,8 +132,10 @@ type RunResult struct {
 	Session string `json:"session"`
 }
 
-// Event is something that happened during a run. Type says which fields are
-// set:
+// Event is something that happened during a run. Run is the id of the run
+// request it belongs to and Session the session that run works in; both
+// are empty for what belongs to no run, such as a provider's diagnostics.
+// Type says which other fields are set:
 //
 //   - context: Sections, the names of the ambient sections sent to the model.
 //   - text: Text, a piece of the model's visible answer.
@@ -133,6 +148,8 @@ type RunResult struct {
 //     output, or something the host did, such as retrying a request.
 type Event struct {
 	Type     string          `json:"type"`
+	Run      int64           `json:"run,omitempty"`
+	Session  string          `json:"session,omitempty"`
 	Text     string          `json:"text,omitempty"`
 	Sections []string        `json:"sections,omitempty"`
 	Name     string          `json:"name,omitempty"`
@@ -147,7 +164,8 @@ type Event struct {
 
 // FrontendConn is the front end's side of the protocol, for front ends
 // written in Go. Its methods may be called from several goroutines at once,
-// so a function of the host can be called while a run is in progress.
+// so several runs can be in progress, and the host can be asked things
+// while they work.
 type FrontendConn struct {
 	done chan struct{}
 
@@ -157,8 +175,9 @@ type FrontendConn struct {
 	// waiting has a channel for each request not yet answered, by id. The
 	// answer arrives on it, and for a run so do its events, in order.
 	waiting map[int64]chan Frame
-	// run is the channel of the run in progress, which events belong to.
-	run chan Frame
+	// runs are the ids of the run requests not yet answered, in the order
+	// they were sent.
+	runs []int64
 	// gone is set once the host has closed the connection.
 	gone bool
 }
@@ -215,13 +234,19 @@ func (c *FrontendConn) Start(params RunParams, onEvent func(Event)) (RunResult, 
 	return result, c.request(MethodRun, params, &result, onEvent)
 }
 
-// Steer tells the run in progress text, and returns once it is recorded for
-// the model's next request. An error means it never will be: no run is in
-// progress, or the run ended first.
+// Steer tells the only run in progress text, and returns once it is
+// recorded for the model's next request. An error means it never will be:
+// no run is in progress, several are, or the run ended first.
 func (c *FrontendConn) Steer(text string) error {
+	return c.SteerRun(0, text)
+}
+
+// SteerRun tells text to one run, named by the id of its request, which its
+// events carry, and returns like Steer.
+func (c *FrontendConn) SteerRun(run int64, text string) error {
 	var result struct{}
 
-	return c.request(MethodSteer, SteerParams{Text: text}, &result, nil)
+	return c.request(MethodSteer, SteerParams{Text: text, Run: run}, &result, nil)
 }
 
 // Describe asks what the provider in use offers and what is in force.
@@ -253,28 +278,21 @@ func (c *FrontendConn) Done() <-chan struct{} {
 // request sends one request and waits for its answer. The events of a run
 // are passed to onEvent until the run's answer arrives.
 func (c *FrontendConn) request(method string, params, result any, onEvent func(Event)) error {
-	run := method == MethodRun
 	frames := make(chan Frame, 64)
 
 	c.mu.Lock()
 
-	switch {
-	case c.gone:
+	if c.gone {
 		c.mu.Unlock()
 		return errors.New("the host exited")
-
-	// Events carry no request id, so they could not tell two runs apart.
-	case run && c.run != nil:
-		c.mu.Unlock()
-		return errors.New("a run is already in progress")
 	}
 
 	c.nextID++
 	id := c.nextID
 	c.waiting[id] = frames
 
-	if run {
-		c.run = frames
+	if method == MethodRun {
+		c.runs = append(c.runs, id)
 	}
 
 	c.mu.Unlock()
@@ -312,17 +330,22 @@ func (c *FrontendConn) forget(id int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.run == c.waiting[id] {
-		c.run = nil
-	}
-
+	c.runs = slices.DeleteFunc(c.runs, func(run int64) bool { return run == id })
 	delete(c.waiting, id)
 }
 
-// Cancel asks the host to stop the current run. Run still returns, with the
-// cancelled status.
+// Cancel asks the host to stop every run in progress. Each still returns,
+// with the cancelled status.
 func (c *FrontendConn) Cancel() {
 	_ = c.send(Frame{Method: MethodCancel})
+}
+
+// CancelRun asks the host to stop one run, named by the id of its request,
+// which its events carry.
+func (c *FrontendConn) CancelRun(run int64) {
+	raw, _ := json.Marshal(CancelRunParams{Run: run})
+
+	_ = c.send(Frame{Method: MethodCancel, Params: raw})
 }
 
 func (c *FrontendConn) send(frame Frame) error {
@@ -361,7 +384,7 @@ func (c *FrontendConn) read(reader *bufio.Reader) {
 		delete(c.waiting, id)
 	}
 
-	c.run = nil
+	c.runs = nil
 	c.gone = true
 }
 
@@ -372,7 +395,23 @@ func (c *FrontendConn) route(frame Frame) chan Frame {
 	defer c.mu.Unlock()
 
 	if frame.Method == MethodEvent {
-		return c.run
+		var event struct {
+			Run int64 `json:"run"`
+		}
+
+		_ = json.Unmarshal(frame.Params, &event)
+
+		// What names no run, such as a provider's diagnostics, or comes from
+		// a host that does not name runs, goes to the run sent first.
+		if event.Run == 0 && len(c.runs) > 0 {
+			event.Run = c.runs[0]
+		}
+
+		if !slices.Contains(c.runs, event.Run) {
+			return nil
+		}
+
+		return c.waiting[event.Run]
 	}
 
 	if frame.Method != "" || frame.ID == nil {
@@ -381,10 +420,7 @@ func (c *FrontendConn) route(frame Frame) chan Frame {
 
 	frames := c.waiting[*frame.ID]
 	delete(c.waiting, *frame.ID)
-
-	if frames == c.run {
-		c.run = nil
-	}
+	c.runs = slices.DeleteFunc(c.runs, func(run int64) bool { return run == *frame.ID })
 
 	return frames
 }

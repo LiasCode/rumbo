@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"rumbo/internal/store"
@@ -17,18 +18,29 @@ import (
 // without knowing them beforehand, the way it does with a provider's.
 type hostFunction struct {
 	protocol.Function
-	// duringRun says the function also answers while a run works. It only
-	// reads, or stores what applies from the next start, and answers at
-	// once. The others change the session or the provider, or need a
-	// provider, and wait for the run to end.
+	// duringRun says the function answers while a run works even in a host
+	// that works in one session at a time (-single): it only reads, or
+	// stores what applies from the next start. There the others wait for
+	// the run to end. In a host with several sessions, each function waits
+	// only for the session it changes.
 	duringRun bool
-	call      func(h *host, ctx context.Context, params map[string]string) (protocol.HostResult, error)
+	// slow says the function reaches a provider, so it is answered without
+	// holding up the requests that come after it.
+	slow bool
+	call func(h *host, ctx context.Context, params map[string]string) (protocol.HostResult, error)
 }
+
+// sessionParam lets a function act on a session other than the current one.
+var sessionParam = protocol.Option{Name: "session", Type: protocol.OptionString, Values: "sessions", Optional: true}
 
 // hostFunctions are listed to the front end in this order.
 var hostFunctions = []hostFunction{
 	{
-		Function:  protocol.Function{Name: "status", Description: "Show the session, the model, and what the conversation has cost"},
+		Function: protocol.Function{
+			Name:        "status",
+			Description: "Show the session, the model, and what the conversation has cost",
+			Params:      []protocol.Option{sessionParam},
+		},
 		duringRun: true,
 		call:      (*host).status,
 	},
@@ -66,7 +78,7 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "use",
-			Description: "Change the provider and the model for the tasks that follow",
+			Description: "Change the provider and the model of this session for the tasks that follow",
 			Params: []protocol.Option{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
 				{Name: "model", Type: protocol.OptionString, Description: "A model of that provider"},
@@ -103,6 +115,7 @@ var hostFunctions = []hostFunction{
 			Description: "Start a provider and show what it offers; also the test that it works",
 			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
 		},
+		slow: true,
 		call: (*host).inspect,
 	},
 	{
@@ -151,8 +164,13 @@ var hostFunctions = []hostFunction{
 		call:      (*host).settingKeys,
 	},
 	{
-		Function: protocol.Function{Name: "compact", Description: "Replace the conversation with a summary now, to free context"},
-		call:     (*host).compactNow,
+		Function: protocol.Function{
+			Name:        "compact",
+			Description: "Replace the conversation with a summary now, to free context",
+			Params:      []protocol.Option{sessionParam},
+		},
+		slow: true,
+		call: (*host).compactNow,
 	},
 	{
 		Function:  protocol.Function{Name: "quit", Description: "Stop the provider and exit; a run in progress is cancelled"},
@@ -172,10 +190,16 @@ func describedFunctions() []protocol.Function {
 	return functions
 }
 
+// slowFunction implements frontend.Handlers.Slow.
+func slowFunction(name string) bool {
+	index := slices.IndexFunc(hostFunctions, func(function hostFunction) bool { return function.Name == name })
+
+	return index >= 0 && hostFunctions[index].slow
+}
+
 // invokeHost runs a function of the host. Every answer carries the state
 // the front end is attached to afterwards, since the call may change it.
-// running says a run is in progress, which most functions wait for.
-func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage, running bool) (protocol.HostResult, error) {
+func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage) (protocol.HostResult, error) {
 	params := map[string]string{}
 
 	if len(raw) > 0 {
@@ -189,7 +213,7 @@ func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage,
 			continue
 		}
 
-		if running && !function.duringRun {
+		if h.single && !function.duringRun && h.working() {
 			return protocol.HostResult{}, fmt.Errorf("%s waits for the run in progress to end; cancel the run to use it now", name)
 		}
 
@@ -213,42 +237,80 @@ func (h *host) state() protocol.HostState {
 	defer h.mu.Unlock()
 
 	return protocol.HostState{
-		Dir:      h.info.Dir,
-		Session:  h.info.Session,
-		Provider: h.settings.Provider,
-		Model:    h.settings.Model,
+		Dir:      h.current.dir,
+		Session:  h.current.id(),
+		Provider: h.current.provider,
+		Model:    h.current.model,
 	}
 }
 
-func (h *host) status(context.Context, map[string]string) (protocol.HostResult, error) {
+// chosen returns the place a function acts on: the session it names, or
+// the current one. The caller holds the lock.
+func (h *host) chosen(params map[string]string) (*place, error) {
+	if params["session"] == "" {
+		return h.current, nil
+	}
+
+	return h.known(params["session"])
+}
+
+func (h *host) status(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	session, dir, working := h.session, h.info.Dir, h.working
+	target, err := h.chosen(params)
+
+	if err != nil {
+		h.mu.Unlock()
+		return protocol.HostResult{}, err
+	}
+
+	session, dir, chosen, working := target.session, target.dir, target.choice, h.busy[target]
+
+	var others []string
+
+	for other := range h.busy {
+		if other != target && other.session != nil {
+			others = append(others, other.session.ID)
+		}
+	}
+
 	h.mu.Unlock()
+
+	slices.Sort(others)
 
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "provider: %s\nmodel: %s\ndirectory: %s", h.settings.Provider, h.settings.Model, dir)
+	fmt.Fprintf(&out, "provider: %s\nmodel: %s\ndirectory: %s", chosen.provider, chosen.model, dir)
 
-	if len(h.settings.Options) > 0 {
-		fmt.Fprintf(&out, "\noptions: %s", h.settings.Options)
+	if len(chosen.options) > 0 {
+		fmt.Fprintf(&out, "\noptions: %s", chosen.options)
 	}
 
 	if session == nil {
 		out.WriteString("\nsession: none yet; the next task starts one")
-
-		return protocol.HostResult{Text: out.String()}, nil
+	} else if err := h.describeSession(&out, *session, working); err != nil {
+		return protocol.HostResult{}, err
 	}
 
+	if len(others) > 0 {
+		fmt.Fprintf(&out, "\nworking here as well: %s", strings.Join(others, ", "))
+	}
+
+	return protocol.HostResult{Text: out.String()}, nil
+}
+
+// describeSession writes what a session holds: its context, what it has
+// cost, and how its last run stands.
+func (h *host) describeSession(out *strings.Builder, session store.Session, working string) error {
 	entries, err := h.database.Entries(session.ID)
 
 	if err != nil {
-		return protocol.HostResult{}, err
+		return err
 	}
 
 	state, err := transcript.Build(entries)
 
 	if err != nil {
-		return protocol.HostResult{}, err
+		return err
 	}
 
 	var spent protocol.Usage
@@ -273,26 +335,26 @@ func (h *host) status(context.Context, map[string]string) (protocol.HostResult, 
 		spent.Output += answer.Usage.Output
 	}
 
-	fmt.Fprintf(&out, "\nsession: %s (%s)", session.ID, session.Title)
-	fmt.Fprintf(&out, "\ncontext: %d tokens", state.Tokens)
+	fmt.Fprintf(out, "\nsession: %s (%s)", session.ID, session.Title)
+	fmt.Fprintf(out, "\ncontext: %d tokens", state.Tokens)
 
 	if state.Window > 0 {
-		fmt.Fprintf(&out, " of %d, %d%%", state.Window, state.Tokens*100/state.Window)
+		fmt.Fprintf(out, " of %d, %d%%", state.Window, state.Tokens*100/state.Window)
 	}
 
 	if limit := h.settings.Compaction.Limit(state.Window); limit > 0 {
-		fmt.Fprintf(&out, "; summarized at %d", limit)
+		fmt.Fprintf(out, "; summarized at %d", limit)
 	}
-	fmt.Fprintf(&out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", turns, spent.Input, spent.CacheRead, spent.Output)
+	fmt.Fprintf(out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", turns, spent.Input, spent.CacheRead, spent.Output)
 
 	switch {
-	case working:
-		out.WriteString("\na run is in progress")
+	case working != "":
+		fmt.Fprintf(out, "\n%s is in progress", working)
 	case state.Unfinished:
 		out.WriteString("\nthe last run did not finish, and can be resumed")
 	}
 
-	return protocol.HostResult{Text: out.String()}, nil
+	return nil
 }
 
 func (h *host) listSessions(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -302,14 +364,25 @@ func (h *host) listSessions(context.Context, map[string]string) (protocol.HostRe
 		return protocol.HostResult{}, err
 	}
 
+	h.mu.Lock()
+	working := map[string]string{}
+
+	for target, what := range h.busy {
+		working[target.id()] = what
+	}
+
+	h.mu.Unlock()
+
 	var result protocol.HostResult
 
 	for _, session := range sessions {
-		result.Values = append(result.Values, protocol.Value{
-			Value:       session.ID,
-			Label:       session.Title,
-			Description: "last used " + session.ActiveAt.Format("2006-01-02 15:04"),
-		})
+		description := "last used " + session.ActiveAt.Format("2006-01-02 15:04")
+
+		if what := working[session.ID]; what != "" {
+			description = what + " in progress; " + description
+		}
+
+		result.Values = append(result.Values, protocol.Value{Value: session.ID, Label: session.Title, Description: description})
 	}
 
 	if len(sessions) == 0 {
@@ -319,78 +392,86 @@ func (h *host) listSessions(context.Context, map[string]string) (protocol.HostRe
 	return result, nil
 }
 
+// openSession makes another session the current one. One that works goes
+// on working in the background.
 func (h *host) openSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	found, err := h.database.Session(params["session"])
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	target, err := h.known(params["session"])
 
 	if err != nil {
-		return protocol.HostResult{}, fmt.Errorf("session %s: %w", params["session"], err)
-	}
-
-	// Settings were read for this project, so the session has to be one of
-	// its own.
-	if found.Project != h.root {
-		return protocol.HostResult{}, fmt.Errorf("session %s belongs to %s; start rumbo there to continue it", found.ID, found.Project)
-	}
-
-	unlock, err := h.database.LockSession(found.ID)
-
-	if err != nil && (h.session == nil || h.session.ID != found.ID) {
-		return protocol.HostResult{}, fmt.Errorf("session %s: %w", found.ID, err)
-	}
-
-	if err == nil {
-		h.release()
-		h.unlock = unlock
-	}
-
-	h.session = &found
-	h.info.Session = found.ID
-	h.info.Dir = found.Dir
-
-	return protocol.HostResult{Text: fmt.Sprintf("continuing session %s (%s) in %s", found.ID, found.Title, found.Dir)}, nil
-}
-
-// deleteSession removes a session for good. One that another rumbo process
-// is using is left alone.
-func (h *host) deleteSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	found, err := h.database.Session(params["session"])
-
-	if err != nil {
-		return protocol.HostResult{}, fmt.Errorf("session %s: %w", params["session"], err)
-	}
-
-	if found.Project != h.root {
-		return protocol.HostResult{}, fmt.Errorf("session %s belongs to %s; start rumbo there to delete it", found.ID, found.Project)
-	}
-
-	// The session in use here is let go of first; any other must be free.
-	if h.session != nil && h.session.ID == found.ID {
-		h.release()
-		h.session = nil
-		h.info.Session = ""
-	} else {
-		unlock, err := h.database.LockSession(found.ID)
-
-		if err != nil {
-			return protocol.HostResult{}, fmt.Errorf("session %s: %w", found.ID, err)
-		}
-
-		defer unlock()
-	}
-
-	if err := h.database.DeleteSession(found.ID); err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: fmt.Sprintf("deleted session %s (%s)", found.ID, found.Title)}, nil
+	if err := h.hold(target); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	previous := h.current
+	h.current = target
+	h.letGo(previous)
+	h.prune()
+
+	text := fmt.Sprintf("continuing session %s (%s) in %s", target.session.ID, target.session.Title, target.dir)
+
+	return protocol.HostResult{Text: text + h.background(previous)}, nil
+}
+
+// deleteSession removes a session for good. One that something works in,
+// or that another rumbo process is using, is left alone.
+func (h *host) deleteSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	target, err := h.known(params["session"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	if what := h.busy[target]; what != "" {
+		return protocol.HostResult{}, fmt.Errorf("%s is busy with %s; cancel it first", target.name(), what)
+	}
+
+	// The session has to be free: held here, or by no other process.
+	if err := h.hold(target); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	if err := h.database.DeleteSession(target.session.ID); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	target.release()
+	delete(h.places, target.session.ID)
+
+	if target == h.current {
+		h.current = h.fresh(target)
+	}
+
+	return protocol.HostResult{Text: fmt.Sprintf("deleted session %s (%s)", target.session.ID, target.session.Title)}, nil
 }
 
 func (h *host) newSession(context.Context, map[string]string) (protocol.HostResult, error) {
-	h.release()
-	h.session = nil
-	h.info.Session = ""
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	return protocol.HostResult{Text: "the next task starts a new session"}, nil
+	previous := h.current
+	h.current = h.fresh(previous)
+	h.letGo(previous)
+
+	return protocol.HostResult{Text: "the next task starts a new session" + h.background(previous)}, nil
+}
+
+// background says that a session left behind keeps working. The caller
+// holds the lock.
+func (h *host) background(previous *place) string {
+	if what := h.busy[previous]; what != "" {
+		return fmt.Sprintf("; %s goes on in %s", what, previous.name())
+	}
+
+	return ""
 }
 
 func (h *host) listProviders(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -409,9 +490,9 @@ func (h *host) listProviders(context.Context, map[string]string) (protocol.HostR
 	return result, nil
 }
 
-// useProvider changes the provider and the model. The running provider is
-// stopped and the new one starts with the next request. The session goes on:
-// the history is the host's, not the provider's.
+// useProvider changes the provider and the model of the current session.
+// The history is the host's, not the provider's, so the session goes on.
+// A run in progress keeps the provider it started with.
 func (h *host) useProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	name := params["provider"]
 
@@ -419,28 +500,27 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 		return protocol.HostResult{}, fmt.Errorf("provider %q is not registered", name)
 	}
 
+	// Options given on the command line were meant for the provider rumbo
+	// was started with, so only the stored ones carry over.
 	options, err := storedOptions(h.database, h.root, name)
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	if h.process != nil {
-		_ = h.process.Close()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.current.choice = choice{provider: name, model: params["model"], options: options}
+	h.prune()
+
+	text := fmt.Sprintf("using %s/%s", name, params["model"])
+
+	if h.busy[h.current] != "" {
+		text += "; the run in progress keeps the provider it started with"
 	}
 
-	h.process = nil
-	h.worker = nil
-
-	// Options given on the command line were meant for the provider rumbo
-	// was started with, so only the stored ones carry over.
-	h.settings.Provider = name
-	h.settings.Model = params["model"]
-	h.settings.Options = options
-	h.info.Provider = name
-	h.info.Model = params["model"]
-
-	return protocol.HostResult{Text: fmt.Sprintf("using %s/%s", name, params["model"])}, nil
+	return protocol.HostResult{Text: text}, nil
 }
 
 // scopes are where a setting can be stored from a front end.
@@ -477,8 +557,12 @@ func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostRes
 		result.Values = append(result.Values, protocol.Value{Value: spec.key, Description: spec.help})
 	}
 
+	h.mu.Lock()
+	name := h.current.provider
+	h.mu.Unlock()
+
 	result.Values = append(result.Values, protocol.Value{
-		Value:       optionsPrefix + h.settings.Provider,
+		Value:       optionsPrefix + name,
 		Description: "JSON object of option values sent to this provider with every request",
 	})
 
@@ -532,11 +616,13 @@ func (h *host) configureProvider(_ context.Context, params map[string]string) (p
 
 	text := fmt.Sprintf("configuration of %s: %s", program.Name, program.Config)
 
-	// A provider reads its configuration when it starts.
-	if program.Name == h.settings.Provider && h.process != nil {
-		_ = h.process.Close()
-		h.process, h.worker = nil, nil
-		text += "\nit was restarted, so the change applies to the next task"
+	// A provider reads its configuration when it starts, so its processes
+	// are replaced; one busy with a request stops when the request ends.
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.drop(program.Name) {
+		text += "\nits processes were stopped, so the change applies to the next request"
 	}
 
 	return protocol.HostResult{Text: text}, nil
@@ -553,7 +639,11 @@ func (h *host) inspect(_ context.Context, params map[string]string) (protocol.Ho
 }
 
 func (h *host) unregisterProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	if params["provider"] == h.settings.Provider {
+	h.mu.Lock()
+	inUse := h.uses(params["provider"])
+	h.mu.Unlock()
+
+	if inUse {
 		return protocol.HostResult{}, fmt.Errorf("%s is the provider in use; change to another one first", params["provider"])
 	}
 
@@ -564,23 +654,40 @@ func (h *host) unregisterProvider(_ context.Context, params map[string]string) (
 	return protocol.HostResult{Text: "removed the provider " + params["provider"]}, nil
 }
 
-func (h *host) compactNow(ctx context.Context, _ map[string]string) (protocol.HostResult, error) {
-	if h.session == nil {
-		return protocol.HostResult{}, errors.New("there is no session to compact yet")
+// compactNow replaces a session's conversation with a summary. The session
+// is busy meanwhile, so no run starts in it.
+func (h *host) compactNow(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	target, err := h.chosen(params)
+
+	switch {
+	case err != nil:
+	case target.session == nil:
+		err = errors.New("there is no session to compact yet")
+	case h.busy[target] != "":
+		err = fmt.Errorf("%s is busy with %s; compact it when that ends", target.name(), h.busy[target])
+	default:
+		err = h.hold(target)
 	}
 
-	if err := h.start(); err != nil {
+	if err != nil {
+		h.mu.Unlock()
 		return protocol.HostResult{}, err
 	}
 
-	if err := h.lock(); err != nil {
+	h.busy[target] = busyCompact
+	chosen, session := target.choice, *target.session
+	h.mu.Unlock()
+
+	defer h.finish(target)
+
+	pool, err := h.pool(chosen.provider)
+
+	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	h.worker.Model = h.settings.Model
-	h.worker.Options = h.settings.Options
-
-	before, err := h.worker.Compact(ctx, *h.session)
+	before, err := h.agent(pool, chosen, target.tools, h.conn.Report(session.ID)).Compact(ctx, session)
 
 	if err != nil {
 		return protocol.HostResult{}, err

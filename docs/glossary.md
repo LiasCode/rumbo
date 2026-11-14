@@ -62,8 +62,12 @@ front end learns both from descriptions and knows neither beforehand.
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
 provider.
 
-**Host.** The rumbo process that owns the session, the tools, and the loop.
-It sits between a front end and a provider and speaks a protocol to each.
+**Host.** The rumbo process that owns the sessions of a project, the tools,
+and the loop. It sits between a front end and the providers and speaks a
+protocol to each.
+
+**Current session.** The session of a host that a run goes to when it names
+none, and that the host's functions act on unless told otherwise.
 
 **Front end.** The program a person uses to give objectives and follow the
 work: a terminal UI, a plain printer, an editor extension. It speaks the Agent

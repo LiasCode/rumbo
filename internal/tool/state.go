@@ -20,6 +20,13 @@ func NewSet() *Set {
 	return &Set{seen: &seen{stamps: map[string]stamp{}}, jobs: &jobs{}}
 }
 
+// Separate returns a set for another session. It keeps its own record of
+// the files its model has seen, since one model has not read what another
+// did, and shares the processes left running, which stop with the host.
+func (s *Set) Separate() *Set {
+	return &Set{seen: &seen{stamps: map[string]stamp{}}, jobs: s.jobs}
+}
+
 // Tools returns the tools in the order they are declared to the model.
 func (s *Set) Tools() []Tool {
 	return []Tool{Read{seen: s.seen}, Write{seen: s.seen}, Edit{seen: s.seen}, Bash{jobs: s.jobs}}

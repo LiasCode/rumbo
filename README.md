@@ -108,9 +108,9 @@ rumbo -m mine/some-model "..."
 In a terminal rumbo starts `tui`: the conversation scrolls above a status bar
 and an input line. Enter sends a task; during a run it tells the run what you
 typed, which the model reads before its next turn. Ctrl-C cancels the run or
-quits when idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the model's
-text to stdout and progress to stderr. `-f <name>` or the `frontend` setting
-picks one.
+quits when idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the
+model's text to stdout and progress to stderr. `-f <name>` or the `frontend`
+setting picks one.
 
 A front end is a program that exchanges JSON lines with the host.
 [examples/frontend.py](examples/frontend.py) is a complete one, and
@@ -123,6 +123,10 @@ rumbo -f mine
 
 A program that would rather start rumbo itself, such as an editor extension,
 runs `rumbo serve` and speaks the same protocol on its stdin and stdout.
+
+One host works in several sessions of the project at once, each with a
+provider of its own, so a front end with tabs needs one rumbo. `-single`
+keeps it to one session at a time.
 
 ## Settings
 

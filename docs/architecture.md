@@ -24,7 +24,7 @@ reaches the model.
  provider process  (built-in anthropic or openai, or written by the user)
 ```
 
-The host is the only part that is always rumbo. It owns the session, the
+The host is the only part that is always rumbo. It owns the sessions, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied
 to one kind of work: what a task is about comes from the user and from the
 user's instructions, not from the host.
@@ -39,10 +39,14 @@ passing reason, continues responses cut by the output limit, compacts a full
 context, and records how the run ended. The loop knows only interfaces.
 
 **Provider** (`internal/provider`, `protocol`). The only way to reach a model.
-The host starts a provider process and speaks the Agent Provider Protocol to
-it. The built-in providers (`internal/providers`) are served by the same
-binary through `rumbo provide <name>` and get no shortcut: they cross the same
-protocol as a provider a user writes. Credentials belong to the provider; the
+The host starts provider processes and speaks the Agent Provider Protocol to
+each. A process answers one request at a time, so the host keeps a pool of
+them per provider and starts another when every one is busy; any of them can
+answer any request, since every request carries the whole conversation.
+Each session uses the provider chosen for it. The built-in providers
+(`internal/providers`) are served by the same binary through `rumbo provide
+<name>` and get no shortcut: they cross the same protocol as a provider a
+user writes. Credentials belong to the provider; the
 host never sees them. A provider also describes itself: the options it
 accepts and the functions it can be asked, such as listing its models. The
 host stores the chosen values, sends them with every request, and relays
@@ -51,10 +55,10 @@ function calls, without knowing what any of them mean.
 **Tools** (`internal/tool`). What the model can do: read, write, and edit
 files, and run commands. The set is small because every declared tool costs
 tokens on every request, and a shell already reaches everything else. The
-tools share a little state for the life of the host: which files the model
-has seen, so it cannot replace one whole without knowing what is in it, and
-which processes it left running in the background, so they are stopped when
-the host exits.
+tools keep a little state. Each session has its own record of the files its
+model has seen, so a model cannot replace a file whole without knowing what
+is in it, even one another session's model read. The processes left running
+in the background are the host's, so they are stopped when it exits.
 
 **Ambient context** (`internal/ambient`). The little the model is told
 without asking: the environment it runs in, and the user's instruction files.
@@ -74,7 +78,8 @@ to starts.
 **Front end** (`internal/frontend`, `protocol`). The only way a person
 reaches the loop. The host sends it events and receives objectives, steers,
 and cancellations over the Agent Frontend Protocol. Inside the host, the
-connection is the loop's `Observer` and its `Inbox`. The built-in front ends
+connection gives each run an `Observer` and an `Inbox`, so what a run does
+reaches the front end naming the run and its session. The built-in front ends
 (`internal/frontends`) are served by the same binary through `rumbo attach
 <name>` and cross the same protocol as one a user writes. A front end either
 is started by the host, which leaves it the terminal, or starts the host
@@ -126,9 +131,15 @@ stay in the session; only the request changes.
 done, failed, or cancelled. A run without one was killed. That is what makes
 resuming possible, and why a failure is never only on the screen.
 
-**One process per session.** The host holds a lock on the session it works
+**One process per session.** The host holds a lock on each session it works
 in, so two processes cannot interleave entries into a history that neither of
 them sent.
+
+**A host works in several sessions.** They are sessions of one project, and
+each has one run at a time. A run goes to the current session unless it
+names another or asks for a new one, so a front end that knows nothing of
+sessions works as if there were only one. Started with `-single`, the host
+works in one session at a time.
 
 **Tool output is bounded.** A result stays in the context and is paid for on
 every later request, so results are kept small: a file is read in windows,

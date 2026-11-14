@@ -1,6 +1,6 @@
 // Package frontend is the host side of the Agent Frontend Protocol. It turns
-// a pair of streams into the agent's Observer and Inbox and into run
-// requests, so the loop never knows what kind of front end is attached.
+// a pair of streams into run requests, each with the Observer and Inbox the
+// agent needs, so the loop never knows what kind of front end is attached.
 package frontend
 
 import (
@@ -22,19 +22,26 @@ import (
 
 // Handlers are what the host does for a front end.
 type Handlers struct {
-	// Run works on one run request and returns the session it ran in.
-	Run func(ctx context.Context, params protocol.RunParams) (session string, err error)
+	// Run accepts a run request and returns the work to do, or why the run
+	// cannot start. It is called as requests arrive, before the next one is
+	// read, so what it decides holds for the requests after it.
+	Run func(params protocol.RunParams, run *Run) (Work, error)
 	// Describe says what the provider offers and what is in force.
 	Describe func(ctx context.Context) (protocol.DescribeResult, error)
 	// Invoke calls a function of the provider.
 	Invoke func(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error)
-	// Host calls a function of the host. running says a run is in progress,
-	// which some functions wait for.
-	Host func(ctx context.Context, name string, params json.RawMessage, running bool) (protocol.HostResult, error)
+	// Host calls a function of the host.
+	Host func(ctx context.Context, name string, params json.RawMessage) (protocol.HostResult, error)
+	// Slow says which functions of the host reach a provider. Those, like
+	// describe and the provider's own functions, are answered when they are
+	// done, without holding up the requests that come after them.
+	Slow func(name string) bool
 }
 
-// Conn is a connected front end. It implements agent.Observer by sending
-// events, and agent.Inbox with what the front end tells the run.
+// Work is an accepted run. It returns the session the run worked in.
+type Work func(ctx context.Context) (session string, err error)
+
+// Conn is a connected front end.
 type Conn struct {
 	reader *bufio.Reader
 	// stopped ends Serve after the request being answered.
@@ -43,24 +50,14 @@ type Conn struct {
 	mu  sync.Mutex
 	out *json.Encoder
 
-	// steering guards steers and listening. steers are what the front end
-	// told the run in progress and the loop has not taken yet; listening is
-	// true from when a run is accepted until it ends.
-	steering  sync.Mutex
-	steers    []steer
-	listening bool
-}
-
-// steer is something the front end told a run, and the request to answer
-// once it is recorded.
-type steer struct {
-	id   *int64
-	text string
+	// running guards runs, the runs in progress by the id of their request.
+	running sync.Mutex
+	runs    map[int64]*Run
 }
 
 // Connect performs the initialize handshake over r and w.
 func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (*Conn, error) {
-	conn := &Conn{reader: bufio.NewReader(r), out: json.NewEncoder(w)}
+	conn := &Conn{reader: bufio.NewReader(r), out: json.NewEncoder(w), runs: map[int64]*Run{}}
 
 	id := int64(1)
 	info.Protocol = protocol.Version
@@ -99,24 +96,17 @@ func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (
 	}
 }
 
-// Serve handles the front end's requests until it disconnects. A run in
-// progress at that point is cancelled and waited for.
+// Serve handles the front end's requests until it disconnects. Runs in
+// progress at that point are cancelled and waited for, and so is what is
+// being answered in the background.
 func (c *Conn) Serve(handlers Handlers) error {
 	var active sync.WaitGroup
-	var cancel context.CancelFunc
-	var mu sync.Mutex
 
-	stop := func() {
-		mu.Lock()
-		defer mu.Unlock()
-
-		if cancel != nil {
-			cancel()
-		}
-	}
+	ctx, stop := context.WithCancel(context.Background())
 
 	defer active.Wait()
 	defer stop()
+	defer c.cancel(0)
 
 	for {
 		frame, err := c.next()
@@ -131,75 +121,32 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 		switch frame.Method {
 		case protocol.MethodCancel:
-			stop()
+			// A cancel that names no run cancels them all.
+			var params protocol.CancelRunParams
+			_ = json.Unmarshal(frame.Params, &params)
+
+			c.cancel(params.Run)
 
 		case protocol.MethodRun:
-			var params protocol.RunParams
-
-			if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (params.Objective == "") != params.Resume {
-				c.fail(frame.ID, protocol.CodeInvalidParams, "run needs an id and either an objective or resume")
-				continue
-			}
-
-			mu.Lock()
-
-			if cancel != nil {
-				mu.Unlock()
-				c.fail(frame.ID, protocol.CodeInvalidParams, "a run is already in progress")
-				continue
-			}
-
-			ctx, cancelRun := context.WithCancel(context.Background())
-			cancel = cancelRun
-			mu.Unlock()
-
-			// Before the next frame is read, so a steer sent right after the
-			// run is held for it.
-			c.listen()
-
-			active.Add(1)
-
-			go func() {
-				defer active.Done()
-
-				session, err := handlers.Run(ctx, params)
-				result := protocol.RunResult{Status: protocol.RunDone, Session: session}
-
-				switch {
-				case ctx.Err() != nil:
-					result.Status = protocol.RunCancelled
-				case err != nil:
-					result.Status = protocol.RunFailed
-					result.Error = err.Error()
-				}
-
-				c.deafen()
-
-				mu.Lock()
-				cancelRun()
-				cancel = nil
-				mu.Unlock()
-
-				raw, _ := json.Marshal(result)
-				_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
-			}()
+			c.start(frame, handlers, &active)
 
 		case protocol.MethodSteer:
-			var params protocol.SteerParams
+			c.steer(frame)
 
-			if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || strings.TrimSpace(params.Text) == "" {
-				c.fail(frame.ID, protocol.CodeInvalidParams, "steer needs an id and a text")
+		case protocol.MethodDescribe, protocol.MethodInvoke:
+			if c.slow(frame, handlers) {
+				active.Add(1)
+
+				go func() {
+					defer active.Done()
+
+					c.answer(ctx, frame, handlers)
+				}()
+
 				continue
 			}
 
-			c.hold(frame.ID, params.Text)
-
-		case protocol.MethodDescribe, protocol.MethodInvoke:
-			mu.Lock()
-			running := cancel != nil
-			mu.Unlock()
-
-			c.answer(frame, handlers, running)
+			c.answer(ctx, frame, handlers)
 
 			if c.stopped.Load() {
 				return nil
@@ -211,10 +158,154 @@ func (c *Conn) Serve(handlers Handlers) error {
 	}
 }
 
-// answer serves a describe or an invoke. Nothing else is read until it is
-// answered, a cancel included, so during a run only what answers quickly is
-// served.
-func (c *Conn) answer(frame protocol.Frame, handlers Handlers, running bool) {
+// start accepts a run request and works on it in the background.
+func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitGroup) {
+	var params protocol.RunParams
+
+	if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (params.Objective == "") != params.Resume {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "run needs an id and either an objective or resume")
+		return
+	}
+
+	if params.New && (params.Session != "" || params.Resume) {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "a run in a new session takes an objective and no session")
+		return
+	}
+
+	id := *frame.ID
+
+	c.running.Lock()
+	_, taken := c.runs[id]
+	c.running.Unlock()
+
+	if taken {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "a run with this id is in progress")
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	run := &Run{conn: c, id: id, cancel: cancel, listening: true}
+	work, err := handlers.Run(params, run)
+
+	if err != nil {
+		cancel()
+		c.fail(frame.ID, protocol.CodeInvalidParams, err.Error())
+
+		return
+	}
+
+	// Before the next frame is read, so a cancel or a steer sent right
+	// after the run finds it.
+	c.running.Lock()
+	c.runs[id] = run
+	c.running.Unlock()
+
+	active.Add(1)
+
+	go func() {
+		defer active.Done()
+
+		session, err := work(ctx)
+		result := protocol.RunResult{Status: protocol.RunDone, Session: session}
+
+		switch {
+		case ctx.Err() != nil:
+			result.Status = protocol.RunCancelled
+		case err != nil:
+			result.Status = protocol.RunFailed
+			result.Error = err.Error()
+		}
+
+		run.deafen()
+
+		c.running.Lock()
+		delete(c.runs, id)
+		c.running.Unlock()
+
+		cancel()
+
+		raw, _ := json.Marshal(result)
+		_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
+	}()
+}
+
+// cancel stops the run whose request has id, or every run for zero.
+func (c *Conn) cancel(id int64) {
+	c.running.Lock()
+	defer c.running.Unlock()
+
+	for runID, run := range c.runs {
+		if id == 0 || id == runID {
+			run.cancel()
+		}
+	}
+}
+
+// steer holds what the front end tells a run until the run takes it.
+func (c *Conn) steer(frame protocol.Frame) {
+	var params protocol.SteerParams
+
+	if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || strings.TrimSpace(params.Text) == "" {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "steer needs an id and a text")
+		return
+	}
+
+	run, err := c.find(params.Run)
+
+	if err != nil {
+		c.fail(frame.ID, protocol.CodeInvalidParams, err.Error())
+		return
+	}
+
+	run.hold(frame.ID, params.Text)
+}
+
+// find returns the run in progress whose request has id, or for zero the
+// only one in progress.
+func (c *Conn) find(id int64) (*Run, error) {
+	c.running.Lock()
+	defer c.running.Unlock()
+
+	if id != 0 {
+		if run, found := c.runs[id]; found {
+			return run, nil
+		}
+
+		return nil, fmt.Errorf("run %d is not in progress; send it as a new task", id)
+	}
+
+	switch len(c.runs) {
+	case 0:
+		return nil, errors.New("no run is in progress; send it as a new task")
+
+	case 1:
+		for _, run := range c.runs {
+			return run, nil
+		}
+	}
+
+	return nil, errors.New("several runs are in progress; name the one to tell with run")
+}
+
+// slow reports whether a describe or an invoke reaches a provider, and so is
+// answered in the background.
+func (c *Conn) slow(frame protocol.Frame, handlers Handlers) bool {
+	if frame.Method == protocol.MethodDescribe {
+		return true
+	}
+
+	var params protocol.InvokeParams
+
+	// What cannot be read is refused at once, by answer.
+	if json.Unmarshal(frame.Params, &params) != nil {
+		return false
+	}
+
+	return params.Target != protocol.TargetHost || (handlers.Slow != nil && handlers.Slow(params.Name))
+}
+
+// answer serves a describe or an invoke.
+func (c *Conn) answer(ctx context.Context, frame protocol.Frame, handlers Handlers) {
 	if frame.ID == nil {
 		return
 	}
@@ -231,19 +322,13 @@ func (c *Conn) answer(frame protocol.Frame, handlers Handlers, running bool) {
 
 	switch {
 	case params.Target == protocol.TargetHost:
-		result, err = handlers.Host(context.Background(), params.Name, params.Params, running)
-
-	// The provider answers one request at a time, and during a run it is
-	// the run's.
-	case running:
-		c.fail(frame.ID, protocol.CodeInvalidParams, "the provider is busy with the run in progress; ask again when it ends")
-		return
+		result, err = handlers.Host(ctx, params.Name, params.Params)
 
 	case frame.Method == protocol.MethodDescribe:
-		result, err = handlers.Describe(context.Background())
+		result, err = handlers.Describe(ctx)
 
 	default:
-		result, err = handlers.Invoke(context.Background(), params)
+		result, err = handlers.Invoke(ctx, params)
 	}
 
 	if err != nil {
@@ -255,67 +340,6 @@ func (c *Conn) answer(frame protocol.Frame, handlers Handlers, running bool) {
 	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
 }
 
-// Take implements agent.Inbox. Each steer is answered once its text is
-// recorded, so the front end knows it reached the model.
-func (c *Conn) Take(record func(text string) error) error {
-	c.steering.Lock()
-	taken := c.steers
-	c.steers = nil
-	c.steering.Unlock()
-
-	for index, steer := range taken {
-		if err := record(steer.text); err != nil {
-			// The run fails on this error, so the rest will not be recorded.
-			for _, left := range taken[index:] {
-				c.fail(left.id, protocol.CodeInternal, err.Error())
-			}
-
-			return err
-		}
-
-		_ = c.send(protocol.Frame{ID: steer.id, Result: json.RawMessage(`{}`)})
-	}
-
-	return nil
-}
-
-// hold keeps what the front end told the run until the loop takes it.
-func (c *Conn) hold(id *int64, text string) {
-	c.steering.Lock()
-	listening := c.listening
-
-	if listening {
-		c.steers = append(c.steers, steer{id: id, text: text})
-	}
-
-	c.steering.Unlock()
-
-	if !listening {
-		c.fail(id, protocol.CodeInvalidParams, "no run is in progress; send it as a new task")
-	}
-}
-
-// listen starts holding steers for a run.
-func (c *Conn) listen() {
-	c.steering.Lock()
-	defer c.steering.Unlock()
-
-	c.listening = true
-}
-
-// deafen stops holding steers when a run ends. What the run did not take
-// will never reach the model, so it fails.
-func (c *Conn) deafen() {
-	c.steering.Lock()
-	left := c.steers
-	c.steers, c.listening = nil, false
-	c.steering.Unlock()
-
-	for _, steer := range left {
-		c.fail(steer.id, protocol.CodeInvalidParams, "the run ended before this reached the model; send it as a new task")
-	}
-}
-
 // Stop makes Serve return once the request in hand is answered, which
 // disconnects the front end.
 func (c *Conn) Stop() {
@@ -324,6 +348,8 @@ func (c *Conn) Stop() {
 
 // Log returns a writer whose lines reach the front end as log events. It is
 // where the provider's stderr goes, so diagnostics never write over a UI.
+// A provider process serves whichever run needs it, so the lines name no
+// run.
 func (c *Conn) Log() io.Writer {
 	return logWriter{conn: c}
 }
@@ -338,36 +364,6 @@ func (w logWriter) Write(data []byte) (int, error) {
 	}
 
 	return len(data), nil
-}
-
-// Notice implements agent.Observer.
-func (c *Conn) Notice(text string) {
-	c.event(protocol.Event{Type: protocol.EventLog, Text: text, Source: protocol.TargetHost})
-}
-
-// ContextUpdated implements agent.Observer.
-func (c *Conn) ContextUpdated(sections []string) {
-	c.event(protocol.Event{Type: protocol.EventContext, Sections: sections})
-}
-
-// Text implements agent.Observer.
-func (c *Conn) Text(delta string) {
-	c.event(protocol.Event{Type: protocol.EventText, Text: delta})
-}
-
-// ToolStarted implements agent.Observer.
-func (c *Conn) ToolStarted(name string, args json.RawMessage) {
-	c.event(protocol.Event{Type: protocol.EventToolStarted, Name: name, Args: args})
-}
-
-// ToolFinished implements agent.Observer.
-func (c *Conn) ToolFinished(name, result string, failed bool) {
-	c.event(protocol.Event{Type: protocol.EventToolFinished, Name: name, Result: result, Failed: failed})
-}
-
-// TurnFinished implements agent.Observer.
-func (c *Conn) TurnFinished(usage protocol.Usage, context, window int64) {
-	c.event(protocol.Event{Type: protocol.EventTurn, Usage: &usage, Context: context, Window: window})
 }
 
 func (c *Conn) event(event protocol.Event) {

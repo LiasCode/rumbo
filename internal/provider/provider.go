@@ -1,6 +1,6 @@
 // Package provider is the host side of the Agent Provider Protocol. The agent
-// only knows the Provider interface; Stdio is the implementation that runs a
-// provider process.
+// only knows the Provider interface. Stdio runs one provider process; Pool
+// keeps as many as the requests running at once need.
 package provider
 
 import (

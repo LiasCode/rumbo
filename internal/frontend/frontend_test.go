@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -50,6 +49,98 @@ func connect(t *testing.T, objective string) (*Conn, *protocol.FrontendConn, pro
 	return host, front.conn, front.info
 }
 
+// working is the handler of a host whose runs work as their objective says:
+// "fail" fails, "hang" waits to be cancelled, "listen" waits until it is
+// told something, and "busy" is refused before it starts. Every run works
+// in the session named after its objective.
+func working(params protocol.RunParams, run *Run) (Work, error) {
+	objective := params.Objective
+
+	if params.Resume {
+		objective = "the unfinished run"
+	}
+
+	if objective == "busy" {
+		return nil, errors.New("that session is busy")
+	}
+
+	return func(ctx context.Context) (string, error) {
+		run.Attach("s-" + objective)
+
+		switch objective {
+		case "fail":
+			return "s-fail", errors.New("no credit")
+
+		case "hang":
+			run.Notice("waiting to be cancelled")
+			<-ctx.Done()
+
+			return "s-hang", ctx.Err()
+
+		case "listen":
+			run.Notice("waiting to be told")
+			heard := hear(ctx, run)
+			run.Text("heard " + heard)
+			<-ctx.Done()
+
+			return "s-listen", ctx.Err()
+		}
+
+		run.Text("working on " + objective)
+		run.ToolFinished("bash", "boom", true)
+
+		return "s-" + objective, nil
+	}, nil
+}
+
+// hear waits until the run is told something, as the loop would between
+// turns, and returns it.
+func hear(ctx context.Context, run *Run) string {
+	var heard []string
+
+	for len(heard) == 0 && ctx.Err() == nil {
+		run.Take(func(text string) error {
+			heard = append(heard, text)
+			return nil
+		})
+
+		time.Sleep(time.Millisecond)
+	}
+
+	return strings.Join(heard, ", ")
+}
+
+// started runs objective in the background, and returns once its first
+// event arrived, with that event and a channel that gets the run's result.
+func started(t *testing.T, front *protocol.FrontendConn, objective string) (protocol.Event, chan protocol.RunResult) {
+	t.Helper()
+
+	first := make(chan protocol.Event, 1)
+	result := make(chan protocol.RunResult, 1)
+
+	go func() {
+		sent := false
+
+		ended, _ := front.Run(objective, func(event protocol.Event) {
+			if !sent {
+				first <- event
+				sent = true
+			}
+		})
+
+		result <- ended
+	}()
+
+	select {
+	case event := <-first:
+		return event, result
+	case ended := <-result:
+		t.Fatalf("%s ended before any event: %+v", objective, ended)
+	}
+
+	return protocol.Event{}, result
+}
+
 func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 	host, front, info := connect(t, "from the command line")
 
@@ -57,47 +148,25 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 		t.Fatalf("initialize params = %+v", info)
 	}
 
-	served := make(chan error, 1)
-
-	go func() {
-		served <- host.Serve(Handlers{Run: func(ctx context.Context, params protocol.RunParams) (string, error) {
-			objective := params.Objective
-
-			if params.Resume {
-				objective = "the unfinished run"
-			}
-
-			switch objective {
-			case "fail":
-				return "s1", errors.New("no credit")
-			case "hang":
-				<-ctx.Done()
-				return "s1", ctx.Err()
-			}
-
-			host.Text("working on " + objective)
-			host.ToolFinished("bash", "boom", true)
-
-			return "s1", nil
+	go host.Serve(Handlers{
+		Run: working,
+		Describe: func(context.Context) (protocol.DescribeResult, error) {
+			return protocol.DescribeResult{
+				Provider: "p",
+				Model:    "m",
+				Offers: protocol.Description{
+					Options: []protocol.Option{{Name: "effort", Type: protocol.OptionString, Enum: []string{"low", "high"}}},
+				},
+			}, nil
 		},
-			Describe: func(context.Context) (protocol.DescribeResult, error) {
-				return protocol.DescribeResult{
-					Provider: "p",
-					Model:    "m",
-					Offers: protocol.Description{
-						Options: []protocol.Option{{Name: "effort", Type: protocol.OptionString, Enum: []string{"low", "high"}}},
-					},
-				}, nil
-			},
-			Invoke: func(_ context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
-				if params.Name != "models" {
-					return nil, errors.New("unknown function " + params.Name)
-				}
+		Invoke: func(_ context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
+			if params.Name != "models" {
+				return nil, errors.New("unknown function " + params.Name)
+			}
 
-				return json.RawMessage(`{"values":[{"value":"m"},{"value":"n"}]}`), nil
-			},
-		})
-	}()
+			return json.RawMessage(`{"values":[{"value":"m"},{"value":"n"}]}`), nil
+		},
+	})
 
 	// The front end learns what can be chosen, and calls a function, without
 	// knowing which provider is behind the host.
@@ -122,12 +191,17 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 	var events []protocol.Event
 	result, err := front.Run("task", func(event protocol.Event) { events = append(events, event) })
 
-	if err != nil || result.Status != protocol.RunDone || result.Session != "s1" {
+	if err != nil || result.Status != protocol.RunDone || result.Session != "s-task" {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 
+	// Every event names its run and the session it works in.
 	if len(events) != 2 || events[0].Text != "working on task" || events[1].Type != protocol.EventToolFinished || !events[1].Failed {
 		t.Fatalf("events = %+v", events)
+	}
+
+	if events[0].Run == 0 || events[0].Run != events[1].Run || events[0].Session != "s-task" {
+		t.Fatalf("events name run %d and session %q", events[0].Run, events[0].Session)
 	}
 
 	events = nil
@@ -146,186 +220,166 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 		t.Fatalf("failed run = %+v", result)
 	}
 
-	// Cancel ends a run that would otherwise never return.
-	hung := make(chan protocol.RunResult, 1)
-
-	go func() {
-		result, _ := front.Run("hang", func(protocol.Event) {})
-		hung <- result
-	}()
-
-	// Cancel may arrive before the run starts; repeat until the run reports.
-	var cancelled protocol.RunResult
-
-	for done := false; !done; {
-		select {
-		case cancelled = <-hung:
-			done = true
-		default:
-			front.Cancel()
-		}
-	}
-
-	if cancelled.Status != protocol.RunCancelled {
-		t.Fatalf("cancelled run = %+v", cancelled)
+	// A run the host does not accept is refused before it starts.
+	if _, err := front.Run("busy", nil); err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Fatalf("a refused run: err = %v", err)
 	}
 }
 
-func TestHostAnswersDuringARun(t *testing.T) {
+// Several runs work at once. Each gets its own events, and one can be
+// cancelled without the others, or all together.
+func TestRunsWorkAtOnce(t *testing.T) {
 	host, front, _ := connect(t, "")
-	release := make(chan struct{})
 
 	go host.Serve(Handlers{
-		Run: func(ctx context.Context, params protocol.RunParams) (string, error) {
-			host.Text("started")
-
-			select {
-			case <-release:
-			case <-ctx.Done():
-			}
-
-			host.Text("finished")
-
-			return "s1", nil
-		},
+		Run: working,
 		Describe: func(context.Context) (protocol.DescribeResult, error) {
 			return protocol.DescribeResult{Provider: "p"}, nil
 		},
-		Invoke: func(context.Context, protocol.InvokeParams) (json.RawMessage, error) {
-			return json.RawMessage(`{}`), nil
-		},
-		Host: func(_ context.Context, name string, _ json.RawMessage, running bool) (protocol.HostResult, error) {
-			return protocol.HostResult{Text: fmt.Sprintf("%s, running %t", name, running)}, nil
+		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
+			return protocol.HostResult{Text: name}, nil
 		},
 	})
 
-	started := make(chan struct{})
-	finished := make(chan []protocol.Event, 1)
+	first, firstEnded := started(t, front, "listen")
+	second, secondEnded := started(t, front, "hang")
 
-	go func() {
-		var events []protocol.Event
-
-		front.Run("task", func(event protocol.Event) {
-			events = append(events, event)
-
-			if event.Text == "started" {
-				close(started)
-			}
-		})
-
-		finished <- events
-	}()
-
-	<-started
-
-	// The host answers while the run works, and is told a run is on.
-	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status, running true" {
-		t.Fatalf("host function during a run = %+v, err = %v", answer, err)
+	if first.Run == second.Run || first.Session != "s-listen" || second.Session != "s-hang" {
+		t.Fatalf("first event of each run: %+v and %+v", first, second)
 	}
 
-	// The provider is the run's until it ends.
-	if _, err := front.Describe(); err == nil || !strings.Contains(err.Error(), "busy with the run") {
-		t.Fatalf("describe during a run: err = %v", err)
+	// The host and the provider still answer while runs work.
+	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status" {
+		t.Fatalf("host function during runs = %+v, err = %v", answer, err)
 	}
 
-	if _, err := front.Invoke("models", nil); err == nil || !strings.Contains(err.Error(), "busy with the run") {
-		t.Fatalf("a provider function during a run: err = %v", err)
+	if described, err := front.Describe(); err != nil || described.Provider != "p" {
+		t.Fatalf("describe during runs = %+v, err = %v", described, err)
 	}
 
-	// Events carry no request id, so a second run could not be told apart.
-	if _, err := front.Run("another", nil); err == nil || !strings.Contains(err.Error(), "already in progress") {
-		t.Fatalf("a second run: err = %v", err)
+	front.CancelRun(second.Run)
+
+	if ended := <-secondEnded; ended.Status != protocol.RunCancelled || ended.Session != "s-hang" {
+		t.Fatalf("the cancelled run = %+v", ended)
 	}
 
-	close(release)
-
-	// The run got all of its events, though other answers came meanwhile.
-	if events := <-finished; len(events) != 2 || events[1].Text != "finished" {
-		t.Fatalf("run events = %+v", events)
+	select {
+	case ended := <-firstEnded:
+		t.Fatalf("cancelling one run ended the other: %+v", ended)
+	default:
 	}
 
-	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status, running false" {
-		t.Fatalf("host function after the run = %+v, err = %v", answer, err)
+	// Steering the only run left needs no run named, and the run hears it.
+	if err := front.Steer("use v2"); err != nil {
+		t.Fatal(err)
+	}
+
+	third, thirdEnded := started(t, front, "hang")
+
+	// A cancel that names no run cancels them all.
+	front.Cancel()
+
+	for _, ended := range []chan protocol.RunResult{firstEnded, thirdEnded} {
+		if result := <-ended; result.Status != protocol.RunCancelled {
+			t.Fatalf("after cancelling all: %+v", result)
+		}
+	}
+
+	if third.Run == first.Run {
+		t.Fatal("two runs share an id")
 	}
 }
 
 func TestSteerReachesTheRunInProgress(t *testing.T) {
 	host, front, _ := connect(t, "")
-	finish := make(chan struct{})
 
-	go host.Serve(Handlers{
-		Run: func(ctx context.Context, params protocol.RunParams) (string, error) {
-			host.Text("started")
-
-			// The loop looks between turns; here it looks until it hears.
-			var heard []string
-
-			for len(heard) == 0 {
-				host.Take(func(text string) error {
-					heard = append(heard, text)
-					return nil
-				})
-
-				time.Sleep(time.Millisecond)
-			}
-
-			host.Text("heard " + strings.Join(heard, ", "))
-			<-finish
-
-			return "s1", nil
-		},
-	})
+	go host.Serve(Handlers{Run: working})
 
 	if err := front.Steer("too early"); err == nil || !strings.Contains(err.Error(), "no run is in progress") {
 		t.Fatalf("a steer without a run: err = %v", err)
 	}
 
-	started := make(chan struct{})
-	finished := make(chan []protocol.Event, 1)
+	first, firstEnded := started(t, front, "listen")
+	_, secondEnded := started(t, front, "listen")
 
-	go func() {
-		var events []protocol.Event
+	// With two runs, a steer has to say which.
+	if err := front.Steer("which one?"); err == nil || !strings.Contains(err.Error(), "several runs") {
+		t.Fatalf("a steer with two runs: err = %v", err)
+	}
 
-		front.Run("task", func(event protocol.Event) {
-			events = append(events, event)
-
-			if event.Text == "started" {
-				close(started)
-			}
-		})
-
-		finished <- events
-	}()
-
-	<-started
-
-	// Answered once the run has recorded it.
-	if err := front.Steer("use v2"); err != nil {
+	if err := front.SteerRun(first.Run, "use v2"); err != nil {
 		t.Fatal(err)
 	}
 
-	// What the run never takes fails when the run ends.
+	// What a run never takes fails when the run ends.
 	late := make(chan error, 1)
 
-	go func() { late <- front.Steer("too late") }()
+	go func() { late <- front.SteerRun(first.Run, "too late") }()
+
+	run, _ := host.find(first.Run)
 
 	for held := 0; held == 0; time.Sleep(time.Millisecond) {
-		host.steering.Lock()
-		held = len(host.steers)
-		host.steering.Unlock()
+		run.mu.Lock()
+		held = len(run.steers)
+		run.mu.Unlock()
 	}
 
-	close(finish)
+	front.CancelRun(first.Run)
 
 	if err := <-late; err == nil || !strings.Contains(err.Error(), "the run ended before") {
 		t.Fatalf("a steer the run never took: err = %v", err)
 	}
 
-	if events := <-finished; len(events) != 2 || events[1].Text != "heard use v2" {
-		t.Fatalf("run events = %+v", events)
+	<-firstEnded
+
+	if err := front.SteerRun(first.Run, "after"); err == nil || !strings.Contains(err.Error(), "not in progress") {
+		t.Fatalf("a steer to a run that ended: err = %v", err)
 	}
 
-	if err := front.Steer("after"); err == nil || !strings.Contains(err.Error(), "no run is in progress") {
-		t.Fatalf("a steer after the run: err = %v", err)
+	front.Cancel()
+	<-secondEnded
+}
+
+// What reaches a provider is answered when it is done, and does not hold up
+// the requests that come after it, a cancel among them.
+func TestSlowFunctionsDoNotHoldUpTheRest(t *testing.T) {
+	host, front, _ := connect(t, "")
+	release := make(chan struct{})
+
+	go host.Serve(Handlers{
+		Run: working,
+		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
+			if name == "compact" {
+				<-release
+			}
+
+			return protocol.HostResult{Text: name}, nil
+		},
+		Slow: func(name string) bool { return name == "compact" },
+	})
+
+	slow := make(chan string, 1)
+
+	go func() {
+		answer, _ := front.InvokeHost("compact", nil)
+		slow <- answer.Text
+	}()
+
+	_, ended := started(t, front, "hang")
+
+	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status" {
+		t.Fatalf("a quick function behind a slow one = %+v, err = %v", answer, err)
+	}
+
+	front.Cancel()
+
+	if result := <-ended; result.Status != protocol.RunCancelled {
+		t.Fatalf("a cancel behind a slow function: %+v", result)
+	}
+
+	close(release)
+
+	if answer := <-slow; answer != "compact" {
+		t.Fatalf("the slow function answered %q", answer)
 	}
 }

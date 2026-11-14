@@ -15,10 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"rumbo/internal/agent"
-	"rumbo/internal/ambient"
 	"rumbo/internal/frontend"
-	"rumbo/internal/frontends/render"
 	"rumbo/internal/provider"
 	"rumbo/internal/store"
 	"rumbo/internal/tool"
@@ -45,6 +42,8 @@ Flags:
   -m <model>    provider and model for this run, as provider/model
   -o <n>=<v>    a provider option for this run, such as -o effort=high; may be repeated
   -f <name>     front end for this run (default: tui in a terminal, else plain)
+  -single       work in one session at a time; by default the host works in
+                several sessions of the project at once
 `
 
 // exitCode is returned through the error path to end the process with a
@@ -170,29 +169,33 @@ func serve(database store.Store, args []string) error {
 	return host.serve(os.Stdin, os.Stdout)
 }
 
-// host is one rumbo process serving one front end.
+// host is one rumbo process serving one front end, in one project. It can
+// work in several sessions of the project at once.
 type host struct {
 	database store.Store
 	settings config
-	// root is the project the session belongs to.
+	// root is the project the sessions belong to.
 	root string
+	// single makes the host work in one session at a time, as -single asks.
+	single bool
+	info   protocol.FrontendInitializeParams
+	conn   *frontend.Conn
+	// tools holds the processes the sessions leave running, which stop with
+	// the host. Each session has tools of its own besides.
+	tools *tool.Set
 
-	// mu guards info, session, and working where a run and a function of
-	// the host meet: a run sets them, and the functions that answer during
-	// a run read them. The functions that change them wait for the run to
-	// end.
-	mu      sync.Mutex
-	info    protocol.FrontendInitializeParams
-	session *store.Session
-	// working is true while a run is in progress.
-	working bool
-
-	conn    *frontend.Conn
-	process provider.Provider
-	worker  *agent.Agent
-	// unlock releases the session, once one is in use.
-	unlock func()
-	tools  *tool.Set
+	// mu guards what follows, and the places in it but for their tools:
+	// runs change them from their own goroutines, and so do the functions
+	// answered in the background.
+	mu sync.Mutex
+	// current is where a run that names no session goes.
+	current *place
+	// places are the sessions this host has worked in, by id.
+	places map[string]*place
+	// busy are the places something works in now, and what it is.
+	busy map[*place]string
+	// pools are the provider processes, by provider name.
+	pools map[string]*provider.Pool
 }
 
 // newHost resolves the session and the settings from the command line.
@@ -206,6 +209,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 	sessionID := flags.String("s", "", "")
 	model := flags.String("m", "", "")
 	frontendName := flags.String("f", "", "")
+	single := flags.Bool("single", false, "")
 
 	var options optionFlags
 	flags.Var(&options, "o", "")
@@ -220,7 +224,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, err
 	}
 
-	created := &host{database: database, root: root, tools: tool.NewSet()}
+	var session *store.Session
 
 	switch {
 	case *sessionID != "":
@@ -230,7 +234,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 			return nil, fmt.Errorf("session %s: %w", *sessionID, err)
 		}
 
-		created.session = &found
+		session = &found
 
 	case *latest || *resume:
 		found, err := database.LatestSession(root)
@@ -239,26 +243,47 @@ func newHost(database store.Store, args []string) (*host, error) {
 			return nil, fmt.Errorf("no session to continue in %s: %w", root, err)
 		}
 
-		created.session = &found
+		session = &found
 	}
 
 	// A session keeps working where it started, wherever it is continued from.
-	if created.session != nil {
-		dir, created.root = created.session.Dir, created.session.Project
+	if session != nil {
+		dir, root = session.Dir, session.Project
 	}
 
-	if created.settings, err = loadConfig(database, created.root, *model, *frontendName, options.object()); err != nil {
+	settings, err := loadConfig(database, root, *model, *frontendName, options.object())
+
+	if err != nil {
 		return nil, err
 	}
 
-	if _, err := database.Program(store.KindProvider, created.settings.Provider); err != nil {
-		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, created.settings.Provider)
+	if _, err := database.Program(store.KindProvider, settings.Provider); err != nil {
+		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, settings.Provider)
+	}
+
+	tools := tool.NewSet()
+
+	created := &host{
+		database: database,
+		settings: settings,
+		root:     root,
+		single:   *single,
+		tools:    tools,
+		current: &place{
+			choice:  choice{provider: settings.Provider, model: settings.Model, options: settings.Options},
+			session: session,
+			dir:     dir,
+			tools:   tools.Separate(),
+		},
+		places: map[string]*place{},
+		busy:   map[*place]string{},
+		pools:  map[string]*provider.Pool{},
 	}
 
 	created.info = protocol.FrontendInitializeParams{
 		Dir:       dir,
-		Provider:  created.settings.Provider,
-		Model:     created.settings.Model,
+		Provider:  settings.Provider,
+		Model:     settings.Model,
 		Objective: strings.TrimSpace(strings.Join(flags.Args(), " ")),
 		Resume:    *resume,
 		Functions: describedFunctions(),
@@ -268,8 +293,9 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, errors.New("-r continues the unfinished run and takes no objective; use -c to give a new one")
 	}
 
-	if created.session != nil {
-		created.info.Session = created.session.ID
+	if session != nil {
+		created.places[session.ID] = created.current
+		created.info.Session = session.ID
 	}
 
 	return created, nil
@@ -290,170 +316,72 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 
 	h.conn = conn
 
-	return conn.Serve(frontend.Handlers{Run: h.run, Describe: h.describe, Invoke: h.invoke, Host: h.invokeHost})
+	return conn.Serve(frontend.Handlers{
+		Run:      h.accept,
+		Describe: h.describe,
+		Invoke:   h.invoke,
+		Host:     h.invokeHost,
+		Slow:     slowFunction,
+	})
 }
 
-// describe says what the provider offers and what a run uses by default.
-// It starts the provider, since only the provider can say.
-func (h *host) describe(context.Context) (protocol.DescribeResult, error) {
-	if err := h.start(); err != nil {
+// describe says what the current session's provider offers and what a run
+// there uses by default. It starts the provider, since only the provider
+// can say.
+func (h *host) describe(ctx context.Context) (protocol.DescribeResult, error) {
+	h.mu.Lock()
+	chosen := h.current.choice
+	h.mu.Unlock()
+
+	pool, err := h.pool(chosen.provider)
+
+	if err != nil {
+		return protocol.DescribeResult{}, err
+	}
+
+	if err := pool.Ready(ctx); err != nil {
 		return protocol.DescribeResult{}, err
 	}
 
 	return protocol.DescribeResult{
-		Provider: h.settings.Provider,
-		Model:    h.settings.Model,
-		Options:  h.settings.Options,
-		Offers:   h.process.Description(),
+		Provider: chosen.provider,
+		Model:    chosen.model,
+		Options:  chosen.options,
+		Offers:   pool.Description(),
 	}, nil
 }
 
-// invoke calls a function of the provider, passed on as it is.
+// invoke calls a function of the current session's provider, passed on as
+// it is.
 func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
-	if err := h.start(); err != nil {
+	h.mu.Lock()
+	name := h.current.provider
+	h.mu.Unlock()
+
+	pool, err := h.pool(name)
+
+	if err != nil {
 		return nil, err
 	}
 
-	return h.process.Invoke(ctx, params.Name, params.Params)
-}
-
-// run works on one run request. The provider and the session are created on
-// first use, so their errors reach the user through the front end and an
-// unused start leaves nothing behind.
-func (h *host) run(ctx context.Context, params protocol.RunParams) (string, error) {
-	h.setWorking(true)
-	defer h.setWorking(false)
-
-	if params.Resume && h.session == nil {
-		return "", errors.New("there is no session to resume")
-	}
-
-	if err := h.start(); err != nil {
-		return h.info.Session, err
-	}
-
-	// What the run does not choose keeps the value in force by default.
-	options, err := mergeOptions(h.settings.Options, params.Options)
-
-	if err != nil {
-		return h.info.Session, err
-	}
-
-	h.worker.Options = options
-	h.worker.Model = h.settings.Model
-
-	if params.Model != "" {
-		h.worker.Model = params.Model
-	}
-
-	if h.session == nil {
-		created, err := h.database.CreateSession(h.info.Dir, h.root, render.FirstLine(params.Objective))
-
-		if err != nil {
-			return "", err
-		}
-
-		h.mu.Lock()
-		h.session = &created
-		h.info.Session = created.ID
-		h.mu.Unlock()
-	}
-
-	if err := h.lock(); err != nil {
-		return h.session.ID, err
-	}
-
-	if params.Resume {
-		return h.session.ID, h.worker.Resume(ctx, *h.session)
-	}
-
-	return h.session.ID, h.worker.Run(ctx, *h.session, params.Objective)
-}
-
-func (h *host) setWorking(working bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.working = working
-}
-
-// start runs the provider and builds the agent around it, once.
-func (h *host) start() error {
-	if h.worker != nil {
-		return nil
-	}
-
-	program, err := h.database.Program(store.KindProvider, h.settings.Provider)
-
-	if err != nil {
-		return err
-	}
-
-	command, err := programCommand(program.Command)
-
-	if err != nil {
-		return err
-	}
-
-	process, err := provider.Start(context.Background(), command, program.Config, h.conn.Log())
-
-	if err != nil {
-		return err
-	}
-
-	h.process = process
-
-	h.worker = &agent.Agent{
-		Store:        h.database,
-		Provider:     process,
-		Observer:     h.conn,
-		Inbox:        h.conn,
-		Tools:        h.tools.Tools(),
-		Collectors:   ambient.Defaults(),
-		ProviderName: h.settings.Provider,
-		Model:        h.settings.Model,
-		MaxTokens:    h.settings.MaxTokens,
-		MaxTurns:     h.settings.MaxTurns,
-		Compaction:   h.settings.Compaction,
-		RetryWaits:   agent.DefaultRetryWaits,
-	}
-
-	return nil
+	return pool.Invoke(ctx, params.Name, params.Params)
 }
 
 func (h *host) close() {
 	h.tools.Close()
 
-	if h.process != nil {
-		_ = h.process.Close()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, pool := range h.pools {
+		_ = pool.Close()
 	}
 
-	h.release()
-}
-
-// lock takes the session for this process, if it does not have it yet.
-func (h *host) lock() error {
-	if h.unlock != nil {
-		return nil
+	for _, known := range h.places {
+		known.release()
 	}
 
-	unlock, err := h.database.LockSession(h.session.ID)
-
-	if err != nil {
-		return fmt.Errorf("session %s: %w", h.session.ID, err)
-	}
-
-	h.unlock = unlock
-
-	return nil
-}
-
-// release gives up the session this process holds, if any.
-func (h *host) release() {
-	if h.unlock != nil {
-		h.unlock()
-		h.unlock = nil
-	}
+	h.current.release()
 }
 
 func isTerminal(file *os.File) bool {

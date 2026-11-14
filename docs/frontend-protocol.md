@@ -23,12 +23,31 @@ ways to be connected, with the same messages on both:
 
 A registered front end keeps stdin, stdout, and stderr connected to the
 terminal, so it can draw and read keys freely. A front end that starts
-`rumbo serve` passes it the same flags as `rumbo` (`-c`, `-s`, `-m`) and sets
-its working directory to the project.
+`rumbo serve` passes it the same flags as `rumbo` (`-c`, `-s`, `-m`,
+`-single`) and sets its working directory to the project.
 
-Closing the connection ends the session: the host cancels a run in progress,
-stops the provider, and exits. The exit code of a registered front end becomes
+Closing the connection ends the host: it cancels the runs in progress, stops
+the providers, and exits. The exit code of a registered front end becomes
 the exit code of `rumbo`.
+
+Requests are handled in the order they arrive. What reaches a provider is
+answered when it is done, without holding up what comes after it: a `run`
+is accepted in order and answered when it ends, and `describe`, the
+provider's functions, and the host's `compact` and `inspect` are answered
+when the provider has. A front end that needs one of those to take effect
+before another request waits for its answer.
+
+## Sessions
+
+A host works in the sessions of one project. One of them is the **current
+session**: the one `initialize` names, the one a run goes to when it names
+none, and the one the host's functions act on by default. A run can also
+name another session of the project, or ask for a new one; each session has
+one run at a time, and several sessions can work at once.
+
+Started with `-single`, the host works in one session at a time: runs go
+only to the current session, and changing session waits for the run in
+progress to end.
 
 ## Lifecycle
 
@@ -61,8 +80,8 @@ The host speaks first.
 }}
 ```
 
-- `session` is absent for a new session; the first `run` result carries its
-  id.
+- `session` is the current session, absent when it is a new one; the first
+  `run` that works in it carries its id in its events and its result.
 - `objective` is what the user already wrote on the command line, if anything.
   A front end is expected to run it without asking again.
 - `resume` is `true` when the user asked to continue the session's unfinished
@@ -85,9 +104,16 @@ continues the session's last run where it stopped: one that failed, was
 cancelled, or was cut short by the host dying. It is an error when the last
 run finished.
 
+Where it runs is the current session, unless the request says otherwise:
+`session` names another session of the project, and `"new": true` starts a
+new one, which keeps the provider of the current session. Neither changes
+the current session. A run in a session that is already working is refused
+with a JSON-RPC error, as is one in another session under `-single`.
+
 Two optional fields choose, for this run, among what the provider offers:
 `model`, and `options`, an object of option values. What is left out keeps
-the value in force, which `describe` reports.
+the value in force in the session, which `describe` reports for the current
+one.
 
 The result arrives when the run is over, however it ends:
 
@@ -101,9 +127,10 @@ The result arrives when the run is over, however it ends:
 | `failed` | The run ended with a problem; `error` explains it. |
 | `cancelled` | The front end cancelled it. |
 
-One run is active at a time. A `run` sent during another is answered with a
-JSON-RPC error. Other requests can be sent while a run works, without
-waiting for its result; each answer carries the id of its request.
+Other requests can be sent while runs work, without waiting for their
+results; each answer carries the id of its request. A run is named by the id
+of its `run` request in its events, in `cancel`, and in `steer`, so a front
+end should not reuse the id of a run in progress.
 
 ### `describe` (request, front end to host)
 
@@ -111,9 +138,9 @@ waiting for its result; each answer carries the id of its request.
 {"jsonrpc":"2.0","id":2,"method":"describe"}
 ```
 
-Asks what the provider in use offers and what is in force. It is how a front
-end shows a model picker or a settings form for a provider it knows nothing
-about.
+Asks what the provider of the current session offers and what is in force
+there. It is how a front end shows a model picker or a settings form for a
+provider it knows nothing about.
 
 ```json
 {"provider": "anthropic",
@@ -125,8 +152,9 @@ about.
    "functions": [{"name": "models", "description": "List the models this account can use"}]}}
 ```
 
-- `model` and `options` are what a run uses unless it says otherwise: the
-  stored settings, with the command line's choices over them.
+- `model` and `options` are what a run in the current session uses unless
+  it says otherwise: the stored settings, with the command line's choices
+  over them, until `use` changes them for the session.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
   Any part of it may be absent.
@@ -140,50 +168,57 @@ a first run can.
 {"jsonrpc":"2.0","id":3,"method":"invoke","params":{"name":"models"}}
 ```
 
-Calls a function the provider described, with `params` if it takes any. The
-host relays the call and the answer without reading either. A function that
+Calls a function the provider of the current session described, with
+`params` if it takes any. The host relays the call and the answer without
+reading either. A function that
 an option names in `values` answers with `{"values": [{"value", "label",
 "description"}]}`; any other answers with JSON of its own.
 
 With `"target": "host"` the call goes to a function of the host instead; see
 [Functions of the host](#functions-of-the-host).
 
-While a run is in progress the provider is busy with it, so `describe` and
-the provider's functions are refused with an error. The host's functions
-are not: see [Functions of the host](#functions-of-the-host) for which ones
-answer during a run.
+Runs do not keep `describe` and `invoke` waiting: a provider answers one
+request at a time, so the host starts another process of it when every one
+it has is busy.
 
 ### `cancel` (notification, front end to host)
 
 ```json
-{"jsonrpc":"2.0","method":"cancel"}
+{"jsonrpc":"2.0","method":"cancel","params":{"run":7}}
 ```
 
-Stops the active run. Its `run` request is still answered, with the
-`cancelled` status. The session stays usable.
+Stops the run whose `run` request had the id `run`; without it, every run in
+progress. Each `run` request is still answered, with the `cancelled` status.
+The sessions stay usable.
 
 ### `steer` (request, front end to host)
 
 ```json
-{"jsonrpc":"2.0","id":4,"method":"steer","params":{"text":"use the v2 endpoint instead"}}
+{"jsonrpc":"2.0","id":9,"method":"steer","params":{"run":7,"text":"use the v2 endpoint instead"}}
 ```
 
-Tells the active run something while it works. The text reaches the model
+Tells a run something while it works: the run whose request had the id
+`run`, or without it the only run in progress. The text reaches the model
 before its next request, as the user's words, and the run's objective stays
 as it was. If the model was about to finish, the run goes on so the model
 reads it.
 
 The result, `{}`, arrives once the text is recorded for the model. An error
-means it never will be: no run is in progress, or the run ended first. A
-front end can offer the text as a new `run` then.
+means it never will be: the run is not in progress, several are and none was
+named, or the run ended first. A front end can offer the text as a new `run`
+then.
 
 ### `event` (notification, host to front end)
 
 ```json
-{"jsonrpc":"2.0","method":"event","params":{"type":"text","text":"Let me look"}}
+{"jsonrpc":"2.0","method":"event","params":{"type":"text","run":7,"session":"4cf0261c","text":"Let me look"}}
 ```
 
-What is happening in the active run. `type` selects the fields:
+What is happening in a run. `run` is the id of its `run` request and
+`session` the session it works in, which tells a front end the id of a new
+session from the run's first event. A provider's diagnostics belong to no
+run and carry neither; the work of `compact` carries only `session`. `type`
+selects the other fields:
 
 | `type` | Fields | Meaning |
 |---|---|---|
@@ -237,13 +272,13 @@ The functions of this version:
 
 | Function | Parameters | What it does |
 |---|---|---|
-| `status` | | The session, the model, the size of the context, and what was spent. |
-| `sessions` | | Lists the project's sessions, most recently used first. |
-| `open` | `session` | Continues another session of the project. |
+| `status` | `session`? | The session, the model, the size of the context, and what was spent. The current session unless another is named. |
+| `sessions` | | Lists the project's sessions, most recently used first, and marks those working in this host. |
+| `open` | `session` | Makes another session of the project the current one. |
 | `new` | | Makes the next task start a new session. |
 | `delete` | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `providers` | | Lists the registered providers. |
-| `use` | `provider`, `model` | Changes provider and model for the tasks that follow. The session goes on. |
+| `use` | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on. |
 | `register` | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
 | `configure` | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
 | `inspect` | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
@@ -252,17 +287,22 @@ The functions of this version:
 | `setting` | `key`, `value`, `scope`? | Stores a setting, for the project unless `scope` is `global`. It applies from the next start. |
 | `unset` | `key`, `scope`? | Removes a stored setting. |
 | `setting-keys` | | Lists the settings there are. |
-| `compact` | | Replaces the conversation with a summary now. |
+| `compact` | `session`? | Replaces the conversation with a summary now. The current session unless another is named. |
 | `quit` | | Stops the provider and ends the host, which closes the connection. A run in progress is cancelled. |
 
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
 
-During a run, the functions that only read or store something answer as
-usual: `status`, `sessions`, `providers`, `settings`, `setting-keys`,
-`setting`, `unset`, `register`, `unregister`, and `quit`. The others change
-the session or the provider, or need a provider, and answer with an error
-saying they wait for the run to end.
+A function waits only for the session it changes: `delete` and `compact`
+answer with an error while something works in their session. `open` and
+`new` change the current session while a run goes on in the one left
+behind, and `use` changes the provider for the session's next runs, while a
+run in progress keeps the one it started with.
+
+Under `-single`, what changes the session or the provider waits for the run
+in progress instead, and answers with an error saying so: everything but
+`status`, `sessions`, `providers`, `settings`, `setting-keys`, `setting`,
+`unset`, `register`, `unregister`, and `quit`.
 
 ## What the host guarantees
 

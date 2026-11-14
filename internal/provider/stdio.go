@@ -23,6 +23,8 @@ type Stdio struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	frames chan protocol.Frame
+	// exited is closed once the provider's stdout has closed.
+	exited chan struct{}
 	// description is what the provider said about itself on initialize.
 	description protocol.Description
 
@@ -60,7 +62,7 @@ func Start(ctx context.Context, argv []string, config json.RawMessage, stderr io
 		return nil, fmt.Errorf("start provider %q: %w", argv[0], err)
 	}
 
-	stdio := &Stdio{cmd: cmd, stdin: stdin, frames: make(chan protocol.Frame, 64)}
+	stdio := &Stdio{cmd: cmd, stdin: stdin, frames: make(chan protocol.Frame, 64), exited: make(chan struct{})}
 
 	go stdio.read(stdout)
 
@@ -103,6 +105,16 @@ func (s *Stdio) Complete(ctx context.Context, params protocol.CompleteParams, on
 	return result, err
 }
 
+// Exited reports whether the provider process has gone.
+func (s *Stdio) Exited() bool {
+	select {
+	case <-s.exited:
+		return true
+	default:
+		return false
+	}
+}
+
 // Close asks the provider to shut down and kills it if it does not.
 func (s *Stdio) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), gracePeriod)
@@ -127,8 +139,9 @@ func (s *Stdio) Close() error {
 	return nil
 }
 
-// call sends one request and waits for its response. The agent runs one
-// request at a time, so calls are serialized.
+// call sends one request and waits for its response. A provider answers one
+// request at a time, so calls are serialized; a Pool keeps a process for
+// each request that runs at once.
 func (s *Stdio) call(ctx context.Context, method string, params, result any, onDelta func(text string)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -215,6 +228,7 @@ func (s *Stdio) send(frame protocol.Frame, params any) error {
 // read forwards the provider's frames until its stdout closes. Lines that are
 // not JSON are skipped so a stray print does not break the session.
 func (s *Stdio) read(stdout io.Reader) {
+	defer close(s.exited)
 	defer close(s.frames)
 
 	reader := bufio.NewReader(stdout)
