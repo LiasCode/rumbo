@@ -76,10 +76,6 @@ The owner decided what this covers: these, in this order.
 
 ## 3. Sessions
 
-59. **A session's provider lasts as long as the host.** `use` changes the
-    provider of a session until rumbo exits; the next rumbo takes it from
-    the settings again.
-
 30. **Reproduce a request.** `log` prints entries. A command should print the
     exact request of turn N, which is the proof that history is reproducible.
 31. **Entry metadata.** Duration, rumbo version, and request parameters are

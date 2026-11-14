@@ -253,18 +253,29 @@ func newHost(database store.Store, args []string) (*host, error) {
 		session = &found
 	}
 
-	// A session keeps working where it started, wherever it is continued from.
+	// A session keeps working where it started, wherever it is continued
+	// from, and with the model it uses unless -m chooses another for now.
+	chosen := *model
+
 	if session != nil {
 		dir, root = session.Dir, session.Project
+
+		if chosen == "" && session.Provider != "" {
+			chosen = session.Provider + "/" + session.Model
+		}
 	}
 
-	settings, err := loadConfig(database, root, *model, *frontendName, options.object())
+	settings, err := loadConfig(database, root, chosen, *frontendName, options.object())
 
 	if err != nil {
 		return nil, err
 	}
 
 	if _, err := database.Program(store.KindProvider, settings.Provider); err != nil {
+		if session != nil && session.Provider == settings.Provider && *model == "" {
+			return nil, fmt.Errorf(`session %s uses the provider %q, which is not registered; register it again, or choose another with -m`, session.ID, settings.Provider)
+		}
+
 		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, settings.Provider)
 	}
 

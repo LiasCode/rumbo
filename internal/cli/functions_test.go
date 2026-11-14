@@ -27,6 +27,14 @@ func testHost(t *testing.T) *host {
 	database.PutProgram(store.KindProvider, store.Program{Name: "second", Command: []string{"second-provider"}})
 	database.SetSetting(store.GlobalScope, "options.second", `{"depth":2}`)
 
+	return hostOn(t, database)
+}
+
+// hostOn is a host on database, as a new start of rumbo makes one: its
+// settings choose the provider first and the model small.
+func hostOn(t *testing.T, database store.Store) *host {
+	t.Helper()
+
 	tools := tool.NewSet()
 
 	created := &host{
@@ -301,5 +309,77 @@ func TestSingleHostWaitsForTheRun(t *testing.T) {
 
 	if h.current.provider != "first" {
 		t.Fatalf("a refused function changed the host: provider %s", h.current.provider)
+	}
+}
+
+// A session keeps its provider from one start of rumbo to the next: the one
+// it was made with, or the one use chose for it.
+func TestSessionsKeepTheirProviderAcrossStarts(t *testing.T) {
+	h := testHost(t)
+
+	made, err := h.made(h.current, "first task")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stored, _ := h.database.Session(made.ID); stored.Provider != "first" || stored.Model != "small" {
+		t.Fatalf("a new session stored %s/%s", stored.Provider, stored.Model)
+	}
+
+	call(t, h, "use", `{"provider":"second","model":"large"}`)
+	older, _ := h.database.CreateSession("/repo", "/repo", "from before providers were stored")
+	h.close()
+
+	// A later start, whose settings say first/small, finds each session with
+	// its own provider; one without a stored provider takes the current one.
+	later := hostOn(t, h.database)
+
+	if opened := call(t, later, "open", `{"session":"`+made.ID+`"}`); opened.State.Provider != "second" || opened.State.Model != "large" || string(later.current.options) != `{"depth":2}` {
+		t.Fatalf("after a restart: %+v, options %s", opened.State, later.current.options)
+	}
+
+	if opened := call(t, later, "open", `{"session":"`+older.ID+`"}`); opened.State.Provider != "second" {
+		t.Fatalf("a session with no stored provider: %+v", opened.State)
+	}
+}
+
+// Continuing a session from the command line starts with its provider,
+// unless -m chooses another for that start.
+func TestContinuingASessionUsesItsProvider(t *testing.T) {
+	h := testHost(t)
+	_, root, err := workingProject()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, _ := h.database.CreateSession(root, root, "continued")
+	h.database.SetSessionModel(session.ID, "second", "large")
+
+	continued, err := newHost(h.database, []string{"-s", session.ID})
+
+	if err != nil || continued.current.provider != "second" || continued.current.model != "large" {
+		t.Fatalf("continued: %+v, err = %v", continued, err)
+	}
+
+	continued.close()
+
+	chosen, err := newHost(h.database, []string{"-s", session.ID, "-m", "first/small"})
+
+	if err != nil || chosen.current.provider != "first" {
+		t.Fatalf("with -m: err = %v", err)
+	}
+
+	chosen.close()
+
+	if stored, _ := h.database.Session(session.ID); stored.Provider != "second" {
+		t.Fatalf("-m changed what the session keeps: %s", stored.Provider)
+	}
+
+	h.database.SetSessionModel(session.ID, "gone", "x")
+
+	if _, err := newHost(h.database, []string{"-s", session.ID}); err == nil || !strings.Contains(err.Error(), `uses the provider "gone"`) {
+		t.Fatalf("a session whose provider was removed: err = %v", err)
 	}
 }

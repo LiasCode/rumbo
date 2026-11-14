@@ -59,6 +59,10 @@ rumbo -m local/qwen3-coder "fix the failing test"
 provider, which describes its own options and can list its own models; rumbo
 passes them along without knowing what they mean.
 
+A session keeps the provider and model it was started with, or the ones
+`/use` chose for it, so `rumbo -c` goes on with them whatever the `model`
+setting says now. `-m` chooses others for one start.
+
 ```sh
 rumbo -o effort=high "review this module"                  # for one run
 rumbo config set options.anthropic '{"effort":"high"}'     # stored, for every run

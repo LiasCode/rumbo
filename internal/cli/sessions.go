@@ -204,6 +204,12 @@ func (h *host) made(target *place, objective string) (store.Session, error) {
 		return created, err
 	}
 
+	// The session keeps its provider from one start of rumbo to the next.
+	if err := h.database.SetSessionModel(created.ID, target.provider, target.model); err != nil {
+		return created, err
+	}
+
+	created.Provider, created.Model = target.provider, target.model
 	target.session = &created
 	h.places[created.ID] = target
 
@@ -221,8 +227,9 @@ func (h *host) finish(target *place) {
 }
 
 // known returns the place of a session of the project, by id. A session
-// this host has not worked in yet starts with the provider of the current
-// one. The caller holds the lock.
+// this host has not worked in yet uses the provider stored with it, or
+// that of the current one when it has none stored. The caller holds the
+// lock.
 func (h *host) known(id string) (*place, error) {
 	if found, ok := h.places[id]; ok {
 		return found, nil
@@ -242,6 +249,17 @@ func (h *host) known(id string) (*place, error) {
 
 	known := h.fresh(h.current)
 	known.session, known.dir = &session, session.Dir
+
+	if session.Provider != "" {
+		options, err := storedOptions(h.database, h.root, session.Provider)
+
+		if err != nil {
+			return nil, err
+		}
+
+		known.choice = choice{provider: session.Provider, model: session.Model, options: options}
+	}
+
 	h.places[id] = known
 
 	return known, nil

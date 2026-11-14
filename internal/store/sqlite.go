@@ -78,11 +78,17 @@ var migrations = []string{
 		created_at INTEGER NOT NULL,
 		PRIMARY KEY (project, dir, command)
 	 );`,
+
+	// 3: the provider and the model a session uses, so it keeps them from
+	// one start of rumbo to the next. Sessions from before have none, and
+	// take them from the settings.
+	`ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+	 ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`,
 }
 
 // sessionColumns are selected in the order scanSession reads them. Activity
 // is when the session was last used: its newest entry, or its creation.
-const sessionColumns = `id, dir, project, title, created_at,
+const sessionColumns = `id, dir, project, title, provider, model, created_at,
 	COALESCE((SELECT MAX(created_at) FROM entries WHERE session_id = sessions.id), created_at) AS activity`
 
 // SQLite is the Store backed by a single SQLite file.
@@ -364,6 +370,21 @@ func (s *SQLite) Session(id string) (Session, error) {
 	return scanSession(row)
 }
 
+// SetSessionModel implements Store.
+func (s *SQLite) SetSessionModel(id, provider, model string) error {
+	result, err := s.db.Exec(`UPDATE sessions SET provider = ?, model = ? WHERE id = ?`, provider, model, id)
+
+	if err != nil {
+		return err
+	}
+
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // LatestSession implements Store.
 func (s *SQLite) LatestSession(project string) (Session, error) {
 	row := s.db.QueryRow(
@@ -545,7 +566,7 @@ func scanSession(row scanner) (Session, error) {
 	var session Session
 	var createdAt, activity int64
 
-	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &createdAt, &activity)
+	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &session.Provider, &session.Model, &createdAt, &activity)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return session, ErrNotFound

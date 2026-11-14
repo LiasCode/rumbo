@@ -490,9 +490,10 @@ func (h *host) listProviders(context.Context, map[string]string) (protocol.HostR
 	return result, nil
 }
 
-// useProvider changes the provider and the model of the current session.
-// The history is the host's, not the provider's, so the session goes on.
-// A run in progress keeps the provider it started with.
+// useProvider changes the provider and the model of the current session,
+// which keeps them from then on. The history is the host's, not the
+// provider's, so the session goes on. A run in progress keeps the provider
+// it started with.
 func (h *host) useProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	name := params["provider"]
 
@@ -510,6 +511,15 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// A new session stores it when it is made.
+	if session := h.current.session; session != nil {
+		if err := h.database.SetSessionModel(session.ID, name, params["model"]); err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		session.Provider, session.Model = name, params["model"]
+	}
 
 	h.current.choice = choice{provider: name, model: params["model"], options: options}
 	h.prune()

@@ -43,7 +43,8 @@ The host starts provider processes and speaks the Agent Provider Protocol to
 each. A process answers one request at a time, so the host keeps a pool of
 them per provider and starts another when every one is busy; any of them can
 answer any request, since every request carries the whole conversation.
-Each session uses the provider chosen for it. The built-in providers
+Each session uses the provider chosen for it, and keeps it from one start of
+rumbo to the next. The built-in providers
 (`internal/providers`) are served by the same binary through `rumbo provide
 <name>` and get no shortcut: they cross the same protocol as a provider a
 user writes. Credentials belong to the provider; the

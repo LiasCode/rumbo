@@ -279,7 +279,7 @@ The functions of this version:
 | `new` | | Makes the next task start a new session. |
 | `delete` | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `providers` | | Lists the registered providers. |
-| `use` | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on. |
+| `use` | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. |
 | `register` | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
 | `configure` | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
 | `inspect` | `provider` | Starts a provider and shows what it offers. Also the test that it works. |

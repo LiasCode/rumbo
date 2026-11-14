@@ -35,12 +35,15 @@ type Program struct {
 
 // Session is one conversation. Dir is the directory it works in; Project is
 // the root that directory belongs to, which is what sessions are listed and
-// continued by.
+// continued by. Provider and Model are what the session uses, empty for a
+// session from before they were stored.
 type Session struct {
 	ID        string
 	Dir       string
 	Project   string
 	Title     string
+	Provider  string
+	Model     string
 	CreatedAt time.Time
 	// ActiveAt is when the session was last used.
 	ActiveAt time.Time
@@ -81,6 +84,9 @@ type Store interface {
 	// Sessions lists a project's sessions, most recently used first. An empty
 	// project lists the sessions of every project.
 	Sessions(project string) ([]Session, error)
+
+	// SetSessionModel records the provider and the model a session uses.
+	SetSessionModel(id, provider, model string) error
 
 	// DeleteSession removes a session and its entries for good.
 	DeleteSession(id string) error

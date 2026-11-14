@@ -128,7 +128,8 @@ func TestOpenUpgradesAnOlderDatabase(t *testing.T) {
 
 		session, err := database.LatestSession("/work/repo")
 
-		if err != nil || session.ID != "abc" || session.Project != "/work/repo" || session.ActiveAt.UnixMilli() != 2000 {
+		// A session from before providers were stored has none.
+		if err != nil || session.ID != "abc" || session.Project != "/work/repo" || session.ActiveAt.UnixMilli() != 2000 || session.Provider != "" {
 			t.Fatalf("session = %+v, err = %v", session, err)
 		}
 
@@ -173,5 +174,29 @@ func TestSessionsAreFoundByProjectAndOrderedByUse(t *testing.T) {
 
 	if all, _ := database.Sessions(""); len(all) != 3 {
 		t.Fatalf("all sessions = %d, want 3", len(all))
+	}
+}
+
+func TestSessionsKeepTheirModel(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "test.db"))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer database.Close()
+
+	session, _ := database.CreateSession("/project", "/project", "test")
+
+	if err := database.SetSessionModel(session.ID, "anthropic", "claude-opus-5-5"); err != nil {
+		t.Fatal(err)
+	}
+
+	if found, _ := database.Session(session.ID); found.Provider != "anthropic" || found.Model != "claude-opus-5-5" {
+		t.Fatalf("session = %+v", found)
+	}
+
+	if err := database.SetSessionModel("missing", "anthropic", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a session that does not exist: err = %v", err)
 	}
 }
