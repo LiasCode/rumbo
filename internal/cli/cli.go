@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 
 	"rumbo/internal/agent"
 	"rumbo/internal/ambient"
@@ -174,9 +175,17 @@ type host struct {
 	database store.Store
 	settings config
 	// root is the project the session belongs to.
-	root    string
+	root string
+
+	// mu guards info, session, and working where a run and a function of
+	// the host meet: a run sets them, and the functions that answer during
+	// a run read them. The functions that change them wait for the run to
+	// end.
+	mu      sync.Mutex
 	info    protocol.FrontendInitializeParams
 	session *store.Session
+	// working is true while a run is in progress.
+	working bool
 
 	conn    *frontend.Conn
 	process provider.Provider
@@ -281,7 +290,7 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 
 	h.conn = conn
 
-	return conn.Serve(frontend.Handlers{Run: h.run, Describe: h.describe, Invoke: h.invoke})
+	return conn.Serve(frontend.Handlers{Run: h.run, Describe: h.describe, Invoke: h.invoke, Host: h.invokeHost})
 }
 
 // describe says what the provider offers and what a run uses by default.
@@ -299,19 +308,8 @@ func (h *host) describe(context.Context) (protocol.DescribeResult, error) {
 	}, nil
 }
 
-// invoke answers a function call: the host's own, or the provider's, which
-// is passed on as it is.
+// invoke calls a function of the provider, passed on as it is.
 func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error) {
-	if params.Target == protocol.TargetHost {
-		result, err := h.invokeHost(ctx, params.Name, params.Params)
-
-		if err != nil {
-			return nil, err
-		}
-
-		return json.Marshal(result)
-	}
-
 	if err := h.start(); err != nil {
 		return nil, err
 	}
@@ -323,6 +321,9 @@ func (h *host) invoke(ctx context.Context, params protocol.InvokeParams) (json.R
 // first use, so their errors reach the user through the front end and an
 // unused start leaves nothing behind.
 func (h *host) run(ctx context.Context, params protocol.RunParams) (string, error) {
+	h.setWorking(true)
+	defer h.setWorking(false)
+
 	if params.Resume && h.session == nil {
 		return "", errors.New("there is no session to resume")
 	}
@@ -352,8 +353,10 @@ func (h *host) run(ctx context.Context, params protocol.RunParams) (string, erro
 			return "", err
 		}
 
+		h.mu.Lock()
 		h.session = &created
 		h.info.Session = created.ID
+		h.mu.Unlock()
 	}
 
 	if err := h.lock(); err != nil {
@@ -365,6 +368,13 @@ func (h *host) run(ctx context.Context, params protocol.RunParams) (string, erro
 	}
 
 	return h.session.ID, h.worker.Run(ctx, *h.session, params.Objective)
+}
+
+func (h *host) setWorking(working bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.working = working
 }
 
 // start runs the provider and builds the agent around it, once.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -166,5 +167,83 @@ func TestRunStreamsEventsAndReportsOutcome(t *testing.T) {
 
 	if cancelled.Status != protocol.RunCancelled {
 		t.Fatalf("cancelled run = %+v", cancelled)
+	}
+}
+
+func TestHostAnswersDuringARun(t *testing.T) {
+	host, front, _ := connect(t, "")
+	release := make(chan struct{})
+
+	go host.Serve(Handlers{
+		Run: func(ctx context.Context, params protocol.RunParams) (string, error) {
+			host.Text("started")
+
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+
+			host.Text("finished")
+
+			return "s1", nil
+		},
+		Describe: func(context.Context) (protocol.DescribeResult, error) {
+			return protocol.DescribeResult{Provider: "p"}, nil
+		},
+		Invoke: func(context.Context, protocol.InvokeParams) (json.RawMessage, error) {
+			return json.RawMessage(`{}`), nil
+		},
+		Host: func(_ context.Context, name string, _ json.RawMessage, running bool) (protocol.HostResult, error) {
+			return protocol.HostResult{Text: fmt.Sprintf("%s, running %t", name, running)}, nil
+		},
+	})
+
+	started := make(chan struct{})
+	finished := make(chan []protocol.Event, 1)
+
+	go func() {
+		var events []protocol.Event
+
+		front.Run("task", func(event protocol.Event) {
+			events = append(events, event)
+
+			if event.Text == "started" {
+				close(started)
+			}
+		})
+
+		finished <- events
+	}()
+
+	<-started
+
+	// The host answers while the run works, and is told a run is on.
+	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status, running true" {
+		t.Fatalf("host function during a run = %+v, err = %v", answer, err)
+	}
+
+	// The provider is the run's until it ends.
+	if _, err := front.Describe(); err == nil || !strings.Contains(err.Error(), "busy with the run") {
+		t.Fatalf("describe during a run: err = %v", err)
+	}
+
+	if _, err := front.Invoke("models", nil); err == nil || !strings.Contains(err.Error(), "busy with the run") {
+		t.Fatalf("a provider function during a run: err = %v", err)
+	}
+
+	// Events carry no request id, so a second run could not be told apart.
+	if _, err := front.Run("another", nil); err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("a second run: err = %v", err)
+	}
+
+	close(release)
+
+	// The run got all of its events, though other answers came meanwhile.
+	if events := <-finished; len(events) != 2 || events[1].Text != "finished" {
+		t.Fatalf("run events = %+v", events)
+	}
+
+	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status, running false" {
+		t.Fatalf("host function after the run = %+v, err = %v", answer, err)
 	}
 }

@@ -70,9 +70,10 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 The owner decided what this covers: these three, in this order.
 
-19. **Talking to the host while it works.** During a run every request is
-    refused but cancel. `status` and `sessions` should answer, and a message
-    should reach the agent before its next turn.
+19. **Talking to the agent while it works.** During a run the host answers
+    what does not disturb it, such as `status` and `sessions`, but nothing
+    the user says reaches the agent. A message should reach it before its
+    next turn.
 56. **Several sessions in one host.** A host serves one session at a time, so
     an interface with tabs, or several agents at once, needs a process each.
 57. **Subagents.** The agent cannot hand part of a task to another agent.

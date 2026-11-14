@@ -102,7 +102,8 @@ The result arrives when the run is over, however it ends:
 | `cancelled` | The front end cancelled it. |
 
 One run is active at a time. A `run` sent during another is answered with a
-JSON-RPC error.
+JSON-RPC error. Other requests can be sent while a run works, without
+waiting for its result; each answer carries the id of its request.
 
 ### `describe` (request, front end to host)
 
@@ -147,7 +148,10 @@ an option names in `values` answers with `{"values": [{"value", "label",
 With `"target": "host"` the call goes to a function of the host instead; see
 [Functions of the host](#functions-of-the-host).
 
-`describe` and `invoke` are refused with an error while a run is in progress.
+While a run is in progress the provider is busy with it, so `describe` and
+the provider's functions are refused with an error. The host's functions
+are not: see [Functions of the host](#functions-of-the-host) for which ones
+answer during a run.
 
 ### `cancel` (notification, front end to host)
 
@@ -234,10 +238,16 @@ The functions of this version:
 | `unset` | `key`, `scope`? | Removes a stored setting. |
 | `setting-keys` | | Lists the settings there are. |
 | `compact` | | Replaces the conversation with a summary now. |
-| `quit` | | Stops the provider and ends the host, which closes the connection. |
+| `quit` | | Stops the provider and ends the host, which closes the connection. A run in progress is cancelled. |
 
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
+
+During a run, the functions that only read or store something answer as
+usual: `status`, `sessions`, `providers`, `settings`, `setting-keys`,
+`setting`, `unset`, `register`, `unregister`, and `quit`. The others change
+the session or the provider, or need a provider, and answer with an error
+saying they wait for the run to end.
 
 ## What the host guarantees
 

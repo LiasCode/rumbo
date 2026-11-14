@@ -27,6 +27,9 @@ type Handlers struct {
 	Describe func(ctx context.Context) (protocol.DescribeResult, error)
 	// Invoke calls a function of the provider.
 	Invoke func(ctx context.Context, params protocol.InvokeParams) (json.RawMessage, error)
+	// Host calls a function of the host. running says a run is in progress,
+	// which some functions wait for.
+	Host func(ctx context.Context, name string, params json.RawMessage, running bool) (protocol.HostResult, error)
 }
 
 // Conn is a connected front end. It implements agent.Observer by sending
@@ -161,18 +164,11 @@ func (c *Conn) Serve(handlers Handlers) error {
 			}()
 
 		case protocol.MethodDescribe, protocol.MethodInvoke:
-			// These go to the provider, which answers one request at a time,
-			// so they wait for no run and are refused during one.
 			mu.Lock()
 			running := cancel != nil
 			mu.Unlock()
 
-			if running {
-				c.fail(frame.ID, protocol.CodeInvalidParams, "not while a run is in progress")
-				continue
-			}
-
-			c.answer(frame, handlers)
+			c.answer(frame, handlers, running)
 
 			if c.stopped.Load() {
 				return nil
@@ -184,25 +180,38 @@ func (c *Conn) Serve(handlers Handlers) error {
 	}
 }
 
-// answer serves a describe or an invoke.
-func (c *Conn) answer(frame protocol.Frame, handlers Handlers) {
+// answer serves a describe or an invoke. Nothing else is read until it is
+// answered, a cancel included, so during a run only what answers quickly is
+// served.
+func (c *Conn) answer(frame protocol.Frame, handlers Handlers, running bool) {
 	if frame.ID == nil {
+		return
+	}
+
+	var params protocol.InvokeParams
+
+	if frame.Method == protocol.MethodInvoke && (json.Unmarshal(frame.Params, &params) != nil || params.Name == "") {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "invoke needs the name of a function")
 		return
 	}
 
 	var result any
 	var err error
 
-	if frame.Method == protocol.MethodDescribe {
+	switch {
+	case params.Target == protocol.TargetHost:
+		result, err = handlers.Host(context.Background(), params.Name, params.Params, running)
+
+	// The provider answers one request at a time, and during a run it is
+	// the run's.
+	case running:
+		c.fail(frame.ID, protocol.CodeInvalidParams, "the provider is busy with the run in progress; ask again when it ends")
+		return
+
+	case frame.Method == protocol.MethodDescribe:
 		result, err = handlers.Describe(context.Background())
-	} else {
-		var params protocol.InvokeParams
 
-		if json.Unmarshal(frame.Params, &params) != nil || params.Name == "" {
-			c.fail(frame.ID, protocol.CodeInvalidParams, "invoke needs the name of a function")
-			return
-		}
-
+	default:
 		result, err = handlers.Invoke(context.Background(), params)
 	}
 

@@ -19,7 +19,8 @@ const maxSuggested = 12
 
 // complete returns the input line after a Tab, and a hint to show: the
 // candidates when there are several, or why there are none. online says the
-// host can be asked for values now, which it cannot during a run.
+// provider can be asked for values now, which it cannot during a run. The
+// host is always asked, and says when it cannot answer.
 func (u *ui) complete(line string, online bool) (completed, hint string) {
 	head, token := splitLast(line)
 
@@ -66,11 +67,7 @@ func (u *ui) candidates(head string, online bool) (candidates []string, hint str
 			return nil, ""
 		}
 
-		if !online && param.Values != "" {
-			return nil, waiting
-		}
-
-		return u.accepts(param, protocol.TargetHost), ""
+		return u.accepts(param, protocol.TargetHost)
 	}
 
 	if words[0] == commandHelp || words[0] == commandOptions {
@@ -89,12 +86,12 @@ func (u *ui) candidates(head string, online bool) (candidates []string, hint str
 	}
 
 	if words[0] == commandSet {
-		return u.settable(described, words[1:]), ""
+		return u.settable(described, words[1:])
 	}
 
 	if index := slices.IndexFunc(described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
 		if param, found := parameter(described.Offers.Functions[index], position); found {
-			return u.accepts(param, protocol.TargetProvider), ""
+			return u.accepts(param, protocol.TargetProvider)
 		}
 	}
 
@@ -102,7 +99,7 @@ func (u *ui) candidates(head string, online bool) (candidates []string, hint str
 }
 
 // settable completes /set: first what can be set, then the values it takes.
-func (u *ui) settable(described protocol.DescribeResult, chosen []string) []string {
+func (u *ui) settable(described protocol.DescribeResult, chosen []string) (candidates []string, hint string) {
 	if len(chosen) == 0 {
 		names := []string{"model"}
 
@@ -110,16 +107,16 @@ func (u *ui) settable(described protocol.DescribeResult, chosen []string) []stri
 			names = append(names, option.Name)
 		}
 
-		return names
+		return names, ""
 	}
 
 	if len(chosen) > 1 {
-		return nil
+		return nil, ""
 	}
 
 	if chosen[0] == "model" {
 		if described.Offers.Model == nil {
-			return nil
+			return nil, ""
 		}
 
 		return u.accepts(*described.Offers.Model, protocol.TargetProvider)
@@ -131,18 +128,19 @@ func (u *ui) settable(described protocol.DescribeResult, chosen []string) []stri
 		}
 	}
 
-	return nil
+	return nil, ""
 }
 
 // accepts returns the values an option takes, asking its function for them
-// when it names one. target says whose function that is.
-func (u *ui) accepts(option protocol.Option, target string) []string {
+// when it names one. target says whose function that is. When the function
+// cannot answer, the hint says why.
+func (u *ui) accepts(option protocol.Option, target string) (values []string, hint string) {
 	if option.Type == protocol.OptionBoolean {
-		return []string{"true", "false"}
+		return []string{"true", "false"}, ""
 	}
 
 	if option.Values == "" {
-		return option.Enum
+		return option.Enum, ""
 	}
 
 	var listed []protocol.Value
@@ -151,7 +149,7 @@ func (u *ui) accepts(option protocol.Option, target string) []string {
 		result, err := u.conn.InvokeHost(option.Values, nil)
 
 		if err != nil {
-			return nil
+			return nil, err.Error()
 		}
 
 		listed = result.Values
@@ -159,7 +157,7 @@ func (u *ui) accepts(option protocol.Option, target string) []string {
 		raw, err := u.conn.Invoke(option.Values, nil)
 
 		if err != nil {
-			return nil
+			return nil, err.Error()
 		}
 
 		var result protocol.ValuesResult
@@ -167,13 +165,13 @@ func (u *ui) accepts(option protocol.Option, target string) []string {
 		listed = result.Values
 	}
 
-	values := make([]string, len(listed))
+	values = make([]string, len(listed))
 
 	for index, value := range listed {
 		values[index] = value.Value
 	}
 
-	return values
+	return values, ""
 }
 
 // commandNames returns every command known without asking anyone: the

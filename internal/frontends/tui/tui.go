@@ -126,6 +126,9 @@ type ui struct {
 	input   []rune
 	midLine bool
 	running bool
+	// asking is true while a command waits for its answer. Commands can be
+	// asked during a run; the host says which ones wait for it.
+	asking  bool
 	session string
 	// model and options are what the user chose here for the runs to come;
 	// empty means the stored values.
@@ -191,8 +194,11 @@ func (u *ui) layout(row int) {
 func (u *ui) footer() {
 	state := "ready"
 
-	if u.running {
+	switch {
+	case u.running:
 		state = "working (Ctrl-C cancels)"
+	case u.asking:
+		state = "waiting for the answer"
 	}
 
 	// While a command is being typed, the bar shows what it could become.
@@ -307,8 +313,17 @@ func (u *ui) submit(objective string) {
 func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protocol.RunResult, error)) {
 	u.mu.Lock()
 
-	if u.running {
-		u.notice = "still working; Ctrl-C cancels"
+	refused := ""
+
+	switch {
+	case u.running:
+		refused = "still working; Ctrl-C cancels"
+	case u.asking:
+		refused = "a command is waiting for its answer"
+	}
+
+	if refused != "" {
+		u.notice = refused
 		u.footer()
 		u.mu.Unlock()
 

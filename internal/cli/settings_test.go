@@ -202,7 +202,7 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 		"setting":    `{"key":"max_turns","value":"x"}`,
 		"unset":      `{"key":"max_turns","scope":"everywhere"}`,
 	} {
-		if _, err := h.invokeHost(context.Background(), name, []byte(params)); err == nil {
+		if _, err := h.invokeHost(context.Background(), name, []byte(params), false); err == nil {
 			t.Errorf("%s %s should fail", name, params)
 		}
 	}

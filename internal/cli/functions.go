@@ -17,18 +17,25 @@ import (
 // without knowing them beforehand, the way it does with a provider's.
 type hostFunction struct {
 	protocol.Function
-	call func(h *host, ctx context.Context, params map[string]string) (protocol.HostResult, error)
+	// duringRun says the function also answers while a run works. It only
+	// reads, or stores what applies from the next start, and answers at
+	// once. The others change the session or the provider, or need a
+	// provider, and wait for the run to end.
+	duringRun bool
+	call      func(h *host, ctx context.Context, params map[string]string) (protocol.HostResult, error)
 }
 
 // hostFunctions are listed to the front end in this order.
 var hostFunctions = []hostFunction{
 	{
-		Function: protocol.Function{Name: "status", Description: "Show the session, the model, and what the conversation has cost"},
-		call:     (*host).status,
+		Function:  protocol.Function{Name: "status", Description: "Show the session, the model, and what the conversation has cost"},
+		duringRun: true,
+		call:      (*host).status,
 	},
 	{
-		Function: protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first"},
-		call:     (*host).listSessions,
+		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first"},
+		duringRun: true,
+		call:      (*host).listSessions,
 	},
 	{
 		Function: protocol.Function{
@@ -52,8 +59,9 @@ var hostFunctions = []hostFunction{
 		call: (*host).deleteSession,
 	},
 	{
-		Function: protocol.Function{Name: "providers", Description: "List the registered providers"},
-		call:     (*host).listProviders,
+		Function:  protocol.Function{Name: "providers", Description: "List the registered providers"},
+		duringRun: true,
+		call:      (*host).listProviders,
 	},
 	{
 		Function: protocol.Function{
@@ -75,7 +83,8 @@ var hostFunctions = []hostFunction{
 				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
 			},
 		},
-		call: (*host).registerProvider,
+		duringRun: true,
+		call:      (*host).registerProvider,
 	},
 	{
 		Function: protocol.Function{
@@ -103,11 +112,13 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
 			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched.",
 		},
-		call: (*host).unregisterProvider,
+		duringRun: true,
+		call:      (*host).unregisterProvider,
 	},
 	{
-		Function: protocol.Function{Name: "settings", Description: "Show every setting as it applies here, and where it comes from"},
-		call:     (*host).showSettings,
+		Function:  protocol.Function{Name: "settings", Description: "Show every setting as it applies here, and where it comes from"},
+		duringRun: true,
+		call:      (*host).showSettings,
 	},
 	{
 		Function: protocol.Function{
@@ -119,7 +130,8 @@ var hostFunctions = []hostFunction{
 				{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true},
 			},
 		},
-		call: (*host).storeSetting,
+		duringRun: true,
+		call:      (*host).storeSetting,
 	},
 	{
 		Function: protocol.Function{
@@ -130,19 +142,22 @@ var hostFunctions = []hostFunction{
 				{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true},
 			},
 		},
-		call: (*host).removeSetting,
+		duringRun: true,
+		call:      (*host).removeSetting,
 	},
 	{
-		Function: protocol.Function{Name: "setting-keys", Description: "List the settings there are"},
-		call:     (*host).settingKeys,
+		Function:  protocol.Function{Name: "setting-keys", Description: "List the settings there are"},
+		duringRun: true,
+		call:      (*host).settingKeys,
 	},
 	{
 		Function: protocol.Function{Name: "compact", Description: "Replace the conversation with a summary now, to free context"},
 		call:     (*host).compactNow,
 	},
 	{
-		Function: protocol.Function{Name: "quit", Description: "Stop the provider and exit"},
-		call:     (*host).quit,
+		Function:  protocol.Function{Name: "quit", Description: "Stop the provider and exit; a run in progress is cancelled"},
+		duringRun: true,
+		call:      (*host).quit,
 	},
 }
 
@@ -159,7 +174,8 @@ func describedFunctions() []protocol.Function {
 
 // invokeHost runs a function of the host. Every answer carries the state
 // the front end is attached to afterwards, since the call may change it.
-func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage) (protocol.HostResult, error) {
+// running says a run is in progress, which most functions wait for.
+func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage, running bool) (protocol.HostResult, error) {
 	params := map[string]string{}
 
 	if len(raw) > 0 {
@@ -171,6 +187,10 @@ func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage)
 	for _, function := range hostFunctions {
 		if function.Name != name {
 			continue
+		}
+
+		if running && !function.duringRun {
+			return protocol.HostResult{}, fmt.Errorf("%s waits for the run in progress to end; cancel the run to use it now", name)
 		}
 
 		for _, param := range function.Params {
@@ -189,6 +209,9 @@ func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage)
 }
 
 func (h *host) state() protocol.HostState {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	return protocol.HostState{
 		Dir:      h.info.Dir,
 		Session:  h.info.Session,
@@ -198,21 +221,25 @@ func (h *host) state() protocol.HostState {
 }
 
 func (h *host) status(context.Context, map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	session, dir, working := h.session, h.info.Dir, h.working
+	h.mu.Unlock()
+
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "provider: %s\nmodel: %s\ndirectory: %s", h.settings.Provider, h.settings.Model, h.info.Dir)
+	fmt.Fprintf(&out, "provider: %s\nmodel: %s\ndirectory: %s", h.settings.Provider, h.settings.Model, dir)
 
 	if len(h.settings.Options) > 0 {
 		fmt.Fprintf(&out, "\noptions: %s", h.settings.Options)
 	}
 
-	if h.session == nil {
+	if session == nil {
 		out.WriteString("\nsession: none yet; the next task starts one")
 
 		return protocol.HostResult{Text: out.String()}, nil
 	}
 
-	entries, err := h.database.Entries(h.session.ID)
+	entries, err := h.database.Entries(session.ID)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -246,7 +273,7 @@ func (h *host) status(context.Context, map[string]string) (protocol.HostResult, 
 		spent.Output += answer.Usage.Output
 	}
 
-	fmt.Fprintf(&out, "\nsession: %s (%s)", h.session.ID, h.session.Title)
+	fmt.Fprintf(&out, "\nsession: %s (%s)", session.ID, session.Title)
 	fmt.Fprintf(&out, "\ncontext: %d tokens", state.Tokens)
 
 	if state.Window > 0 {
@@ -258,7 +285,10 @@ func (h *host) status(context.Context, map[string]string) (protocol.HostResult, 
 	}
 	fmt.Fprintf(&out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", turns, spent.Input, spent.CacheRead, spent.Output)
 
-	if state.Unfinished {
+	switch {
+	case working:
+		out.WriteString("\na run is in progress")
+	case state.Unfinished:
 		out.WriteString("\nthe last run did not finish, and can be resumed")
 	}
 

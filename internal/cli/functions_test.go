@@ -42,7 +42,7 @@ func testHost(t *testing.T) *host {
 func call(t *testing.T, h *host, name, params string) protocol.HostResult {
 	t.Helper()
 
-	result, err := h.invokeHost(context.Background(), name, []byte(params))
+	result, err := h.invokeHost(context.Background(), name, []byte(params), false)
 
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
@@ -74,7 +74,7 @@ func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 		t.Fatal("the opened session is not held by this host")
 	}
 
-	if _, err := h.invokeHost(context.Background(), "open", []byte(`{"session":"`+foreign[0].ID+`"}`)); err == nil || !strings.Contains(err.Error(), "belongs to /elsewhere") {
+	if _, err := h.invokeHost(context.Background(), "open", []byte(`{"session":"`+foreign[0].ID+`"}`), false); err == nil || !strings.Contains(err.Error(), "belongs to /elsewhere") {
 		t.Fatalf("opening a session of another project: err = %v", err)
 	}
 
@@ -96,13 +96,13 @@ func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 	kept, _ := h.database.CreateSession("/repo", "/repo", "kept")
 	h.database.Append(older.ID, "user", map[string]string{"text": "hi"})
 
-	if _, err := h.invokeHost(context.Background(), "delete", []byte(`{"session":"`+foreign[0].ID+`"}`)); err == nil {
+	if _, err := h.invokeHost(context.Background(), "delete", []byte(`{"session":"`+foreign[0].ID+`"}`), false); err == nil {
 		t.Fatal("a session of another project was deleted")
 	}
 
 	held, _ := h.database.LockSession(kept.ID)
 
-	if _, err := h.invokeHost(context.Background(), "delete", []byte(`{"session":"`+kept.ID+`"}`)); err == nil || !strings.Contains(err.Error(), "in use") {
+	if _, err := h.invokeHost(context.Background(), "delete", []byte(`{"session":"`+kept.ID+`"}`), false); err == nil || !strings.Contains(err.Error(), "in use") {
 		t.Fatalf("deleting a session in use elsewhere: err = %v", err)
 	}
 
@@ -140,8 +140,39 @@ func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 	}
 
 	for name, params := range map[string]string{"use": `{"provider":"missing","model":"x"}`, "open": `{}`, "nope": ``} {
-		if _, err := h.invokeHost(context.Background(), name, []byte(params)); err == nil {
+		if _, err := h.invokeHost(context.Background(), name, []byte(params), false); err == nil {
 			t.Fatalf("%s %s should fail", name, params)
 		}
+	}
+}
+
+func TestHostFunctionsDuringARun(t *testing.T) {
+	h := testHost(t)
+	session, _ := h.database.CreateSession("/repo", "/repo", "in progress")
+	h.database.Append(session.ID, "user", map[string]string{"text": "the objective"})
+	h.session, h.info.Session, h.working = &session, session.ID, true
+
+	// What only reads, or stores for the next start, answers while a run works.
+	for name, params := range map[string]string{"status": ``, "sessions": ``, "providers": ``, "settings": ``, "setting": `{"key":"max_turns","value":"40"}`} {
+		if _, err := h.invokeHost(context.Background(), name, []byte(params), true); err != nil {
+			t.Fatalf("%s during a run: %v", name, err)
+		}
+	}
+
+	// The run has no ending yet because it is still going, not because it
+	// was interrupted.
+	if status, _ := h.invokeHost(context.Background(), "status", nil, true); !strings.Contains(status.Text, "a run is in progress") || strings.Contains(status.Text, "resumed") {
+		t.Fatalf("status during a run = %q", status.Text)
+	}
+
+	// What changes the session or the provider, or needs the provider, waits.
+	for name, params := range map[string]string{"open": `{"session":"` + session.ID + `"}`, "new": ``, "use": `{"provider":"second","model":"large"}`, "compact": ``} {
+		if _, err := h.invokeHost(context.Background(), name, []byte(params), true); err == nil || !strings.Contains(err.Error(), "waits for the run in progress to end") {
+			t.Fatalf("%s during a run: err = %v", name, err)
+		}
+	}
+
+	if h.session == nil || h.session.ID != session.ID || h.settings.Provider != "first" {
+		t.Fatalf("a refused function changed the host: session %v, provider %s", h.session, h.settings.Provider)
 	}
 }

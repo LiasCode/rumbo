@@ -67,20 +67,20 @@ func (u *ui) command(line string) {
 }
 
 // work shows label as what was asked, does it in the background, and shows
-// the answer. It does nothing during a run: commands reach the host and the
-// provider, which are busy then.
+// the answer. During a run it is still asked: the host answers what does not
+// disturb the run and says what has to wait.
 func (u *ui) work(label string, do func() (answer, error)) {
 	u.mu.Lock()
 
-	if u.running {
-		u.notice = "still working; commands wait for the run to end"
+	if u.asking {
+		u.notice = "a command is waiting for its answer"
 		u.footer()
 		u.mu.Unlock()
 
 		return
 	}
 
-	u.running = true
+	u.asking = true
 	u.notice = ""
 	u.input = nil
 	u.line(styleBold, "\n"+prompt+label)
@@ -96,7 +96,7 @@ func (u *ui) work(label string, do func() (answer, error)) {
 		u.mu.Lock()
 		defer u.mu.Unlock()
 
-		u.running = false
+		u.asking = false
 
 		mark := u.label(reply.source)
 

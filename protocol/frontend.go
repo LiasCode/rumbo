@@ -139,30 +139,33 @@ type Event struct {
 }
 
 // FrontendConn is the front end's side of the protocol, for front ends
-// written in Go.
+// written in Go. Its methods may be called from several goroutines at once,
+// so a function of the host can be called while a run is in progress.
 type FrontendConn struct {
-	frames chan Frame
-	// calling lets one request at a time wait for its answer.
-	calling sync.Mutex
-	done    chan struct{}
+	done chan struct{}
 
 	mu     sync.Mutex
 	out    *json.Encoder
 	nextID int64
+	// waiting has a channel for each request not yet answered, by id. The
+	// answer arrives on it, and for a run so do its events, in order.
+	waiting map[int64]chan Frame
+	// run is the channel of the run in progress, which events belong to.
+	run chan Frame
+	// gone is set once the host has closed the connection.
+	gone bool
 }
 
 // DialFrontend answers the host's initialize on r and w and returns the
 // connection together with what the host said.
 func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, FrontendInitializeParams, error) {
-	conn := &FrontendConn{frames: make(chan Frame, 64), out: json.NewEncoder(w), done: make(chan struct{})}
-
-	go conn.read(r)
+	reader := bufio.NewReader(r)
 
 	var params FrontendInitializeParams
 
-	frame, open := <-conn.frames
+	frame, err := readFrame(reader)
 
-	if !open || frame.Method != MethodInitialize || frame.ID == nil {
+	if err != nil || frame.Method != MethodInitialize || frame.ID == nil {
 		return nil, params, errors.New("the host did not send initialize")
 	}
 
@@ -174,9 +177,16 @@ func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, Fronten
 		return nil, params, fmt.Errorf("host speaks protocol %d, front end speaks %d", params.Protocol, Version)
 	}
 
+	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}}
 	result, _ := json.Marshal(InitializeResult{Protocol: Version, Name: name})
 
-	return conn, params, conn.send(Frame{ID: frame.ID, Result: result})
+	if err := conn.send(Frame{ID: frame.ID, Result: result}); err != nil {
+		return nil, params, err
+	}
+
+	go conn.read(reader)
+
+	return conn, params, nil
 }
 
 // Run asks the host to work on objective and blocks until the run ends,
@@ -224,24 +234,43 @@ func (c *FrontendConn) Done() <-chan struct{} {
 	return c.done
 }
 
-// request sends one request and waits for its answer, passing the events
-// that arrive meanwhile to onEvent.
+// request sends one request and waits for its answer. The events of a run
+// are passed to onEvent until the run's answer arrives.
 func (c *FrontendConn) request(method string, params, result any, onEvent func(Event)) error {
-	c.calling.Lock()
-	defer c.calling.Unlock()
+	run := method == MethodRun
+	frames := make(chan Frame, 64)
 
 	c.mu.Lock()
+
+	switch {
+	case c.gone:
+		c.mu.Unlock()
+		return errors.New("the host exited")
+
+	// Events carry no request id, so they could not tell two runs apart.
+	case run && c.run != nil:
+		c.mu.Unlock()
+		return errors.New("a run is already in progress")
+	}
+
 	c.nextID++
 	id := c.nextID
+	c.waiting[id] = frames
+
+	if run {
+		c.run = frames
+	}
+
 	c.mu.Unlock()
 
 	raw, _ := json.Marshal(params)
 
 	if err := c.send(Frame{ID: &id, Method: method, Params: raw}); err != nil {
+		c.forget(id)
 		return err
 	}
 
-	for frame := range c.frames {
+	for frame := range frames {
 		if frame.Method == MethodEvent {
 			var event Event
 
@@ -249,10 +278,6 @@ func (c *FrontendConn) request(method string, params, result any, onEvent func(E
 				onEvent(event)
 			}
 
-			continue
-		}
-
-		if frame.ID == nil || *frame.ID != id || frame.Method != "" {
 			continue
 		}
 
@@ -264,6 +289,18 @@ func (c *FrontendConn) request(method string, params, result any, onEvent func(E
 	}
 
 	return errors.New("the host exited")
+}
+
+// forget drops a request that will not be answered.
+func (c *FrontendConn) forget(id int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.run == c.waiting[id] {
+		c.run = nil
+	}
+
+	delete(c.waiting, id)
 }
 
 // Cancel asks the host to stop the current run. Run still returns, with the
@@ -281,12 +318,64 @@ func (c *FrontendConn) send(frame Frame) error {
 	return c.out.Encode(frame)
 }
 
-func (c *FrontendConn) read(r io.Reader) {
+// read passes what the host sends to the request it belongs to: an answer
+// to the request with its id, and an event to the run in progress. A run's
+// events and its answer share its channel, so the events arrive first.
+func (c *FrontendConn) read(reader *bufio.Reader) {
 	defer close(c.done)
-	defer close(c.frames)
 
-	reader := bufio.NewReader(r)
+	for {
+		frame, err := readFrame(reader)
 
+		if err != nil {
+			break
+		}
+
+		if frames := c.route(frame); frames != nil {
+			frames <- frame
+		}
+	}
+
+	// The host is gone, so nothing waiting will be answered.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for id, frames := range c.waiting {
+		close(frames)
+		delete(c.waiting, id)
+	}
+
+	c.run = nil
+	c.gone = true
+}
+
+// route returns the channel of the request a frame belongs to, or nil when
+// none is waiting for it.
+func (c *FrontendConn) route(frame Frame) chan Frame {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if frame.Method == MethodEvent {
+		return c.run
+	}
+
+	if frame.Method != "" || frame.ID == nil {
+		return nil
+	}
+
+	frames := c.waiting[*frame.ID]
+	delete(c.waiting, *frame.ID)
+
+	if frames == c.run {
+		c.run = nil
+	}
+
+	return frames
+}
+
+// readFrame returns the next well-formed frame, skipping lines that are not
+// JSON.
+func readFrame(reader *bufio.Reader) (Frame, error) {
 	for {
 		line, err := reader.ReadBytes('\n')
 
@@ -294,12 +383,12 @@ func (c *FrontendConn) read(r io.Reader) {
 			var frame Frame
 
 			if json.Unmarshal(line, &frame) == nil {
-				c.frames <- frame
+				return frame, nil
 			}
 		}
 
 		if err != nil {
-			return
+			return Frame{}, err
 		}
 	}
 }
