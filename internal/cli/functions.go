@@ -345,7 +345,14 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 	if limit := h.settings.Compaction.Limit(state.Window); limit > 0 {
 		fmt.Fprintf(out, "; summarized at %d", limit)
 	}
+
 	fmt.Fprintf(out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", turns, spent.Input, spent.CacheRead, spent.Output)
+
+	// What the provider read from its cache is what the stable start of each
+	// request saved; a share that drops says something broke the cache.
+	if all := spent.Input + spent.CacheRead; all > 0 {
+		fmt.Fprintf(out, "\nfrom the cache: %d%% of all input", spent.CacheRead*100/all)
+	}
 
 	switch {
 	case working != "":

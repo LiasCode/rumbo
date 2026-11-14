@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -802,5 +803,160 @@ func TestSteerSurvivesAnOverflow(t *testing.T) {
 
 	if len(after) != 1 || !strings.Contains(after[0].Content[0].Text, "looked at a log") || lastText(after[0]) != "keep the log short" {
 		t.Fatalf("after the recovery the model saw %+v", after)
+	}
+}
+
+// script is an Inbox that acts once the model has received a given number
+// of requests: it tells the run something, or does something to it. It runs
+// in the loop, between turns.
+type script struct {
+	model *scripted
+	at    map[int]func(record func(string) error) error
+}
+
+func (s *script) Take(record func(string) error) error {
+	asked := len(s.model.requests)
+	act := s.at[asked]
+	delete(s.at, asked)
+
+	if act == nil {
+		return nil
+	}
+
+	return act(record)
+}
+
+// changing is a collector whose section is whatever version says.
+type changing struct {
+	version string
+}
+
+func (c *changing) Name() string { return "versioned" }
+
+func (c *changing) Collect(context.Context, string) string { return c.version }
+
+// extends says why next does not extend prev, or nothing when it does: the
+// system prompt, the tools, the settings, and every message before must be
+// the same, so a provider can cache all of it.
+func extends(prev, next protocol.CompleteParams) string {
+	prevTools, _ := json.Marshal(prev.Tools)
+	nextTools, _ := json.Marshal(next.Tools)
+
+	switch {
+	case next.System != prev.System:
+		return "the system prompt changed"
+	case !bytes.Equal(prevTools, nextTools):
+		return "the tools changed"
+	case next.Model != prev.Model || next.MaxTokens != prev.MaxTokens || !bytes.Equal(prev.Options, next.Options):
+		return "the settings changed"
+	case !isPrefix(prev.Messages, next.Messages):
+		return "an earlier message changed"
+	}
+
+	return ""
+}
+
+// isSummaryRequest reports whether a request asks for the summary a
+// compaction replaces the conversation with.
+func isSummaryRequest(params protocol.CompleteParams) bool {
+	last := params.Messages[len(params.Messages)-1].Content
+
+	return last[len(last)-1].Text == summarize
+}
+
+// Every request extends the one before it, through every path a session
+// can take, so a provider can cache all of what came before. The one
+// exception is the request after a compaction, which starts over from the
+// summary.
+func TestEveryRequestExtendsTheOneBefore(t *testing.T) {
+	overloaded := protocol.Transient(errors.New("overloaded"))
+
+	model := &scripted{
+		failures: []error{overloaded},
+		cut:      map[int]bool{1: true},
+		answers: []protocol.Message{
+			say(write("call-1", "a.txt", "one")),
+			say(text("Working on it")),
+			say(text("Done.")),
+			say(write("call-2", "b.txt", "two")),
+		},
+	}
+
+	worker, database, session, _ := setup(t, model)
+	section := &changing{version: "one"}
+	worker.Collectors = []ambient.Collector{section}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	worker.Inbox = &script{model: model, at: map[int]func(func(string) error) error{
+		// The user says something while the first tool runs.
+		2: func(record func(string) error) error { return record("name it a.md instead") },
+		// The second run is cancelled while a request is in flight.
+		5: func(func(string) error) error { cancel(); return nil },
+	}}
+
+	// A first task: a retried request, a tool, what the user said, and a
+	// response the output limit cut.
+	if err := worker.Run(context.Background(), session, "first task"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second task, after the ambient context changed, cancelled mid-way.
+	section.version = "two"
+
+	if err := worker.Run(ctx, session, "second task"); err == nil {
+		t.Fatal("the cancelled run did not fail")
+	}
+
+	// It is resumed, and its answer fills the context past the limit.
+	model.answers = append(model.answers, say(text("Resumed and done.")))
+	model.usage = protocol.Usage{Input: 100_000}
+	worker.Compaction = Compaction{Tokens: 50_000}
+
+	if err := worker.Resume(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	// A third task starts by summarizing, and goes on from the summary.
+	model.usage = protocol.Usage{}
+	model.answers = append(model.answers,
+		say(text("<summary>Two files written.</summary>")),
+		say(write("call-3", "c.txt", "three")),
+		say(text("Done.")),
+	)
+
+	if err := worker.Run(context.Background(), session, "third task"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(model.requests) != 10 {
+		t.Fatalf("%d requests, want 10: the scenario did not go where it should", len(model.requests))
+	}
+
+	for index := 1; index < len(model.requests); index++ {
+		prev, next := model.requests[index-1], model.requests[index]
+
+		if isSummaryRequest(prev) {
+			continue
+		}
+
+		if why := extends(prev, next); why != "" {
+			t.Errorf("request %d does not extend request %d: %s", index, index-1, why)
+		}
+	}
+
+	// Every path the test means to cover was taken.
+	entries, _ := database.Entries(session.ID)
+	taken := kinds(entries)
+
+	for _, kind := range []string{"steer", "harness", "context", "compaction"} {
+		if !strings.Contains(taken, kind) {
+			t.Errorf("the session has no %s entry: %s", kind, taken)
+		}
+	}
+
+	if got := notes(t, database, session); got != "retry done cancelled done done" {
+		t.Fatalf("notes = %q", got)
 	}
 }

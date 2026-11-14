@@ -9,6 +9,7 @@ import (
 	"rumbo/internal/provider"
 	"rumbo/internal/store"
 	"rumbo/internal/tool"
+	"rumbo/internal/transcript"
 	"rumbo/protocol"
 )
 
@@ -381,5 +382,26 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 
 	if _, err := newHost(h.database, []string{"-s", session.ID}); err == nil || !strings.Contains(err.Error(), `uses the provider "gone"`) {
 		t.Fatalf("a session whose provider was removed: err = %v", err)
+	}
+}
+
+// Status says how much of the session's input the provider read from its
+// cache, which is what a stable start of each request saves.
+func TestStatusSaysHowMuchCameFromTheCache(t *testing.T) {
+	h := testHost(t)
+	session, _ := h.database.CreateSession("/repo", "/repo", "cached")
+	h.current.session = &session
+
+	reply := protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockText, Text: "ok"}}}
+
+	// The first request writes the cache, and the second reads most of it.
+	h.database.Append(session.ID, transcript.KindUser, transcript.Text{Text: "a task"})
+	h.database.Append(session.ID, transcript.KindAssistant, transcript.Assistant{Message: reply, Usage: protocol.Usage{Input: 1000, CacheWrite: 1000}})
+	h.database.Append(session.ID, transcript.KindUser, transcript.Text{Text: "another"})
+	h.database.Append(session.ID, transcript.KindAssistant, transcript.Assistant{Message: reply, Usage: protocol.Usage{Input: 100, CacheWrite: 100, CacheRead: 1800}})
+
+	// 1800 read from the cache out of 4000 input tokens in all.
+	if status := call(t, h, "status", ""); !strings.Contains(status.Text, "from the cache: 45% of all input") {
+		t.Fatalf("status = %q", status.Text)
 	}
 }

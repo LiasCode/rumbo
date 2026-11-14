@@ -300,7 +300,7 @@ The functions of this version:
 
 | Function | Parameters | What it does |
 |---|---|---|
-| `status` | `session`? | The session, the model, the size of the context, and what was spent. The current session unless another is named. |
+| `status` | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. The current session unless another is named. |
 | `sessions` | | Lists the project's sessions, most recently used first, and marks those working in this host. |
 | `open` | `session` | Makes another session of the project the current one. |
 | `new` | | Makes the next task start a new session. |

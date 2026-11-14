@@ -85,7 +85,8 @@ nothing and knows no model API.
   unfinished run (`-r`).
 - Open another session, start a new one, and delete one with its history.
 - Show a session's status: its provider and model, the size of its context,
-  what it has spent, and how its last run stands.
+  what it has spent and how much of its input the provider read from its
+  cache, and how its last run stands.
 - Keep each session's provider and model from one start to the next, and let
   `-m` choose others for one start.
 - Print a session's whole record (`rumbo log`).
