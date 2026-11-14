@@ -327,6 +327,10 @@ func (u *ui) host(function protocol.Function, params json.RawMessage) (answer, e
 
 	u.info.Provider, u.info.Model, u.info.Dir = result.State.Provider, result.State.Model, result.State.Dir
 	u.session = result.State.Session
+
+	// The current session may have changed, and a run left behind goes on
+	// in the background.
+	u.follow()
 	u.mu.Unlock()
 
 	return answer{source: fromHost, text: strings.TrimSpace(result.Text + "\n" + list(result.Values))}, nil

@@ -18,13 +18,11 @@ import (
 const maxSuggested = 12
 
 // complete returns the input line after a Tab, and a hint to show: the
-// candidates when there are several, or why there are none. online says the
-// provider can be asked for values now, which it cannot during a run. The
-// host is always asked, and says when it cannot answer.
-func (u *ui) complete(line string, online bool) (completed, hint string) {
+// candidates when there are several, or why there are none.
+func (u *ui) complete(line string) (completed, hint string) {
 	head, token := splitLast(line)
 
-	candidates, hint := u.candidates(head, online)
+	candidates, hint := u.candidates(head)
 
 	if hint != "" {
 		return line, hint
@@ -45,7 +43,7 @@ func (u *ui) complete(line string, online bool) (completed, hint string) {
 
 // candidates returns what could come after head, which is everything up to
 // the word being typed.
-func (u *ui) candidates(head string, online bool) (candidates []string, hint string) {
+func (u *ui) candidates(head string) (candidates []string, hint string) {
 	words := strings.Fields(head)
 
 	if len(words) == 0 {
@@ -54,8 +52,6 @@ func (u *ui) candidates(head string, online bool) (candidates []string, hint str
 
 		return u.commandNames(), ""
 	}
-
-	const waiting = "values are completed when the run ends"
 
 	position := len(words) - 1
 	name := strings.TrimPrefix(words[0], "/")
@@ -75,10 +71,6 @@ func (u *ui) candidates(head string, online bool) (candidates []string, hint str
 	}
 
 	// Everything else is about the provider, which has to be asked.
-	if !online {
-		return nil, waiting
-	}
-
 	described, err := u.describe()
 
 	if err != nil {

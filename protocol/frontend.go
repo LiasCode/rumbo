@@ -229,9 +229,15 @@ func (c *FrontendConn) Resume(onEvent func(Event)) (RunResult, error) {
 
 // Start asks the host for the run the params describe, and blocks like Run.
 func (c *FrontendConn) Start(params RunParams, onEvent func(Event)) (RunResult, error) {
+	return c.Launch(params, nil, onEvent)
+}
+
+// Launch is Start that first tells onID the id of the run request, which
+// names the run to CancelRun and SteerRun before any of its events arrive.
+func (c *FrontendConn) Launch(params RunParams, onID func(run int64), onEvent func(Event)) (RunResult, error) {
 	var result RunResult
 
-	return result, c.request(MethodRun, params, &result, onEvent)
+	return result, c.exchange(MethodRun, params, &result, onID, onEvent)
 }
 
 // Steer tells the only run in progress text, and returns once it is
@@ -278,6 +284,12 @@ func (c *FrontendConn) Done() <-chan struct{} {
 // request sends one request and waits for its answer. The events of a run
 // are passed to onEvent until the run's answer arrives.
 func (c *FrontendConn) request(method string, params, result any, onEvent func(Event)) error {
+	return c.exchange(method, params, result, nil, onEvent)
+}
+
+// exchange is request that also tells onID the id of the request before it
+// is sent.
+func (c *FrontendConn) exchange(method string, params, result any, onID func(int64), onEvent func(Event)) error {
 	frames := make(chan Frame, 64)
 
 	c.mu.Lock()
@@ -296,6 +308,10 @@ func (c *FrontendConn) request(method string, params, result any, onEvent func(E
 	}
 
 	c.mu.Unlock()
+
+	if onID != nil {
+		onID(id)
+	}
 
 	raw, _ := json.Marshal(params)
 

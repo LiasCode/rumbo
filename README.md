@@ -108,9 +108,11 @@ rumbo -m mine/some-model "..."
 In a terminal rumbo starts `tui`: the conversation scrolls above a status bar
 and an input line. Enter sends a task; during a run it tells the run what you
 typed, which the model reads before its next turn. Ctrl-C cancels the run or
-quits when idle, Ctrl-D quits. Elsewhere it starts `plain`, which writes the
-model's text to stdout and progress to stderr. `-f <name>` or the `frontend`
-setting picks one.
+quits when idle, Ctrl-D quits; quitting cancels what still works. `/new` or
+`/open` during a run leaves it working in the background: the status bar
+counts those runs, and a line says when each ends. Elsewhere rumbo starts
+`plain`, which writes the model's text to stdout and progress to stderr.
+`-f <name>` or the `frontend` setting picks one.
 
 A front end is a program that exchanges JSON lines with the host.
 [examples/frontend.py](examples/frontend.py) is a complete one, and

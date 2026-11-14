@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -86,9 +87,7 @@ func Run(r io.Reader, w io.Writer) int {
 
 	switch {
 	case info.Resume:
-		ui.start("(resuming the unfinished run)", func(onEvent func(protocol.Event)) (protocol.RunResult, error) {
-			return ui.conn.Start(ui.choices(protocol.RunParams{Resume: true}), onEvent)
-		})
+		ui.start("(resuming the unfinished run)", protocol.RunParams{Resume: true})
 	case info.Objective != "":
 		ui.submit(info.Objective)
 	}
@@ -125,7 +124,10 @@ type ui struct {
 	height  int
 	input   []rune
 	midLine bool
-	running bool
+	// here is the run in the current session, which the screen follows, and
+	// away are the runs left working in other sessions.
+	here *job
+	away []*job
 	// asking is true while a command waits for its answer. Commands can be
 	// asked during a run; the host says which ones wait for it.
 	asking bool
@@ -143,6 +145,14 @@ type ui struct {
 	pending func() (answer, error)
 	notice  string
 	usage   render.Usage
+}
+
+// job is a run this front end started, and the session it works in. A run
+// in a new session learns its session from its first event.
+type job struct {
+	// run is the id of the run request, which names the run to the host.
+	run     int64
+	session string
 }
 
 // open pushes what is on the screen into the scrollback and draws the
@@ -198,9 +208,9 @@ func (u *ui) footer() {
 	state := "ready"
 
 	switch {
-	case u.running && u.telling > 0:
+	case u.here != nil && u.telling > 0:
 		state = fmt.Sprintf("working; %d message(s) wait for its next turn (Ctrl-C cancels)", u.telling)
-	case u.running:
+	case u.here != nil:
 		state = "working (Ctrl-C cancels)"
 	case u.asking:
 		state = "waiting for the answer"
@@ -224,6 +234,10 @@ func (u *ui) footer() {
 	}
 
 	status := fmt.Sprintf(" rumbo | provider %s, model %s | %s", u.info.Provider, model, state)
+
+	if len(u.away) > 0 {
+		status += fmt.Sprintf(" | %d working in the background", len(u.away))
+	}
 
 	if u.session != "" {
 		status += " | session " + u.session
@@ -270,10 +284,25 @@ func (u *ui) line(style, text string) {
 	u.write(lead + style + text + styleReset + "\n")
 }
 
-// show renders one event from the host.
-func (u *ui) show(event protocol.Event) {
+// show renders one event of a run.
+func (u *ui) show(from *job, event protocol.Event) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+
+	if from.session == "" && event.Session != "" {
+		from.session = event.Session
+
+		if from == u.here {
+			u.session = event.Session
+		}
+	}
+
+	// A run in the background shows nothing until it ends. What belongs to
+	// no run, such as a provider's diagnostics, is shown whatever run it
+	// came with.
+	if from != u.here && event.Run != 0 {
+		return
+	}
 
 	switch event.Type {
 	case protocol.EventText:
@@ -309,19 +338,18 @@ func (u *ui) show(event protocol.Event) {
 
 // submit starts a run on objective, unless one is already in progress.
 func (u *ui) submit(objective string) {
-	u.start(objective, func(onEvent func(protocol.Event)) (protocol.RunResult, error) {
-		return u.conn.Start(u.choices(protocol.RunParams{Objective: objective}), onEvent)
-	})
+	u.start(objective, protocol.RunParams{Objective: objective})
 }
 
-// start follows one run, shown under label, unless one is in progress.
-func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protocol.RunResult, error)) {
+// start follows one run in the current session, shown under label, unless
+// one is in progress there.
+func (u *ui) start(label string, params protocol.RunParams) {
 	u.mu.Lock()
 
 	refused := ""
 
 	switch {
-	case u.running:
+	case u.here != nil:
 		refused = "still working; Ctrl-C cancels"
 	case u.asking:
 		refused = "a command is waiting for its answer"
@@ -335,7 +363,8 @@ func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protoco
 		return
 	}
 
-	u.running = true
+	started := &job{session: u.session}
+	u.here = started
 	u.notice = ""
 	u.input = nil
 	u.line(styleBold, "\n"+prompt+label)
@@ -346,29 +375,90 @@ func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protoco
 	go func() {
 		defer u.wait.Done()
 
-		result, err := run(u.show)
+		named := func(run int64) {
+			u.mu.Lock()
+			defer u.mu.Unlock()
+
+			started.run = run
+		}
+
+		shown := func(event protocol.Event) {
+			u.show(started, event)
+		}
+
+		result, err := u.conn.Launch(u.choices(params), named, shown)
 
 		u.mu.Lock()
 		defer u.mu.Unlock()
 
-		u.running = false
-		u.notice = ""
+		u.end(started, result, err)
+	}()
+}
+
+// end shows how a run ended. One that worked in the background says so in
+// a line of its own, naming its session. The caller holds the lock.
+func (u *ui) end(done *job, result protocol.RunResult, err error) {
+	if result.Session != "" {
+		done.session = result.Session
+	}
+
+	if done != u.here {
+		u.away = slices.DeleteFunc(u.away, func(other *job) bool { return other == done })
+
+		outcome := result.Status
 
 		switch {
 		case err != nil:
-			u.line(styleRed, err.Error())
+			outcome = err.Error()
 		case result.Status == protocol.RunFailed:
-			u.line(styleRed, result.Error)
-		case result.Status == protocol.RunCancelled:
-			u.line(styleYellow, "cancelled")
+			outcome += ": " + result.Error
 		}
 
-		if result.Session != "" {
-			u.session = result.Session
-		}
-
+		u.line("", u.label(fromHost)+" "+styleDim+"session "+done.session+" finished: "+outcome)
 		u.footer()
-	}()
+
+		return
+	}
+
+	u.here = nil
+	u.notice = ""
+
+	switch {
+	case err != nil:
+		u.line(styleRed, err.Error())
+	case result.Status == protocol.RunFailed:
+		u.line(styleRed, result.Error)
+	case result.Status == protocol.RunCancelled:
+		u.line(styleYellow, "cancelled")
+	}
+
+	if result.Session != "" {
+		u.session = result.Session
+	}
+
+	u.footer()
+}
+
+// follow sorts the runs after the current session changed: the one working
+// in the current session is shown, and the others go on in the background.
+// A run whose new session is not made yet stays where it was. The caller
+// holds the lock.
+func (u *ui) follow() {
+	here, runs := u.here, u.away
+
+	if here != nil {
+		runs = append(runs, here)
+	}
+
+	u.here, u.away = nil, nil
+
+	for _, run := range runs {
+		if run.session == u.session && (run.session != "" || run == here) {
+			u.here = run
+		} else {
+			u.away = append(u.away, run)
+		}
+	}
 }
 
 // steer tells the run in progress text. It is shown once the model has it,
@@ -376,6 +466,18 @@ func (u *ui) start(label string, run func(onEvent func(protocol.Event)) (protoco
 // back to the input line, to be sent as a task.
 func (u *ui) steer(text string) {
 	u.mu.Lock()
+
+	// The run may have ended since Enter was pressed.
+	if u.here == nil {
+		u.input = []rune(text)
+		u.notice = "the run ended before this reached it; Enter sends it as a new task"
+		u.footer()
+		u.mu.Unlock()
+
+		return
+	}
+
+	run := u.here.run
 	u.input = nil
 	u.notice = ""
 	u.telling++
@@ -387,7 +489,7 @@ func (u *ui) steer(text string) {
 	go func() {
 		defer u.wait.Done()
 
-		err := u.conn.Steer(text)
+		err := u.conn.SteerRun(run, text)
 
 		u.mu.Lock()
 		defer u.mu.Unlock()
@@ -454,7 +556,7 @@ func (u *ui) key(key rune) bool {
 
 	switch key {
 	case '\r', '\n':
-		line, running := strings.TrimSpace(string(u.input)), u.running
+		line, running := strings.TrimSpace(string(u.input)), u.here != nil
 		u.mu.Unlock()
 
 		switch {
@@ -470,7 +572,7 @@ func (u *ui) key(key rune) bool {
 		return true
 
 	case '\t': // Tab: complete a command or its argument.
-		line, online := string(u.input), !u.running
+		line := string(u.input)
 		u.mu.Unlock()
 
 		if !strings.HasPrefix(line, "/") {
@@ -478,7 +580,7 @@ func (u *ui) key(key rune) bool {
 		}
 
 		// Completing may ask the host for values, so it runs unlocked.
-		completed, hint := u.complete(line, online)
+		completed, hint := u.complete(line)
 
 		u.mu.Lock()
 		u.input = []rune(completed)
@@ -488,12 +590,17 @@ func (u *ui) key(key rune) bool {
 
 		return true
 
-	case 0x03: // Ctrl-C: cancel the run, else clear the input, else quit.
-		if u.running {
-			u.conn.Cancel()
-		} else if len(u.input) > 0 {
+	case 0x03: // Ctrl-C: cancel the run here, else clear the input, else quit.
+		switch {
+		case u.here != nil:
+			// The id is known as soon as the run is sent; until then, a
+			// second press cancels it.
+			if u.here.run != 0 {
+				u.conn.CancelRun(u.here.run)
+			}
+		case len(u.input) > 0:
 			u.input = nil
-		} else {
+		default:
 			u.mu.Unlock()
 			return false
 		}
