@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 
 	"rumbo/internal/frontend"
 	"rumbo/internal/provider"
@@ -141,18 +142,24 @@ func launch(database store.Store, args []string) error {
 
 	host.info.Config = program.Config
 
-	if err := host.serve(process.Reader, process.Writer); err != nil {
+	err = host.serve(process.Reader, process.Writer)
+
+	// A front end that did not complete the handshake, or whose connection
+	// broke, is stopped. Otherwise the host closes the connection and the
+	// front end ends on its own, leaving the terminal as it found it, also
+	// when a signal stopped the host.
+	if _, signalled := errors.AsType[exitCode](err); err != nil && !signalled {
 		process.Kill()
 		process.Wait()
 
 		return err
 	}
 
-	if code := process.Wait(); code != 0 {
+	if code := process.Wait(); err == nil && code != 0 {
 		return exitCode(code)
 	}
 
-	return nil
+	return err
 }
 
 // serve is the host for a front end that started rumbo itself, such as an
@@ -302,7 +309,8 @@ func newHost(database store.Store, args []string) (*host, error) {
 }
 
 // serve connects the front end on r and w and runs its objectives until it
-// disconnects.
+// disconnects. SIGTERM and SIGHUP end it the same way, and the host then
+// exits with the code a shell gives a process the signal killed.
 func (h *host) serve(r io.Reader, w io.Writer) error {
 	// The front end decides what Ctrl-C means and cancels through the
 	// protocol, so the terminal's interrupt must not end the host under it.
@@ -316,13 +324,37 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 
 	h.conn = conn
 
-	return conn.Serve(frontend.Handlers{
-		Run:      h.accept,
-		Describe: h.describe,
-		Invoke:   h.invoke,
-		Host:     h.invokeHost,
-		Slow:     slowFunction,
-	})
+	// Before the front end is attached there is nothing to stop but the
+	// process, which the signals still do by themselves.
+	stops := make(chan os.Signal, 1)
+	signal.Notify(stops, syscall.SIGTERM, syscall.SIGHUP)
+
+	defer signal.Stop(stops)
+
+	served := make(chan error, 1)
+
+	go func() {
+		served <- conn.Serve(frontend.Handlers{
+			Run:      h.accept,
+			Describe: h.describe,
+			Invoke:   h.invoke,
+			Host:     h.invokeHost,
+			Slow:     slowFunction,
+		})
+	}()
+
+	select {
+	case err := <-served:
+		return err
+
+	case received := <-stops:
+		// The runs are cancelled and recorded, and Serve returns once they
+		// end; the tools and the providers stop when the host closes.
+		conn.Shutdown()
+		<-served
+
+		return exitCode(128 + int(received.(syscall.Signal)))
+	}
 }
 
 // describe says what the current session's provider offers and what a run

@@ -26,11 +26,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## 1. Loop
 
-### Correctness
-
-41. **Host shutdown on SIGTERM.** A killed host leaves the provider to exit by
-    itself on end of input, and does not stop a running tool.
-
 ### Context
 
 58. **Old tool results stay in the context until a compaction.** A result

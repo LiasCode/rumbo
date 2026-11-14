@@ -27,8 +27,9 @@ terminal, so it can draw and read keys freely. A front end that starts
 `-single`) and sets its working directory to the project.
 
 Closing the connection ends the host: it cancels the runs in progress, stops
-the providers, and exits. The exit code of a registered front end becomes
-the exit code of `rumbo`.
+the providers, and exits. SIGTERM and SIGHUP end it the same way, and close
+the connection. The exit code of a registered front end becomes the exit
+code of `rumbo`, unless a signal ended the host.
 
 Requests are handled in the order they arrive. What reaches a provider is
 answered when it is done, without holding up what comes after it: a `run`

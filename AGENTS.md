@@ -22,7 +22,8 @@ the ones a change must not break.
   host never renders anything and never calls a model API.
 - **The host does not touch the terminal.** No prints to stdout or stderr
   once a front end is attached, and no signal handling beyond ignoring the
-  interrupt. What the user must see is an event.
+  interrupt, and shutting down on SIGTERM and SIGHUP as a disconnect does.
+  What the user must see is an event.
 - **The protocols are public contracts.** Changes to `protocol/` are
   additive. An incompatible change needs a new protocol version and an update
   to `docs/protocol.md` or `docs/frontend-protocol.md` in the same change.

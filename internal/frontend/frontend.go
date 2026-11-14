@@ -53,11 +53,21 @@ type Conn struct {
 	// running guards runs, the runs in progress by the id of their request.
 	running sync.Mutex
 	runs    map[int64]*Run
+
+	// quit is closed to end Serve at once, as a disconnect would.
+	quit     chan struct{}
+	quitOnce sync.Once
+}
+
+// read is one frame from the front end, or why there are no more.
+type read struct {
+	frame protocol.Frame
+	err   error
 }
 
 // Connect performs the initialize handshake over r and w.
 func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (*Conn, error) {
-	conn := &Conn{reader: bufio.NewReader(r), out: json.NewEncoder(w), runs: map[int64]*Run{}}
+	conn := &Conn{reader: bufio.NewReader(r), out: json.NewEncoder(w), runs: map[int64]*Run{}, quit: make(chan struct{})}
 
 	id := int64(1)
 	info.Protocol = protocol.Version
@@ -96,9 +106,9 @@ func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (
 	}
 }
 
-// Serve handles the front end's requests until it disconnects. Runs in
-// progress at that point are cancelled and waited for, and so is what is
-// being answered in the background.
+// Serve handles the front end's requests until it disconnects or Shutdown
+// is called. Runs in progress at that point are cancelled and waited for,
+// and so is what is being answered in the background.
 func (c *Conn) Serve(handlers Handlers) error {
 	var active sync.WaitGroup
 
@@ -107,16 +117,27 @@ func (c *Conn) Serve(handlers Handlers) error {
 	defer active.Wait()
 	defer stop()
 	defer c.cancel(0)
+	defer c.Shutdown()
+
+	reads := c.reading()
 
 	for {
-		frame, err := c.next()
+		var frame protocol.Frame
 
-		if errors.Is(err, io.EOF) {
+		select {
+		case <-c.quit:
 			return nil
-		}
 
-		if err != nil {
-			return err
+		case next := <-reads:
+			if errors.Is(next.err, io.EOF) {
+				return nil
+			}
+
+			if next.err != nil {
+				return next.err
+			}
+
+			frame = next.frame
 		}
 
 		switch frame.Method {
@@ -344,6 +365,38 @@ func (c *Conn) answer(ctx context.Context, frame protocol.Frame, handlers Handle
 // disconnects the front end.
 func (c *Conn) Stop() {
 	c.stopped.Store(true)
+}
+
+// Shutdown makes Serve return at once, as if the front end had
+// disconnected: the runs in progress are cancelled, and Serve returns once
+// they end. It is how the host stops when it is asked to by a signal.
+func (c *Conn) Shutdown() {
+	c.quitOnce.Do(func() { close(c.quit) })
+}
+
+// reading reads the front end's frames in the background, so Serve can stop
+// without waiting for the next one. It ends at the first error, or once
+// Serve has stopped.
+func (c *Conn) reading() <-chan read {
+	reads := make(chan read)
+
+	go func() {
+		for {
+			frame, err := c.next()
+
+			select {
+			case reads <- read{frame: frame, err: err}:
+			case <-c.quit:
+				return
+			}
+
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	return reads
 }
 
 // Log returns a writer whose lines reach the front end as log events. It is

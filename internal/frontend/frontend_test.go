@@ -383,3 +383,24 @@ func TestSlowFunctionsDoNotHoldUpTheRest(t *testing.T) {
 		t.Fatalf("the slow function answered %q", answer)
 	}
 }
+
+// Shutdown ends Serve without waiting for the next request, and cancels the
+// runs in progress as a disconnect does.
+func TestShutdownEndsServeAsADisconnect(t *testing.T) {
+	host, front, _ := connect(t, "")
+	served := make(chan error, 1)
+
+	go func() { served <- host.Serve(Handlers{Run: working}) }()
+
+	_, ended := started(t, front, "hang")
+
+	host.Shutdown()
+
+	if result := <-ended; result.Status != protocol.RunCancelled {
+		t.Fatalf("the run in progress at shutdown = %+v", result)
+	}
+
+	if err := <-served; err != nil {
+		t.Fatalf("serve after shutdown: %v", err)
+	}
+}

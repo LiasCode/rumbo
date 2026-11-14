@@ -149,7 +149,10 @@ of it saved to a file the model can search.
 **The host is driven only through the protocol.** It ignores the terminal's
 interrupt and writes nothing to the terminal. A front end decides what Ctrl-C
 means and cancels with a message; diagnostics, including the provider's
-stderr, reach the user as events.
+stderr, reach the user as events. A request to stop the process, SIGTERM or
+SIGHUP, is not the front end's to interpret: the host ends as it does when
+the front end disconnects, with its runs cancelled and recorded, and its
+tools and providers stopped.
 
 **The model decides when the work is done.** A run ends when the model stops
 calling tools. The harness does not judge the result; checking the work is
