@@ -83,6 +83,10 @@ the host.
 **Event.** A notification from the host to the front end about a run: text,
 a tool call, token usage, a log line.
 
+**History.** What a session holds, told to a front end in the same events as
+the runs that made it, plus what the person asked and how each run ended. It
+lets a front end show a session it opens as if it had followed every run.
+
 **Program.** A registered provider or front end: a name, the command that
 starts it, and its configuration.
 

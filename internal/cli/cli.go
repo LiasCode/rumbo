@@ -351,6 +351,7 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 			Invoke:   h.invoke,
 			Host:     h.invokeHost,
 			Slow:     slowFunction,
+			History:  h.history,
 		})
 	}()
 

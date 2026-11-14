@@ -405,3 +405,33 @@ func TestStatusSaysHowMuchCameFromTheCache(t *testing.T) {
 		t.Fatalf("status = %q", status.Text)
 	}
 }
+
+// A front end asks what a session holds: the current one, or another of the
+// project; a new session holds nothing yet.
+func TestHistoryTellsTheSessionAsked(t *testing.T) {
+	h := testHost(t)
+
+	if told, err := h.history(protocol.HistoryParams{}); err != nil || told.Session != "" || len(told.Events) != 0 {
+		t.Fatalf("history of a new session = %+v, err = %v", told, err)
+	}
+
+	earlier, _ := h.database.CreateSession("/repo", "/repo", "earlier")
+	h.database.Append(earlier.ID, transcript.KindUser, transcript.Text{Text: "a task"})
+	h.database.Append(earlier.ID, transcript.KindNote, transcript.Note{Type: transcript.NoteDone})
+
+	told, err := h.history(protocol.HistoryParams{Session: earlier.ID})
+
+	if err != nil || told.Session != earlier.ID || len(told.Events) != 2 {
+		t.Fatalf("history = %+v, err = %v", told, err)
+	}
+
+	if first := told.Events[0]; first.Type != protocol.EventObjective || first.Text != "a task" || first.Session != earlier.ID {
+		t.Fatalf("first event = %+v", first)
+	}
+
+	elsewhere, _ := h.database.CreateSession("/other", "/other", "elsewhere")
+
+	if _, err := h.history(protocol.HistoryParams{Session: elsewhere.ID}); err == nil || !strings.Contains(err.Error(), "belongs to /other") {
+		t.Fatalf("history of another project's session: err = %v", err)
+	}
+}

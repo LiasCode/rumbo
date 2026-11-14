@@ -384,6 +384,40 @@ func TestSlowFunctionsDoNotHoldUpTheRest(t *testing.T) {
 	}
 }
 
+// A front end asks for a session's history, and hears why when there is
+// none to tell.
+func TestHistoryTellsWhatTheHostHolds(t *testing.T) {
+	host, front, _ := connect(t, "")
+	asked := make(chan string, 1)
+
+	go host.Serve(Handlers{
+		Run: working,
+		History: func(params protocol.HistoryParams) (protocol.HistoryResult, error) {
+			asked <- params.Session
+
+			if params.Session == "gone" {
+				return protocol.HistoryResult{}, errors.New("session gone: not found")
+			}
+
+			return protocol.HistoryResult{Session: params.Session, Events: []protocol.Event{{Type: protocol.EventObjective, Text: "earlier"}}}, nil
+		},
+	})
+
+	told, err := front.History("s-1")
+
+	if err != nil || told.Session != "s-1" || len(told.Events) != 1 || told.Events[0].Text != "earlier" {
+		t.Fatalf("history = %+v, err = %v", told, err)
+	}
+
+	if session := <-asked; session != "s-1" {
+		t.Fatalf("the host was asked about %q", session)
+	}
+
+	if _, err := front.History("gone"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("history of a missing session: err = %v", err)
+	}
+}
+
 // Shutdown ends Serve without waiting for the next request, and cancels the
 // runs in progress as a disconnect does.
 func TestShutdownEndsServeAsADisconnect(t *testing.T) {

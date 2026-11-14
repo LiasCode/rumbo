@@ -35,7 +35,8 @@ Requests are handled in the order they arrive. What reaches a provider is
 answered when it is done, without holding up what comes after it: a `run`
 is accepted in order and answered when it ends, and `describe`, the
 provider's functions, and the host's `compact` and `inspect` are answered
-when the provider has. A front end that needs one of those to take effect
+when the provider has. A `history` and the host's other functions are
+answered at once, before the request after it. A front end that needs one of those to take effect
 before another request waits for its answer.
 
 ## Sessions
@@ -163,6 +164,36 @@ provider it knows nothing about.
 The first `describe` starts the provider, so it can fail for the same reasons
 a first run can.
 
+### `history` (request, front end to host)
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"history","params":{"session":"4cf0261c"}}
+```
+
+Asks what a session holds: the current session's without `session`, or
+another of the project's. The answer tells it in events, oldest first, the
+same events its runs sent while they worked, so a front end can show a
+session it opens as if it had followed every run:
+
+```json
+{"session": "4cf0261c",
+ "events": [
+   {"type":"objective","session":"4cf0261c","text":"fix the failing test"},
+   {"type":"text","session":"4cf0261c","text":"Let me look"},
+   {"type":"turn","session":"4cf0261c","usage":{"input":900,"output":40},"context":940},
+   {"type":"ended","session":"4cf0261c","status":"done"}]}
+```
+
+The events name no run, since run ids belong to the connection that sent
+them. Three types appear only here, for what a front end otherwise knows of
+the runs it follows itself: `objective`, `steer`, and `ended`. Text comes
+whole rather than in pieces, a tool call is told when its result is, and
+one that never got a result is told as started. A new current session
+holds nothing yet: its `session` is absent and `events` is empty.
+
+A history asked for before a `run` is answered before the run starts, so
+none of the run's events are missing from it or told twice.
+
 ### `invoke` (request, front end to host)
 
 ```json
@@ -256,6 +287,9 @@ selects the other fields:
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |
 | `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for something the host did on its own, such as retrying a request. |
+| `objective` | `text` | The objective a run was given. Only in a [history](#history-request-front-end-to-host). |
+| `steer` | `text` | What the person told a run while it worked. Only in a history. |
+| `ended` | `status`, `text` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. Only in a history. |
 
 A front end ignores event types and fields it does not know. New ones may be
 added without a new protocol version.

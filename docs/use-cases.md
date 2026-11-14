@@ -90,6 +90,9 @@ nothing and knows no model API.
 - Keep each session's provider and model from one start to the next, and let
   `-m` choose others for one start.
 - Print a session's whole record (`rumbo log`).
+- Tell a front end what a session holds, in the events its runs sent, with
+  what the person asked and how each run ended, so it can show a session it
+  opens.
 
 **Providers**
 
@@ -239,6 +242,7 @@ speaks the Agent Frontend Protocol with the host.
   and choose the model and the options for one run.
 - Follow several runs at once, telling their events apart by run and
   session.
+- Show what a session held before it was opened, from its history.
 - Tell a run something while it works, and offer it as a new task when the
   run ended first.
 - Cancel one run, or all of them.

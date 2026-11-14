@@ -22,6 +22,7 @@ const (
 	MethodSteer    = "steer"
 	MethodEvent    = "event"
 	MethodDescribe = "describe"
+	MethodHistory  = "history"
 )
 
 // When the host starts a front end, the protocol is on these file
@@ -39,6 +40,11 @@ const (
 	EventToolFinished = "tool_finished"
 	EventTurn         = "turn"
 	EventLog          = "log"
+	// What only a session's history holds: what the person asked, and how
+	// each run ended. A front end knows them of the runs it follows.
+	EventObjective = "objective"
+	EventSteer     = "steer"
+	EventEnded     = "ended"
 )
 
 // Run outcomes.
@@ -161,6 +167,13 @@ type RunResult struct {
 //     provider said.
 //   - log: Text, and Source saying whose line it is: the provider's own
 //     output, or something the host did, such as retrying a request.
+//   - objective: Text, the objective a run was given.
+//   - steer: Text, what the person told a run while it worked.
+//   - ended: Status, how a run ended, as a RunResult says it, and Text,
+//     why a failed run failed.
+//
+// The last three appear in a session's history, which is told in the same
+// events as the runs that made it.
 type Event struct {
 	Type     string          `json:"type"`
 	Run      int64           `json:"run,omitempty"`
@@ -176,6 +189,21 @@ type Event struct {
 	Context  int64           `json:"context,omitempty"`
 	Window   int64           `json:"window,omitempty"`
 	Usage    *Usage          `json:"usage,omitempty"`
+	Status   string          `json:"status,omitempty"`
+}
+
+// HistoryParams names the session whose history is asked for; without
+// one, the current session.
+type HistoryParams struct {
+	Session string `json:"session,omitempty"`
+}
+
+// HistoryResult is what a session holds, told in events, oldest first, so a
+// front end can show a session it opens as if it had followed every run.
+// Session is empty when the current session is new and holds nothing.
+type HistoryResult struct {
+	Session string  `json:"session,omitempty"`
+	Events  []Event `json:"events"`
 }
 
 // FrontendConn is the front end's side of the protocol, for front ends
@@ -286,6 +314,14 @@ func (c *FrontendConn) Describe() (DescribeResult, error) {
 	var result DescribeResult
 
 	return result, c.request(MethodDescribe, struct{}{}, &result, nil)
+}
+
+// History returns what a session holds, told in events: the current
+// session's when session is empty.
+func (c *FrontendConn) History(session string) (HistoryResult, error) {
+	var result HistoryResult
+
+	return result, c.request(MethodHistory, HistoryParams{Session: session}, &result, nil)
 }
 
 // Invoke calls a function of the provider and returns its answer as JSON.

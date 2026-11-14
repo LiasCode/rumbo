@@ -37,6 +37,9 @@ type Handlers struct {
 	// describe and the provider's own functions, are answered when they are
 	// done, without holding up the requests that come after them.
 	Slow func(name string) bool
+	// History tells what a session holds. It is answered in order, so a
+	// front end that asks for it before a run gets it whole.
+	History func(params protocol.HistoryParams) (protocol.HistoryResult, error)
 }
 
 // Work is an accepted run. It returns the session the run worked in.
@@ -174,6 +177,9 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 		case protocol.MethodSteer:
 			c.steer(frame)
+
+		case protocol.MethodHistory:
+			c.history(frame, handlers)
 
 		case protocol.MethodDescribe, protocol.MethodInvoke:
 			if c.slow(frame, handlers) {
@@ -358,6 +364,34 @@ func (c *Conn) find(id int64) (*Run, error) {
 	}
 
 	return nil, errors.New("several runs are in progress; name the one to tell with run")
+}
+
+// history answers what a session holds.
+func (c *Conn) history(frame protocol.Frame, handlers Handlers) {
+	var params protocol.HistoryParams
+
+	switch {
+	case frame.ID == nil:
+		return
+
+	case handlers.History == nil:
+		c.fail(frame.ID, protocol.CodeMethodNotFound, "this host keeps no history")
+		return
+
+	case len(frame.Params) > 0 && json.Unmarshal(frame.Params, &params) != nil:
+		c.fail(frame.ID, protocol.CodeInvalidParams, "history takes the session to tell, as text")
+		return
+	}
+
+	result, err := handlers.History(params)
+
+	if err != nil {
+		c.fail(frame.ID, protocol.CodeInternal, err.Error())
+		return
+	}
+
+	raw, _ := json.Marshal(result)
+	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
 }
 
 // slow reports whether a describe or an invoke reaches a provider, and so is

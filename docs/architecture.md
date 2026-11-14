@@ -73,7 +73,8 @@ entries, in one SQLite file.
 
 **Transcript** (`internal/transcript`). Defines what entries mean and rebuilds
 the model request from them. This is the single place that decides what the
-model sees.
+model sees. It also tells a session's history to front ends, in the events
+its runs sent.
 
 **Project** (`internal/project`). Says where the project a directory belongs
 to starts.

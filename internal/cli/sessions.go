@@ -13,6 +13,7 @@ import (
 	"rumbo/internal/provider"
 	"rumbo/internal/store"
 	"rumbo/internal/tool"
+	"rumbo/internal/transcript"
 	"rumbo/protocol"
 )
 
@@ -224,6 +225,49 @@ func (h *host) finish(target *place) {
 	delete(h.busy, target)
 	h.letGo(target)
 	h.prune()
+}
+
+// history tells a front end what a session holds: the current session's
+// unless the params name another of the project.
+func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, error) {
+	told := protocol.HistoryResult{Events: []protocol.Event{}}
+
+	h.mu.Lock()
+	target, err := h.chosen(map[string]string{"session": params.Session})
+
+	var session store.Session
+
+	if err == nil && target.session != nil {
+		session = *target.session
+	}
+
+	h.mu.Unlock()
+
+	// A new session holds nothing until its first run makes it.
+	if err != nil || session.ID == "" {
+		return told, err
+	}
+
+	entries, err := h.database.Entries(session.ID)
+
+	if err != nil {
+		return told, err
+	}
+
+	events, err := transcript.History(entries)
+
+	if err != nil {
+		return told, err
+	}
+
+	told.Session = session.ID
+
+	for _, event := range events {
+		event.Session = session.ID
+		told.Events = append(told.Events, event)
+	}
+
+	return told, nil
 }
 
 // known returns the place of a session of the project, by id. A session
