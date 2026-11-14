@@ -15,8 +15,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Order
 
-1. Concurrency (57).
-2. The remaining blocks.
+1. The remaining blocks, in order.
+2. Subagents (57), which the owner postponed.
 
 ## Decisions for the owner
 
@@ -69,6 +69,10 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 The owner decided what this covers: these, in this order.
 
 57. **Subagents.** The agent cannot hand part of a task to another agent.
+    Postponed. The design discussed: a tool, off by default behind a
+    setting, that runs a task in a child session of the same host and
+    answers with its final message; calls in one response run at once; a
+    parent column on sessions.
 20. **Changing model mid-session.** It works, but is untested with reasoning
     blocks left by another provider.
 
