@@ -51,10 +51,16 @@ func TestTheLiveAreaIsDrawnAgainInPlace(t *testing.T) {
 	out.Reset()
 	s.paint("done\n", []string{"> ", "status"}, 0, 2)
 
-	// Up the one row the cursor was on, clear, then what is done, then the
-	// live area.
-	if want := syncStart + "\r" + escape + "[1A" + clearBelow + "done\r\n> "; !strings.HasPrefix(out.String(), want) {
+	// Up the row the cursor was on, clear the three rows drawn one by one
+	// and come back up, then what is done, then the live area.
+	clear := clearLine + cursorDown + clearLine + cursorDown + clearLine + escape + "[2A"
+
+	if want := syncStart + "\r" + escape + "[1A" + clear + "done\r\n> "; !strings.HasPrefix(out.String(), want) {
 		t.Fatalf("second draw: %q, want it to start with %q", out.String(), want)
+	}
+
+	if strings.Contains(out.String(), escape+"[J") {
+		t.Fatal("the live area is cleared to the end of the screen")
 	}
 
 	// Taller than the screen, the live area keeps its last rows.
