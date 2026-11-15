@@ -36,6 +36,8 @@ changes one of those updates it in the same change.
   is a new entry at the end of `migrations` in `internal/store/sqlite.go`,
   never an edit to an earlier one.
 - **Settings are read once**, in `internal/cli/config.go`, and passed down.
+- **Users read CHANGELOG.md.** A change they would notice adds a line to its
+  `Unreleased` section, in their terms; the reason goes in the commit.
 
 ## What the harness is not
 
@@ -69,6 +71,17 @@ go vet ./...
 go test ./...
 go build -o rumbo ./cmd/rumbo
 ```
+
+## Releasing
+
+1. Rename `## Unreleased` in CHANGELOG.md to `## X.Y.Z (YYYY-MM-DD)`, and
+   commit it.
+2. Tag the commit `vX.Y.Z` and push the tag. The release workflow runs the
+   checks, builds the archives with `scripts/release.sh`, and publishes them
+   with that section of the changelog as their notes. It refuses a tree
+   without a `LICENSE`, or a changelog without that section.
+
+`scripts/release.sh X.Y.Z <directory>` builds the same archives locally.
 
 ## Measuring changes
 

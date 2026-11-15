@@ -19,11 +19,37 @@ small set of tools, until the task is done.
 - **Bring your own interface.** Front ends are reached the same way, through
   the Agent Frontend Protocol. A simple terminal UI is built in.
 
-## Build
+## Before you run it
+
+rumbo gives the model your rights. It reads and writes files and runs
+commands as the user who started it, without asking first, and nothing
+limits where: there is no approval step and no sandbox.
+
+- **What the model reads can steer it.** A project's `AGENTS.md`, its files,
+  and the output of its commands all reach the model. Work on a repository
+  you do not trust inside a container or a virtual machine.
+- **Sessions keep what the model saw**, including command output, which can
+  hold secrets. They are stored in `~/.local/share/rumbo/rumbo.db`; treat
+  that file as you would your shell history.
+- **Providers and front ends are programs you register**, and they run with
+  your rights too. Register only those you trust.
+
+rumbo itself contacts no server, with no telemetry and no update checks:
+only the providers you use, and the commands the model runs, reach the
+network.
+
+## Install
+
+Download the archive for your platform, Linux or macOS, from the
+[releases](https://github.com/LiasCode/rumbo/releases), and put `rumbo` on
+your `PATH`. Or, with Go:
 
 ```sh
-go build -o rumbo ./cmd/rumbo
+go install github.com/LiasCode/rumbo/cmd/rumbo@latest
 ```
+
+To build from a clone: `go build -o rumbo ./cmd/rumbo`. `rumbo version` says
+which build you have. Windows is not supported.
 
 ## Use
 
@@ -117,8 +143,11 @@ rumbo -m mine/some-model "..."
 In a terminal rumbo starts `tui`: the conversation scrolls above a status bar
 and an input line. Enter sends a task; during a run it tells the run what you
 typed, which the model reads before its next turn. Up and Down, or Ctrl-P and
-Ctrl-N, bring back what you entered before. Ctrl-C cancels the run or
-quits when idle, Ctrl-D quits; quitting cancels what still works. `/new` or
+Ctrl-N, bring back what you entered before. The line edits as in a shell:
+Left, Right, Home, and End move, with Ctrl or Alt by words, and Ctrl-W,
+Ctrl-U, and Ctrl-K delete a word, to the start, and to the end. Ctrl-C
+cancels the run or quits when idle, Ctrl-D quits on an empty line; quitting
+cancels what still works. `/new` or
 `/open` during a run leaves it working in the background: the status bar
 counts those runs, and a line says when each ends. Elsewhere rumbo starts
 `plain`, which writes the model's text to stdout and progress to stderr.
@@ -179,6 +208,18 @@ The same can be done from a front end, through functions of the host:
 `/settings`, `/setting`, `/unset`, `/register`, `/inspect`, `/configure`, and
 `/unregister` in the terminal UI.
 
+## Versions
+
+rumbo follows semantic versioning, and [CHANGELOG.md](CHANGELOG.md) says
+what each release changes. Until 1.0, a release may still change commands,
+flags, and settings, and the changelog says how. Two things hold already:
+
+- **The protocols are at version 1.** A release only adds to them: new
+  fields and messages are optional, and a provider or front end written for
+  version 1 keeps working. Anything incompatible would be version 2.
+- **Stored data keeps working.** A release adds to the database and never
+  rewrites what it holds, so sessions and settings carry over.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md): the parts and their boundaries
@@ -186,3 +227,7 @@ The same can be done from a front end, through functions of the host:
 - [docs/protocol.md](docs/protocol.md): the Agent Provider Protocol
 - [docs/frontend-protocol.md](docs/frontend-protocol.md): the Agent Frontend Protocol
 - [docs/glossary.md](docs/glossary.md): terms
+
+## License
+
+MIT; see [LICENSE](LICENSE).

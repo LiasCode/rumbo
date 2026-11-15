@@ -52,8 +52,8 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 53. **Completion shows values, not what they are.** After `/open`, Tab lists
     session ids without their titles, because the status bar has one line.
-54. **The input line is a single line with no cursor movement.** Its history
-    lasts as long as the terminal UI.
+54. **The input is a single line.** Its history lasts as long as the
+    terminal UI.
 
 ### Concurrency
 
@@ -83,7 +83,6 @@ The owner decided what this covers: these, in this order.
 33. **Rename and prune.** A session can be deleted, one at a time and from a
     front end only. There is no renaming, no deleting by age, and no
     `rumbo sessions rm`.
-34. **Accumulated usage.** No token totals per session.
 35. **File state.** History reproduces what the model was sent, not the
     files: no restore points and no undo.
 36. **Branches.** There is no way to go back to an earlier point and continue
@@ -91,6 +90,4 @@ The owner decided what this covers: these, in this order.
 
 ## 4. Quality
 
-37. **Missing tests.** `cli` and configuration have none.
-38. **`rumbo --version`** and a release build.
 39. **Windows.** Not supported.
