@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"rumbo/internal/cli"
+	"github.com/LiasCode/rumbo/internal/cli"
 )
 
 func main() {

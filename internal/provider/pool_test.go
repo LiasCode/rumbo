@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // testPool is a pool of echo providers that counts the processes it starts.

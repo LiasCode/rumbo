@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"rumbo/internal/store"
-	"rumbo/internal/transcript"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // hostFunction is one thing a front end can ask of the host itself, whatever

@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"rumbo/internal/store"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // A session's history tells its runs in the events a front end saw while

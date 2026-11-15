@@ -17,7 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Handlers are what the host does for a front end.

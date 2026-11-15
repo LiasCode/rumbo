@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"rumbo/internal/project"
-	"rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/internal/project"
+	"github.com/LiasCode/rumbo/internal/transcript"
 )
 
 // Collector produces one named section of ambient context for a directory.

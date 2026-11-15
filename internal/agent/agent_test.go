@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"rumbo/internal/ambient"
-	"rumbo/internal/store"
-	"rumbo/internal/tool"
-	"rumbo/internal/transcript"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/ambient"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/tool"
+	"github.com/LiasCode/rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // scripted is a Provider that answers with fixed messages and keeps the

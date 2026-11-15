@@ -10,8 +10,8 @@ import (
 	"os/signal"
 	"strings"
 
-	"rumbo/internal/frontends/render"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/frontends/render"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Run attaches to the host on r and w and returns the process exit code.

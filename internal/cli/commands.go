@@ -9,12 +9,12 @@ import (
 	"os"
 	"strings"
 
-	"rumbo/internal/frontends/plain"
-	"rumbo/internal/frontends/tui"
-	"rumbo/internal/providers/anthropic"
-	"rumbo/internal/providers/openai"
-	"rumbo/internal/store"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/frontends/plain"
+	"github.com/LiasCode/rumbo/internal/frontends/tui"
+	"github.com/LiasCode/rumbo/internal/providers/anthropic"
+	"github.com/LiasCode/rumbo/internal/providers/openai"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // provide runs a built-in provider as a protocol server on stdin and stdout.

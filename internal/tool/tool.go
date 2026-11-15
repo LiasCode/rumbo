@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Tool is one capability offered to the model.

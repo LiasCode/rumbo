@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"rumbo/internal/store"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Entry kinds.

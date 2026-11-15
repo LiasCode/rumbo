@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Completion works from the same descriptions the commands do. A command's

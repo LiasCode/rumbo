@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Tool describes a tool call by the argument that identifies it: the command

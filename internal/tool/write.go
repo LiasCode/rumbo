@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Write creates or replaces a whole file.

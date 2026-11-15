@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"rumbo/internal/provider"
-	"rumbo/internal/store"
-	"rumbo/internal/tool"
-	"rumbo/internal/transcript"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/provider"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/tool"
+	"github.com/LiasCode/rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 func testHost(t *testing.T) *host {

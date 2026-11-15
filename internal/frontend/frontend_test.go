@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // A front end and the host talk over two pipes, as they do across processes.

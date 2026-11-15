@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"rumbo/internal/agent"
-	"rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/agent"
+	"github.com/LiasCode/rumbo/internal/store"
 )
 
 func testStore(t *testing.T) store.Store {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/store"
 )
 
 // optionsPrefix starts the setting that holds the option values sent to one

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // echo is a provider that streams the model name and then answers with it.

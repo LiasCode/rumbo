@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 func TestOnlyASlashAndAWordIsACommand(t *testing.T) {

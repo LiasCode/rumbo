@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"rumbo/internal/ambient"
-	"rumbo/internal/provider"
-	"rumbo/internal/store"
-	"rumbo/internal/tool"
-	"rumbo/internal/transcript"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/ambient"
+	"github.com/LiasCode/rumbo/internal/provider"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/tool"
+	"github.com/LiasCode/rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Observer is told what happens during a run. It is how a front end renders

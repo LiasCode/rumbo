@@ -10,9 +10,9 @@ import (
 	"slices"
 	"strings"
 
-	"rumbo/internal/provider"
-	"rumbo/internal/store"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/provider"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // This file owns the registered programs, providers and front ends: adding

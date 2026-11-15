@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"rumbo/internal/agent"
-	"rumbo/internal/project"
-	"rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/agent"
+	"github.com/LiasCode/rumbo/internal/project"
+	"github.com/LiasCode/rumbo/internal/store"
 )
 
 // config is everything a run reads from settings, resolved once.

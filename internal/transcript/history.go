@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"rumbo/internal/store"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Compacted is what a session's history says where its conversation was

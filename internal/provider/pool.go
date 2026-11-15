@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Pool is a Provider made of provider processes, started as requests need

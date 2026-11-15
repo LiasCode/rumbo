@@ -14,7 +14,7 @@ import (
 	"os"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Config is what the provider accepts on initialize. The API key itself is

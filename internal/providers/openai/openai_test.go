@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 func TestCompleteStreamsTextAndToolCalls(t *testing.T) {

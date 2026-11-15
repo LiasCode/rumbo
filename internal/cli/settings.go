@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"rumbo/internal/agent"
-	"rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/agent"
+	"github.com/LiasCode/rumbo/internal/store"
 )
 
 // This file owns what a setting is: which ones exist, what they default to,

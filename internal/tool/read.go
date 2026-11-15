@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Read returns the contents of a text file, in windows when it is large.

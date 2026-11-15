@@ -18,8 +18,8 @@ import (
 
 	"golang.org/x/term"
 
-	"rumbo/internal/frontends/render"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/frontends/render"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Terminal control sequences.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // talk is the Dialog of a function the front end called. What it says

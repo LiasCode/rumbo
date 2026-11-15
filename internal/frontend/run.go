@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Run is one run in progress. It implements agent.Observer, sending what the

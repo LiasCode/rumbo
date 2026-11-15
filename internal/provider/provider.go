@@ -7,7 +7,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Provider produces assistant messages. It also says what can be chosen and

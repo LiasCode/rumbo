@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // How long a provider gets to answer after a cancel or a shutdown.

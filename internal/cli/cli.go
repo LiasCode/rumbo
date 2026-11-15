@@ -16,11 +16,11 @@ import (
 	"sync"
 	"syscall"
 
-	"rumbo/internal/frontend"
-	"rumbo/internal/provider"
-	"rumbo/internal/store"
-	"rumbo/internal/tool"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/frontend"
+	"github.com/LiasCode/rumbo/internal/provider"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/tool"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 const usage = `rumbo - a minimal agent harness

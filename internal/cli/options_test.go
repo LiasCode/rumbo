@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/store"
 )
 
 func TestOptionsAreLayeredFromGlobalToRun(t *testing.T) {

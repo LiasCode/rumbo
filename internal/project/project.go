@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"rumbo/internal/tool"
+	"github.com/LiasCode/rumbo/internal/tool"
 )
 
 // Root returns the directory that identifies the project dir is part of: the

@@ -1,4 +1,4 @@
-module rumbo
+module github.com/LiasCode/rumbo
 
 go 1.27.3
 

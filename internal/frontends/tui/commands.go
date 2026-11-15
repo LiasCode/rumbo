@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // A line that starts with a slash and a word is a command, not a task. Three

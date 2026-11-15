@@ -25,10 +25,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"rumbo/internal/cli"
-	"rumbo/internal/store"
-	"rumbo/internal/transcript"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/cli"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // baseTag marks the commit a task starts from, so a check can tell what the

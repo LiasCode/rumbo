@@ -16,7 +16,7 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // Streaming removes the timeout concern, so the default leaves room to think

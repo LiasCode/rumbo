@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"rumbo/internal/store"
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 func entry(seq int64, kind string, payload any) store.Entry {

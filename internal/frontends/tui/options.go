@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // maxListed bounds how many values of an option are shown.

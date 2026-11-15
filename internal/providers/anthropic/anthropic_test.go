@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"rumbo/protocol"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // The handler is run against a server that replays a recorded-shape stream:
