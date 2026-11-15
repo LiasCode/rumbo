@@ -58,19 +58,11 @@ type Entry struct {
 	CreatedAt time.Time
 }
 
-// Setting is one stored preference.
-type Setting struct {
-	Scope string
-	Key   string
-	Value string
-}
-
 // Store is the persistence contract the rest of rumbo depends on.
 type Store interface {
 	Setting(scope, key string) (string, bool, error)
 	SetSetting(scope, key, value string) error
 	DeleteSetting(scope, key string) error
-	Settings() ([]Setting, error)
 
 	Program(kind, name string) (Program, error)
 	PutProgram(kind string, program Program) error

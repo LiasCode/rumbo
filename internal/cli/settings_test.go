@@ -8,6 +8,7 @@ import (
 
 	"github.com/LiasCode/rumbo/internal/agent"
 	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 func testStore(t *testing.T) store.Store {
@@ -59,9 +60,18 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		t.Fatalf("a model without a provider: err = %v", err)
 	}
 
+	// A provider's options are its own, not a system setting.
+	for _, refused := range []error{
+		setSetting(database, store.GlobalScope, "options.anthropic", `{"effort":"low"}`),
+		unsetSetting(database, store.GlobalScope, "options.anthropic"),
+	} {
+		if refused == nil || !strings.Contains(refused.Error(), "rumbo provider options anthropic") {
+			t.Fatalf("options as a system setting: err = %v", refused)
+		}
+	}
+
 	setSetting(database, store.GlobalScope, "model", "anthropic/big")
 	setSetting(database, "/repo", "model", "openai/small")
-	setSetting(database, store.GlobalScope, "options.anthropic", `{"effort":"low"}`)
 
 	// The project's value wins inside the project, and only there.
 	if inside, _ := effectiveSetting(database, "/repo", "model"); inside.Value != "openai/small" || inside.Source != sourceProject {
@@ -85,15 +95,18 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		"frontend             (not set)",
 		"max_turns            150  (default)",
 		"compact_at           (not set)",
-		`options.anthropic    {"effort":"low"}  (stored)`,
 	} {
 		if !strings.Contains(text, line) {
 			t.Errorf("missing %q in:\n%s", line, text)
 		}
 	}
 
-	if strings.Contains(text, keySeeded) {
-		t.Fatal("an internal key is listed as a setting")
+	if strings.Contains(text, keySeeded) || strings.Contains(text, optionsPrefix) {
+		t.Fatalf("something that is not a system setting is listed as one:\n%s", text)
+	}
+
+	if _, err := storedSetting(database, store.GlobalScope, keySeeded); err == nil {
+		t.Fatal("an internal key was read as a system setting")
 	}
 
 	// Removing the project's value brings the global one back.
@@ -113,6 +126,54 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 
 	if err != nil || loaded.Provider != "anthropic" || loaded.MaxTurns != 150 || loaded.Compaction != (agent.Compaction{}) || loaded.MaxTokens != 0 {
 		t.Fatalf("loaded = %+v, err = %v", loaded, err)
+	}
+}
+
+// A provider's options are stored where they always were, so the values a
+// user stored before keep reaching the provider.
+func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
+	database := testStore(t)
+
+	if err := database.SetSetting(store.GlobalScope, "options.anthropic", `{"effort":"low","beta":true}`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := changeOptions(database, "/repo", "anthropic", []string{"effort=high"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := changeOptions(database, store.GlobalScope, "anthropic", []string{"beta=", "depth=3"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if global, _, _ := database.Setting(store.GlobalScope, "options.anthropic"); global != `{"depth":3,"effort":"low"}` {
+		t.Fatalf("global options = %s", global)
+	}
+
+	loaded, err := loadConfig(database, "/repo", "anthropic/big", "plain", []byte(`{"depth":4}`))
+
+	if err != nil || string(loaded.Options) != `{"depth":4,"effort":"high"}` {
+		t.Fatalf("options in force = %s, err = %v", loaded.Options, err)
+	}
+
+	// Removing the project's last one leaves nothing stored there, so the
+	// global value applies again.
+	if err := changeOptions(database, "/repo", "anthropic", []string{"effort="}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, found, _ := database.Setting("/repo", "options.anthropic"); found {
+		t.Fatal("an empty object was left stored")
+	}
+
+	if described, _ := describeOptions(database, "/repo", "anthropic"); described != `options of anthropic in force here: {"depth":3,"effort":"low"}` {
+		t.Fatalf("described = %q", described)
+	}
+
+	for name, changes := range map[string][]string{"missing": {"effort=high"}, "anthropic": {"novalue"}} {
+		if err := changeOptions(database, store.GlobalScope, name, changes); err == nil {
+			t.Errorf("%s %v was accepted", name, changes)
+		}
 	}
 }
 
@@ -166,24 +227,30 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 	h := testHost(t)
 	seedBuiltins(h.database)
 
-	call(t, h, "setting", `{"key":"max_turns","value":"40"}`)
-	call(t, h, "setting", `{"key":"max_turns","value":"90","scope":"global"}`)
+	// A system setting is stored for every project unless the scope says
+	// this one.
+	stored := call(t, h, "system-set", `{"key":"max_turns","value":"90"}`)
+	call(t, h, "system-set", `{"key":"max_turns","value":"40","scope":"project"}`)
 
-	if shown := call(t, h, "settings", ""); !strings.Contains(shown.Text, "max_turns            40  (project)") {
-		t.Fatalf("settings = %q", shown.Text)
+	if !strings.Contains(stored.Text, "system setting max_turns = 90, stored for every project") {
+		t.Fatalf("system-set = %q", stored.Text)
 	}
 
-	call(t, h, "unset", `{"key":"max_turns"}`)
-
-	if shown := call(t, h, "settings", ""); !strings.Contains(shown.Text, "max_turns            90  (global)") {
-		t.Fatalf("after unset: %q", shown.Text)
+	if shown := call(t, h, "system", ""); !strings.Contains(shown.Text, "max_turns            40  (project)") {
+		t.Fatalf("system = %q", shown.Text)
 	}
 
-	if keys := call(t, h, "setting-keys", ""); keys.Values[0].Value != "model" || keys.Values[len(keys.Values)-1].Value != "options.first" {
+	call(t, h, "system-unset", `{"key":"max_turns","scope":"project"}`)
+
+	if shown := call(t, h, "system", ""); !strings.Contains(shown.Text, "max_turns            90  (global)") {
+		t.Fatalf("after system-unset: %q", shown.Text)
+	}
+
+	if keys := call(t, h, "system-keys", ""); len(keys.Values) != len(settingSpecs) || keys.Values[0].Value != "model" {
 		t.Fatalf("keys = %+v", keys.Values)
 	}
 
-	call(t, h, "register", `{"name":"mine","command":"python3 mine.py --fast"}`)
+	call(t, h, "provider-add", `{"name":"mine","command":"python3 mine.py --fast"}`)
 
 	program, err := h.database.Program(store.KindProvider, "mine")
 
@@ -191,19 +258,43 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 		t.Fatalf("registered = %+v, err = %v", program, err)
 	}
 
-	if configured := call(t, h, "configure", `{"provider":"mine","change":"effort=high"}`); !strings.Contains(configured.Text, `{"effort":"high"}`) {
-		t.Fatalf("configure = %q", configured.Text)
+	if configured := call(t, h, "provider-set", `{"provider":"mine","change":"effort=high"}`); !strings.Contains(configured.Text, `{"effort":"high"}`) {
+		t.Fatalf("provider-set = %q", configured.Text)
 	}
 
-	call(t, h, "unregister", `{"provider":"mine"}`)
+	// Its options are the provider's own, apart from its configuration.
+	if shown := call(t, h, "provider-options", `{"provider":"second"}`); shown.Text != `options of second in force here: {"depth":2}` {
+		t.Fatalf("provider-options = %q", shown.Text)
+	}
+
+	call(t, h, "provider-options", `{"provider":"mine","change":"effort=low","scope":"project"}`)
+
+	if value, _, _ := h.database.Setting("/repo", "options.mine"); value != `{"effort":"low"}` {
+		t.Fatalf("options stored for the project = %q", value)
+	}
+
+	call(t, h, "provider-rm", `{"provider":"mine"}`)
 
 	for name, params := range map[string]string{
-		"unregister": `{"provider":"first"}`,
-		"setting":    `{"key":"max_turns","value":"x"}`,
-		"unset":      `{"key":"max_turns","scope":"everywhere"}`,
+		"provider-rm":      `{"provider":"first"}`,
+		"provider-options": `{"provider":"missing"}`,
+		"system-set":       `{"key":"max_turns","value":"x"}`,
+		"system-unset":     `{"key":"max_turns","scope":"everywhere"}`,
 	} {
 		if _, err := h.invokeHost(context.Background(), name, []byte(params)); err == nil {
 			t.Errorf("%s %s should fail", name, params)
+		}
+	}
+}
+
+// Every function of the host says what it acts on, so a front end can list
+// them apart.
+func TestHostFunctionsSayWhatTheyActOn(t *testing.T) {
+	for _, function := range describedFunctions() {
+		switch function.Group {
+		case protocol.GroupSystem, protocol.GroupSession, protocol.GroupProvider:
+		default:
+			t.Errorf("%s has the group %q", function.Name, function.Group)
 		}
 	}
 }

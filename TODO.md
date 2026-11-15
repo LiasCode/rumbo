@@ -40,10 +40,12 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 ### Provider options
 
 49. **Keeping a choice takes a second step.** `/set` in the terminal UI lasts
-    until it closes. Storing it is a separate `/setting model ...` or
-    `/setting options.<provider> {...}`.
+    until it closes. Storing it is a separate `/use` for the model, or
+    `/provider-options <provider> name=value` for every session. The plan:
+    a session keeps the options chosen in it, as it keeps its model.
 55. **Stored settings apply from the next start.** The host reads them once,
-    so `/setting max_turns 40` does nothing to the session that stored it.
+    so `/system-set max_turns 40` does nothing to the session that stored
+    it.
 52. **Host functions take only text.** Their parameters are an object of
     text values, and they cannot report progress while they work, which
     `compact` would use.

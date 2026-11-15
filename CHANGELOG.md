@@ -5,6 +5,28 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+Settings are now kept apart by what they act on: the system, a session, or
+a provider.
+
+- `rumbo config` is now `rumbo system`, for the system settings: the model
+  new sessions start with, the front end, the output limit, the turn limit,
+  and when to summarize.
+- A provider's options are its own, no longer the `options.<provider>`
+  setting: `rumbo provider options <name> effort=high`, or
+  `/provider-options` in the terminal UI. Those already stored stay in
+  force.
+- In the terminal UI, `/help` lists the commands by what they act on, and
+  some have new names: `/system`, `/system-set`, `/system-unset`, and
+  `/system-keys` were `/settings`, `/setting`, `/unset`, and
+  `/setting-keys`; `/provider-add`, `/provider-set`, `/provider-show`, and
+  `/provider-rm` were `/register`, `/configure`, `/inspect`, and
+  `/unregister`.
+- `/system-set` and `/system-unset` act for every project unless you add
+  `project`, as `rumbo system` does without `-p`. Before, they acted for the
+  project unless told `global`.
+- Front end protocol: each function of the host says what it acts on, in
+  `group`.
+
 ## 0.1.0 (2026-11-15)
 
 The first release.

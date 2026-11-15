@@ -213,31 +213,6 @@ func (s *SQLite) DeleteSetting(scope, key string) error {
 	return nil
 }
 
-// Settings implements Store.
-func (s *SQLite) Settings() ([]Setting, error) {
-	rows, err := s.db.Query(`SELECT scope, key, value FROM settings ORDER BY scope, key`)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-
-	var settings []Setting
-
-	for rows.Next() {
-		var setting Setting
-
-		if err := rows.Scan(&setting.Scope, &setting.Key, &setting.Value); err != nil {
-			return nil, err
-		}
-
-		settings = append(settings, setting)
-	}
-
-	return settings, rows.Err()
-}
-
 // programTable returns the table that holds a kind of program. Each kind has
 // its own table with the same columns.
 func programTable(kind string) (string, error) {

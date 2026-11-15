@@ -47,6 +47,14 @@ const (
 	EventEnded     = "ended"
 )
 
+// What a function of the host acts on: rumbo itself, the same for every
+// session and provider; one session; or the registered providers.
+const (
+	GroupSystem   = "system"
+	GroupSession  = "session"
+	GroupProvider = "provider"
+)
+
 // Run outcomes.
 const (
 	RunDone      = "done"

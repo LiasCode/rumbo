@@ -154,6 +154,10 @@ type Function struct {
 	// does. A front end shows it and calls the function only after the
 	// person agrees.
 	Confirm string `json:"confirm,omitempty"`
+	// Group says what a function of the host acts on: one of the Group
+	// constants. A front end may list the functions by it. A provider's
+	// functions are all the provider's and leave it empty.
+	Group string `json:"group,omitempty"`
 }
 
 // InvokeParams calls a function of the provider.

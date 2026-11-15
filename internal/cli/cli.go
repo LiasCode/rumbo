@@ -30,8 +30,8 @@ Usage:
   rumbo serve [flags]            be the host for a front end on stdin/stdout
   rumbo sessions                 list the sessions of the current project
   rumbo log <session>            print a session's entries as JSON lines
-  rumbo config ...               read and write settings
-  rumbo provider ...             manage providers
+  rumbo system ...               read and write the system settings
+  rumbo provider ...             manage providers and their options
   rumbo frontend ...             manage front ends
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
@@ -91,8 +91,11 @@ func dispatch(args []string) error {
 			return withStore(args[1:], programCommands(store.KindProvider))
 		case "frontend":
 			return withStore(args[1:], programCommands(store.KindFrontend))
+		case "system":
+			return withStore(args[1:], systemCommands)
 		case "config":
-			return withStore(args[1:], configCommands)
+			// The old name would otherwise reach the model as a task.
+			return errors.New(`"rumbo config" is now "rumbo system", for the system settings; a provider's options are set with "rumbo provider options"`)
 		case "sessions":
 			return withStore(args[1:], listSessions)
 		case "log":

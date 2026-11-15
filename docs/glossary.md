@@ -56,12 +56,21 @@ passes it on without interpreting it.
 
 **Option.** A value a provider accepts with a request, beyond the model,
 such as how thorough to be. Which options exist is the provider's decision.
+The values it gets are the provider's, stored for every project or for one,
+apart from its configuration.
+
+**System setting.** A setting of rumbo itself, the same whatever the session
+and the provider: the model a new session starts with, the front end, the
+output limit, the turn limit, and when to summarize. It is stored for every
+project, or for one, where it wins. What a session or a provider chooses is
+kept with the session or the provider instead.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
 listing its models, or by the host, such as changing session or quitting. A
 front end learns both from descriptions and knows neither beforehand. A
-provider's function can talk with the person while it works, saying things
-and asking questions, whose answers may be secret.
+function of the host says what it acts on: the system, a session, or the
+providers. A provider's function can talk with the person while it works,
+saying things and asking questions, whose answers may be secret.
 
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
 provider.

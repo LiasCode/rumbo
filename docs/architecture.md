@@ -93,11 +93,16 @@ described functions, so a front end has commands for them without knowing
 them, exactly as it does for a provider's.
 
 **Command line** (`internal/cli`). Parses arguments, reads settings once, and
-wires the parts. It is the only place that knows the implementations. What a
-setting is, and what a registered program is, each have one owner there
-(`settings.go`, `programs.go`); the commands and the host's functions are two
-ways into the same code, so configuring from a terminal and from a front end
-cannot drift apart.
+wires the parts. It is the only place that knows the implementations.
+Configuration has three levels, kept apart. The system settings are
+rumbo's own, the same whatever the session and the provider. A session
+keeps what it chose: its provider and its model. A provider has its
+configuration and the option values it gets with every request. What a
+system setting is, what a provider's options are, and what a registered
+program is each have one owner there (`settings.go`, `options.go`,
+`programs.go`). The commands and the host's functions, each named for the
+level it acts on, are two ways into the same code, so configuring from a
+terminal and from a front end cannot drift apart.
 
 ## Rules the design depends on
 

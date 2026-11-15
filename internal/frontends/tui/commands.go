@@ -225,14 +225,51 @@ func (u *ui) describe() (protocol.DescribeResult, error) {
 	return described, nil
 }
 
+// groupTitles say what each group of the host's functions acts on.
+var groupTitles = map[string]string{
+	protocol.GroupSystem:   "system: rumbo itself, the same for every session and provider",
+	protocol.GroupSession:  "session: the current session, and the others of this project",
+	protocol.GroupProvider: "providers: which there are, how each is started, and the options it gets",
+}
+
+// groupTitle names a group of the host's functions, also one this front end
+// does not know.
+func groupTitle(group string) string {
+	if title, known := groupTitles[group]; known {
+		return title
+	}
+
+	if group == "" {
+		return "other"
+	}
+
+	return group
+}
+
 // help lists every command there is, grouped by what it acts on.
 func (u *ui) help() string {
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "%s%s  rumbo itself: sessions, providers, the conversation. The same with any provider.\n", styleReset, u.label(fromHost))
+	fmt.Fprintf(&out, "%s%s  rumbo itself, the same with any provider. Its commands, by what they act on:\n", styleReset, u.label(fromHost))
+
+	// The groups come in the order the host lists its functions.
+	var groups []string
+	members := map[string][]protocol.Function{}
 
 	for _, function := range u.info.Functions {
-		fmt.Fprintf(&out, "%s%s\n", styleDim, usage(function))
+		if _, seen := members[function.Group]; !seen {
+			groups = append(groups, function.Group)
+		}
+
+		members[function.Group] = append(members[function.Group], function)
+	}
+
+	for _, group := range groups {
+		fmt.Fprintf(&out, "\n%s%s\n", styleReset, groupTitle(group))
+
+		for _, function := range members[group] {
+			fmt.Fprintf(&out, "%s%s\n", styleDim, usage(function))
+		}
 	}
 
 	// Only the provider can say what it offers, so it is asked.
@@ -240,7 +277,7 @@ func (u *ui) help() string {
 
 	fmt.Fprintf(&out, "\n%s%s  what reaches the model. What it offers changes with the provider.\n%s", styleReset, u.label(fromProvider), styleDim)
 	fmt.Fprintf(&out, "%-28s %s\n", commandOptions, "Show what it offers and what is chosen")
-	fmt.Fprintf(&out, "%-28s %s\n", commandSet+" <name> [value]", "Choose its model or one of its options")
+	fmt.Fprintf(&out, "%-28s %s\n", commandSet+" <name> [value]", "Choose its model or one of its options for the tasks started here, until this closes")
 
 	if err != nil {
 		fmt.Fprintf(&out, "%sIts own commands could not be listed: %s%s\n", styleRed, err, styleDim)

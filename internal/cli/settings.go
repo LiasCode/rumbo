@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -12,12 +10,14 @@ import (
 	"github.com/LiasCode/rumbo/internal/store"
 )
 
-// This file owns what a setting is: which ones exist, what they default to,
-// what values they take, and how the value in force is found. The command
-// line and the host's functions both go through it, so a setting behaves the
-// same whoever changes it.
+// This file owns what a system setting is: which ones exist, what they
+// default to, what values they take, and how the value in force is found.
+// System settings are rumbo's own, the same whatever the session and the
+// provider; what a session or a provider chooses is kept with it. The
+// command line and the host's functions both go through this file, so a
+// setting behaves the same whoever changes it.
 
-// Setting keys. A project value overrides the global one.
+// System setting keys. A project value overrides the global one.
 const (
 	keyModel     = "model"
 	keyFrontend  = "frontend"
@@ -121,25 +121,35 @@ func parseCompactAt(value string) (agent.Compaction, error) {
 	return agent.Compaction{Tokens: tokens}, nil
 }
 
-// checkSetting says why value cannot be stored under key, if it cannot.
-func checkSetting(database store.Store, key, value string) error {
-	if strings.HasPrefix(key, optionsPrefix) && len(key) > len(optionsPrefix) {
-		_, err := mergeOptions(json.RawMessage(value))
-
-		return err
-	}
-
+// findSetting returns the system setting called key, or says why there is
+// none.
+func findSetting(key string) (settingSpec, error) {
 	for _, spec := range settingSpecs {
 		if spec.key == key {
-			if err := spec.check(database, value); err != nil {
-				return fmt.Errorf("%s: %w", key, err)
-			}
-
-			return nil
+			return spec, nil
 		}
 	}
 
-	return fmt.Errorf("there is no setting %q. The settings are:\n%s", key, settingsHelp())
+	if provider, found := strings.CutPrefix(key, optionsPrefix); found && provider != "" {
+		return settingSpec{}, fmt.Errorf(`%s is not a system setting: a provider's options are its own; change them with provider-options, or "rumbo provider options %s <name>=<value>"`, key, provider)
+	}
+
+	return settingSpec{}, fmt.Errorf("there is no system setting %q. The system settings are:\n%s", key, settingsHelp())
+}
+
+// checkSetting says why value cannot be stored under key, if it cannot.
+func checkSetting(database store.Store, key, value string) error {
+	spec, err := findSetting(key)
+
+	if err != nil {
+		return err
+	}
+
+	if err := spec.check(database, value); err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+
+	return nil
 }
 
 // setSetting stores a value after checking it. An empty scope is global.
@@ -151,8 +161,27 @@ func setSetting(database store.Store, scope, key, value string) error {
 	return database.SetSetting(scope, key, value)
 }
 
+// storedSetting returns the value stored for a system setting in one scope.
+func storedSetting(database store.Store, scope, key string) (string, error) {
+	if _, err := findSetting(key); err != nil {
+		return "", err
+	}
+
+	value, found, err := database.Setting(scope, key)
+
+	if err == nil && !found {
+		err = fmt.Errorf("%s is not set there", key)
+	}
+
+	return value, err
+}
+
 // unsetSetting removes a stored value, so the next one in line applies.
 func unsetSetting(database store.Store, scope, key string) error {
+	if _, err := findSetting(key); err != nil {
+		return err
+	}
+
 	if err := database.DeleteSetting(scope, key); errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("%s is not set there", key)
 	} else if err != nil {
@@ -162,17 +191,15 @@ func unsetSetting(database store.Store, scope, key string) error {
 	return nil
 }
 
-// settingsHelp lists the settings and what each is for.
+// settingsHelp lists the system settings and what each is for.
 func settingsHelp() string {
-	var out strings.Builder
+	lines := make([]string, len(settingSpecs))
 
-	for _, spec := range settingSpecs {
-		fmt.Fprintf(&out, "  %-20s %s\n", spec.key, spec.help)
+	for index, spec := range settingSpecs {
+		lines[index] = fmt.Sprintf("  %-20s %s", spec.key, spec.help)
 	}
 
-	fmt.Fprintf(&out, "  %-20s %s", optionsPrefix+"<provider>", "JSON object of option values sent to that provider with every request")
-
-	return out.String()
+	return strings.Join(lines, "\n")
 }
 
 // effective is the value of a setting in force for a project, and where it
@@ -207,53 +234,19 @@ func effectiveSetting(database store.Store, root, key string) (effective, error)
 	return effective{Key: key, Source: sourceUnset}, nil
 }
 
-// effectiveSettings returns every setting as it applies to a project: the
-// known ones, and the provider options that have been stored.
+// effectiveSettings returns every system setting as it applies to a
+// project.
 func effectiveSettings(database store.Store, root string) ([]effective, error) {
-	keys := make([]string, len(settingSpecs))
+	settings := make([]effective, len(settingSpecs))
 
 	for index, spec := range settingSpecs {
-		keys[index] = spec.key
-	}
-
-	stored, err := database.Settings()
-
-	if err != nil {
-		return nil, err
-	}
-
-	for _, setting := range stored {
-		applies := setting.Scope == store.GlobalScope || setting.Scope == root
-
-		if applies && strings.HasPrefix(setting.Key, optionsPrefix) && !slices.Contains(keys, setting.Key) {
-			keys = append(keys, setting.Key)
-		}
-	}
-
-	settings := make([]effective, 0, len(keys))
-
-	for _, key := range keys {
-		// The project's options are laid over the global ones, field by
-		// field, so what is in force may come from both.
-		if strings.HasPrefix(key, optionsPrefix) {
-			merged, err := storedOptions(database, root, strings.TrimPrefix(key, optionsPrefix))
-
-			if err != nil {
-				return nil, err
-			}
-
-			settings = append(settings, effective{Key: key, Value: string(merged), Source: "stored"})
-
-			continue
-		}
-
-		setting, err := effectiveSetting(database, root, key)
+		setting, err := effectiveSetting(database, root, spec.key)
 
 		if err != nil {
 			return nil, err
 		}
 
-		settings = append(settings, setting)
+		settings[index] = setting
 	}
 
 	return settings, nil

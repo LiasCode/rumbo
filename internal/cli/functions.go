@@ -33,19 +33,71 @@ type hostFunction struct {
 // sessionParam lets a function act on a session other than the current one.
 var sessionParam = protocol.Option{Name: "session", Type: protocol.OptionString, Values: "sessions", Optional: true}
 
-// hostFunctions are listed to the front end in this order.
+// scopeParam lets a function store for this project only, instead of for
+// every project.
+var scopeParam = protocol.Option{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true}
+
+// hostFunctions are listed to the front end in this order, by what they act
+// on: the system, a session, and the providers.
 var hostFunctions = []hostFunction{
+	{
+		Function: protocol.Function{
+			Name:        "system",
+			Description: "Show the system settings as they apply here, and where each value comes from",
+			Group:       protocol.GroupSystem,
+		},
+		duringRun: true,
+		call:      (*host).showSettings,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "system-set",
+			Description: "Store a system setting, for every project unless the scope says this project",
+			Params: []protocol.Option{
+				{Name: "key", Type: protocol.OptionString, Values: "system-keys"},
+				{Name: "value", Type: protocol.OptionString},
+				scopeParam,
+			},
+			Group: protocol.GroupSystem,
+		},
+		duringRun: true,
+		call:      (*host).storeSetting,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "system-unset",
+			Description: "Remove a stored system setting, for every project unless the scope says this project",
+			Params: []protocol.Option{
+				{Name: "key", Type: protocol.OptionString, Values: "system-keys"},
+				scopeParam,
+			},
+			Group: protocol.GroupSystem,
+		},
+		duringRun: true,
+		call:      (*host).removeSetting,
+	},
+	{
+		Function:  protocol.Function{Name: "system-keys", Description: "List the system settings there are", Group: protocol.GroupSystem},
+		duringRun: true,
+		call:      (*host).settingKeys,
+	},
+	{
+		Function:  protocol.Function{Name: "quit", Description: "Stop the providers and exit; runs in progress are cancelled", Group: protocol.GroupSystem},
+		duringRun: true,
+		call:      (*host).quit,
+	},
 	{
 		Function: protocol.Function{
 			Name:        "status",
 			Description: "Show the session, the model, and what the conversation has cost",
 			Params:      []protocol.Option{sessionParam},
+			Group:       protocol.GroupSession,
 		},
 		duringRun: true,
 		call:      (*host).status,
 	},
 	{
-		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first"},
+		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first", Group: protocol.GroupSession},
 		duringRun: true,
 		call:      (*host).listSessions,
 	},
@@ -54,11 +106,12 @@ var hostFunctions = []hostFunction{
 			Name:        "open",
 			Description: "Continue another session of this project",
 			Params:      []protocol.Option{{Name: "session", Type: protocol.OptionString, Values: "sessions"}},
+			Group:       protocol.GroupSession,
 		},
 		call: (*host).openSession,
 	},
 	{
-		Function: protocol.Function{Name: "new", Description: "Start a new session with the next task"},
+		Function: protocol.Function{Name: "new", Description: "Start a new session with the next task", Group: protocol.GroupSession},
 		call:     (*host).newSession,
 	},
 	{
@@ -67,13 +120,9 @@ var hostFunctions = []hostFunction{
 			Description: "Delete a session of this project and its history",
 			Params:      []protocol.Option{{Name: "session", Type: protocol.OptionString, Values: "sessions"}},
 			Confirm:     "This deletes the session and everything recorded in it, for good. Files it changed stay as they are.",
+			Group:       protocol.GroupSession,
 		},
 		call: (*host).deleteSession,
-	},
-	{
-		Function:  protocol.Function{Name: "providers", Description: "List the registered providers"},
-		duringRun: true,
-		call:      (*host).listProviders,
 	},
 	{
 		Function: protocol.Function{
@@ -83,99 +132,84 @@ var hostFunctions = []hostFunction{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
 				{Name: "model", Type: protocol.OptionString, Description: "A model of that provider"},
 			},
+			Group: protocol.GroupSession,
 		},
 		call: (*host).useProvider,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "register",
-			Description: "Register a provider: a name and the command that starts it",
-			Params: []protocol.Option{
-				{Name: "name", Type: protocol.OptionString},
-				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
-			},
-		},
-		duringRun: true,
-		call:      (*host).registerProvider,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "configure",
-			Description: "Change a field of a provider's configuration; an empty value removes it",
-			Params: []protocol.Option{
-				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
-				{Name: "change", Type: protocol.OptionString, Description: "field=value"},
-			},
-		},
-		call: (*host).configureProvider,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "inspect",
-			Description: "Start a provider and show what it offers; also the test that it works",
-			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
-		},
-		slow: true,
-		call: (*host).inspect,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "unregister",
-			Description: "Remove a registered provider",
-			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
-			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched.",
-		},
-		duringRun: true,
-		call:      (*host).unregisterProvider,
-	},
-	{
-		Function:  protocol.Function{Name: "settings", Description: "Show every setting as it applies here, and where it comes from"},
-		duringRun: true,
-		call:      (*host).showSettings,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "setting",
-			Description: "Store a setting, for this project unless the scope says global",
-			Params: []protocol.Option{
-				{Name: "key", Type: protocol.OptionString, Values: "setting-keys"},
-				{Name: "value", Type: protocol.OptionString},
-				{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true},
-			},
-		},
-		duringRun: true,
-		call:      (*host).storeSetting,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "unset",
-			Description: "Remove a stored setting, for this project unless the scope says global",
-			Params: []protocol.Option{
-				{Name: "key", Type: protocol.OptionString, Values: "setting-keys"},
-				{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true},
-			},
-		},
-		duringRun: true,
-		call:      (*host).removeSetting,
-	},
-	{
-		Function:  protocol.Function{Name: "setting-keys", Description: "List the settings there are"},
-		duringRun: true,
-		call:      (*host).settingKeys,
 	},
 	{
 		Function: protocol.Function{
 			Name:        "compact",
 			Description: "Replace the conversation with a summary now, to free context",
 			Params:      []protocol.Option{sessionParam},
+			Group:       protocol.GroupSession,
 		},
 		slow: true,
 		call: (*host).compactNow,
 	},
 	{
-		Function:  protocol.Function{Name: "quit", Description: "Stop the provider and exit; a run in progress is cancelled"},
+		Function:  protocol.Function{Name: "providers", Description: "List the registered providers", Group: protocol.GroupProvider},
 		duringRun: true,
-		call:      (*host).quit,
+		call:      (*host).listProviders,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-add",
+			Description: "Register a provider: a name and the command that starts it",
+			Params: []protocol.Option{
+				{Name: "name", Type: protocol.OptionString},
+				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
+			},
+			Group: protocol.GroupProvider,
+		},
+		duringRun: true,
+		call:      (*host).registerProvider,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-set",
+			Description: "Change a field of a provider's configuration; an empty value removes it",
+			Params: []protocol.Option{
+				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
+				{Name: "change", Type: protocol.OptionString, Description: "field=value"},
+			},
+			Group: protocol.GroupProvider,
+		},
+		call: (*host).configureProvider,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-options",
+			Description: "Show or change the option values a provider gets with every request",
+			Params: []protocol.Option{
+				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
+				{Name: "change", Type: protocol.OptionString, Description: "name=value", Optional: true},
+				scopeParam,
+			},
+			Group: protocol.GroupProvider,
+		},
+		duringRun: true,
+		call:      (*host).providerOptions,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-show",
+			Description: "Start a provider and show what it offers; also the test that it works",
+			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
+			Group:       protocol.GroupProvider,
+		},
+		slow: true,
+		call: (*host).inspect,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-rm",
+			Description: "Remove a registered provider",
+			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
+			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched.",
+			Group:       protocol.GroupProvider,
+		},
+		duringRun: true,
+		call:      (*host).unregisterProvider,
 	},
 }
 
@@ -540,21 +574,22 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 	return protocol.HostResult{Text: text}, nil
 }
 
-// scopes are where a setting can be stored from a front end.
-var scopes = []string{sourceProject, sourceGlobal}
+// scopes are where a front end can store a system setting or a provider's
+// options. Global, for every project, is what it means unless it says
+// otherwise, as on the command line.
+var scopes = []string{sourceGlobal, sourceProject}
 
-// scope turns the scope a function was given into the one the store uses.
-// A front end works in a project, so that is where a setting goes unless it
-// says otherwise.
-func (h *host) scope(given string) (string, error) {
+// scope turns the scope a function was given into the one the store uses,
+// and says it in words.
+func (h *host) scope(given string) (scope, where string, err error) {
 	switch given {
-	case "", sourceProject:
-		return h.root, nil
-	case sourceGlobal:
-		return store.GlobalScope, nil
+	case "", sourceGlobal:
+		return store.GlobalScope, "for every project", nil
+	case sourceProject:
+		return h.root, "for this project", nil
 	}
 
-	return "", fmt.Errorf("the scope is %s", strings.Join(scopes, " or "))
+	return "", "", fmt.Errorf("the scope is %s", strings.Join(scopes, " or "))
 }
 
 func (h *host) showSettings(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -564,7 +599,7 @@ func (h *host) showSettings(context.Context, map[string]string) (protocol.HostRe
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: describeSettings(settings)}, nil
+	return protocol.HostResult{Text: "system settings:\n" + describeSettings(settings)}, nil
 }
 
 func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -574,22 +609,13 @@ func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostRes
 		result.Values = append(result.Values, protocol.Value{Value: spec.key, Description: spec.help})
 	}
 
-	h.mu.Lock()
-	name := h.current.provider
-	h.mu.Unlock()
-
-	result.Values = append(result.Values, protocol.Value{
-		Value:       optionsPrefix + name,
-		Description: "JSON object of option values sent to this provider with every request",
-	})
-
 	return result, nil
 }
 
-// storeSetting stores a setting. The host read its settings when it started,
-// so what is stored applies from the next start.
+// storeSetting stores a system setting. The host read its settings when it
+// started, so what is stored applies from the next start.
 func (h *host) storeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	scope, err := h.scope(params["scope"])
+	scope, where, err := h.scope(params["scope"])
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -599,11 +625,13 @@ func (h *host) storeSetting(_ context.Context, params map[string]string) (protoc
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: fmt.Sprintf("%s = %s, stored; it applies from the next start of rumbo", params["key"], params["value"])}, nil
+	text := fmt.Sprintf("system setting %s = %s, stored %s; it applies from the next start of rumbo", params["key"], params["value"], where)
+
+	return protocol.HostResult{Text: text}, nil
 }
 
 func (h *host) removeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	scope, err := h.scope(params["scope"])
+	scope, where, err := h.scope(params["scope"])
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -613,7 +641,7 @@ func (h *host) removeSetting(_ context.Context, params map[string]string) (proto
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: params["key"] + " is no longer stored there"}, nil
+	return protocol.HostResult{Text: fmt.Sprintf("system setting %s is no longer stored %s", params["key"], where)}, nil
 }
 
 func (h *host) registerProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
@@ -621,7 +649,37 @@ func (h *host) registerProvider(_ context.Context, params map[string]string) (pr
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: fmt.Sprintf("registered %s; inspect it to see that it works and what it offers", params["name"])}, nil
+	return protocol.HostResult{Text: fmt.Sprintf("registered the provider %s; provider-show starts it, to see that it works and what it offers", params["name"])}, nil
+}
+
+// providerOptions shows the option values a provider gets here, after
+// changing one when it is given. Sessions read them when they start using
+// the provider, so a change applies from the next start.
+func (h *host) providerOptions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	name := params["provider"]
+	text := ""
+
+	if params["change"] != "" {
+		scope, where, err := h.scope(params["scope"])
+
+		if err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		if err := changeOptions(h.database, scope, name, []string{params["change"]}); err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		text = fmt.Sprintf("stored %s; it applies from the next start of rumbo\n", where)
+	}
+
+	described, err := describeOptions(h.database, h.root, name)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: text + described}, nil
 }
 
 func (h *host) configureProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {

@@ -36,6 +36,11 @@ changes one of those updates it in the same change.
   is a new entry at the end of `migrations` in `internal/store/sqlite.go`,
   never an edit to an earlier one.
 - **Settings are read once**, in `internal/cli/config.go`, and passed down.
+- **Configuration has three levels, kept apart.** A system setting is
+  rumbo's own, the same for every session and provider (`settings.go`); a
+  session keeps what it chose with it; a provider has its configuration and
+  its options (`programs.go`, `options.go`). Something new goes at one level,
+  and a host function names it in its `Group`.
 - **Users read CHANGELOG.md.** A change they would notice adds a line to its
   `Unreleased` section, in their terms; the reason goes in the commit.
 

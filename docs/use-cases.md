@@ -105,6 +105,9 @@ nothing and knows no model API.
   and replace one that died.
 - Change the provider and the model of a session for its next runs, while a
   run in progress keeps the ones it started with.
+- Store the option values each provider gets with every request, globally
+  or for one project, apart from its configuration, and take others for one
+  start (`-o`) or one run, from the front end.
 - Pass a provider's description to the front end, send the chosen options
   with every request, and relay calls to its functions, understanding none of
   them.
@@ -122,9 +125,11 @@ nothing and knows no model API.
 - Register, show, and remove front ends, and serve the built-in `tui` and
   `plain` itself (`rumbo attach <name>`).
 - Describe functions of its own, which any front end offers as commands
-  without knowing them: `status`, `sessions`, `open`, `new`, `delete`,
-  `providers`, `use`, `register`, `configure`, `inspect`, `unregister`,
-  `settings`, `setting`, `unset`, `setting-keys`, `compact`, and `quit`.
+  without knowing them, each saying what it acts on. For the system:
+  `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
+  session: `status`, `sessions`, `open`, `new`, `delete`, `use`, and
+  `compact`. For the providers: `providers`, `provider-add`,
+  `provider-set`, `provider-options`, `provider-show`, and `provider-rm`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
@@ -134,13 +139,13 @@ nothing and knows no model API.
   text, the tools it calls and what they return, the context sent, the
   tokens spent, and diagnostics.
 
-**Settings**
+**System settings**
 
-- Store settings globally or for one project: the model, the front end, the
-  output limit, the turn limit, when to summarize, and the options of each
-  provider. List them with where each value in force comes from.
-- Take a provider's options for one start (`-o`) or one run, from the front
-  end.
+- Store the system settings, rumbo's own and the same whatever the session
+  and the provider, globally or for one project: the model a new session
+  starts with, the front end, the output limit, the turn limit, and when to
+  summarize. List them with where each value in force comes from
+  (`rumbo system`).
 
 ### Must not
 
@@ -269,8 +274,10 @@ speaks the Agent Frontend Protocol with the host.
   shows once the model has it, and goes back to the input if the run ended
   first.
 - Its commands are the functions the host and the provider describe, and
-  its own `/options`, `/set`, and `/help`. Tab completes a command and its
-  arguments, and the status bar shows what a command could become.
+  its own `/options`, `/set`, and `/help`. `/help` lists the host's by what
+  they act on: the system, the session, and the providers. Tab completes a
+  command and its arguments, and the status bar shows what a command could
+  become.
 - Answers, errors, and diagnostics are marked `[host]` or `[provider
   <name>]`, by where they come from.
 - `/new` or `/open` during a run leaves the run working in the background.

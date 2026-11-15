@@ -12,7 +12,7 @@ func TestMistypedCommandsAreNotTasks(t *testing.T) {
 		"Version":  "version",
 		"sesions":  "sessions",
 		"lgo":      "log",
-		"confgi":   "config",
+		"sytsem":   "system",
 		"provdier": "provider",
 	} {
 		if command, ok := mistyped(word); !ok || command != meant {
@@ -36,6 +36,11 @@ func TestDispatchRefusesAMistypedCommand(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), `did you mean "version"`) || !strings.Contains(err.Error(), "rumbo -- versoin") {
 		t.Fatalf("dispatch(versoin) = %v", err)
+	}
+
+	// The command's old name is not sent to the model either.
+	if err := dispatch([]string{"config", "set", "model", "anthropic/x"}); err == nil || !strings.Contains(err.Error(), `now "rumbo system"`) {
+		t.Fatalf("dispatch(config ...) = %v", err)
 	}
 }
 

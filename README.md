@@ -52,7 +52,7 @@ Windows is not supported.
 
 ```sh
 export ANTHROPIC_API_KEY=...                      # or the profile from `ant auth login`
-rumbo config set model anthropic/claude-opus-5-5
+rumbo system set model anthropic/claude-opus-5-5  # the model new sessions start with
 
 rumbo "add a --json flag to the export command"  # one task, in this directory's project
 rumbo                                            # the terminal UI; /help lists its commands
@@ -93,8 +93,8 @@ from the project's root down to where you are, and yours in
 
 ## Learn more
 
-- `rumbo help`, `rumbo config`, and `rumbo provider`: the commands and the
-  settings.
+- `rumbo help`, `rumbo system`, and `rumbo provider`: the commands, the
+  system settings, and each provider's configuration and options.
 - [docs/use-cases.md](docs/use-cases.md): everything the host, providers,
   and front ends can do.
 - [docs/architecture.md](docs/architecture.md) and

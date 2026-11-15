@@ -34,7 +34,7 @@ code of `rumbo`, unless a signal ended the host.
 Requests are handled in the order they arrive. What reaches a provider is
 answered when it is done, without holding up what comes after it: a `run`
 is accepted in order and answered when it ends, and `describe`, the
-provider's functions, and the host's `compact` and `inspect` are answered
+provider's functions, and the host's `compact` and `provider-show` are answered
 when the provider has. A `history` and the host's other functions are
 answered at once, before the request after it. A front end that needs one of those to take effect
 before another request waits for its answer.
@@ -155,8 +155,9 @@ provider it knows nothing about.
 ```
 
 - `model` and `options` are what a run in the current session uses unless
-  it says otherwise: the stored settings, with the command line's choices
-  over them, until `use` changes them for the session.
+  it says otherwise: the session's model and the provider's stored options,
+  with the command line's choices over them, until `use` changes them for
+  the session.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
   Any part of it may be absent.
@@ -304,10 +305,10 @@ commands, menu entries, or buttons without knowing them beforehand. A host
 that gains a function gives every front end a new command.
 
 They arrive in `initialize`, as `functions`, each with a `name`, a
-`description`, and `params`. A parameter marked `optional` may be left out;
-the table below shows those with a `?`. A function with a `confirm` text
-cannot be undone: a front end shows that text and calls the function only
-after the person agrees. They are called with `invoke` and
+`description`, `params`, and a `group`. A parameter marked `optional` may be
+left out; the table below shows those with a `?`. A function with a
+`confirm` text cannot be undone: a front end shows that text and calls the
+function only after the person agrees. They are called with `invoke` and
 `"target": "host"`:
 
 ```json
@@ -330,27 +331,40 @@ Parameters are an object of text values. Every answer has the same shape:
   have changed it, so a front end takes its session, provider, and model from
   here instead of remembering them.
 
-The functions of this version:
+`group` says what a function acts on, so a front end can list them apart:
 
-| Function | Parameters | What it does |
-|---|---|---|
-| `status` | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. The current session unless another is named. |
-| `sessions` | | Lists the project's sessions, most recently used first, and marks those working in this host. |
-| `open` | `session` | Makes another session of the project the current one. |
-| `new` | | Makes the next task start a new session. |
-| `delete` | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
-| `providers` | | Lists the registered providers. |
-| `use` | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. |
-| `register` | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
-| `configure` | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
-| `inspect` | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
-| `unregister` | `provider` | Removes a registered provider. Asks to be confirmed. |
-| `settings` | | Shows every setting as it applies to the project, and where each value comes from. |
-| `setting` | `key`, `value`, `scope`? | Stores a setting, for the project unless `scope` is `global`. It applies from the next start. |
-| `unset` | `key`, `scope`? | Removes a stored setting. |
-| `setting-keys` | | Lists the settings there are. |
-| `compact` | `session`? | Replaces the conversation with a summary now. The current session unless another is named. |
-| `quit` | | Stops the provider and ends the host, which closes the connection. A run in progress is cancelled. |
+- `system`: rumbo itself, the same for every session and provider. The
+  system settings are stored for every project, or for one.
+- `session`: one session of the project, the current one unless another is
+  named.
+- `provider`: the registered providers, how each is started, and the
+  option values each gets with every request.
+
+A front end should not take a group it does not know for an error; more may
+be added.
+
+The functions of this version, by group:
+
+| Function | Group | Parameters | What it does |
+|---|---|---|---|
+| `system` | system | | Shows the system settings as they apply to the project, and where each value comes from. |
+| `system-set` | system | `key`, `value`, `scope`? | Stores a system setting, for every project unless `scope` is `project`. It applies from the next start. |
+| `system-unset` | system | `key`, `scope`? | Removes a stored system setting. |
+| `system-keys` | system | | Lists the system settings there are. |
+| `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
+| `status` | session | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
+| `sessions` | session | | Lists the project's sessions, most recently used first, and marks those working in this host. |
+| `open` | session | `session` | Makes another session of the project the current one. |
+| `new` | session | | Makes the next task start a new session. |
+| `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
+| `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. |
+| `compact` | session | `session`? | Replaces the conversation with a summary now. |
+| `providers` | provider | | Lists the registered providers. |
+| `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
+| `provider-set` | provider | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
+| `provider-options` | provider | `provider`, `change`?, `scope`? | Shows the option values the provider gets with every request in this project. With a `change`, as `name=value`, first stores it for every project unless `scope` is `project`; an empty value removes it. It applies from the next start. |
+| `provider-show` | provider | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
+| `provider-rm` | provider | `provider` | Removes a registered provider. Asks to be confirmed. |
 
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
@@ -363,8 +377,9 @@ run in progress keeps the one it started with.
 
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
-`status`, `sessions`, `providers`, `settings`, `setting-keys`, `setting`,
-`unset`, `register`, `unregister`, and `quit`.
+`system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
+`sessions`, `providers`, `provider-add`, `provider-options`, and
+`provider-rm`.
 
 ## What the host guarantees
 

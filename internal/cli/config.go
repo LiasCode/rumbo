@@ -116,7 +116,7 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flag
 	providerName, modelName, found := strings.Cut(model, "/")
 
 	if !found || providerName == "" || modelName == "" {
-		return loaded, fmt.Errorf(`no model selected: run "rumbo config set model <provider>/<model>" (for example anthropic/claude-opus-5-5) or pass -m`)
+		return loaded, fmt.Errorf(`no model selected: run "rumbo system set model <provider>/<model>" (for example anthropic/claude-opus-5-5) or pass -m`)
 	}
 
 	loaded.Provider = providerName

@@ -101,8 +101,7 @@ func registerProgram(database store.Store, kind, name string, command []string, 
 }
 
 // configureProgram changes fields of a program's configuration and leaves
-// the rest. Each change is name=value; a value that is valid JSON is kept as
-// it is, anything else is text, and an empty one removes the field.
+// the rest. Each change is name=value, read as applyChanges does.
 func configureProgram(database store.Store, kind, name string, changes []string) (store.Program, error) {
 	program, err := database.Program(kind, name)
 
@@ -118,24 +117,8 @@ func configureProgram(database store.Store, kind, name string, changes []string)
 		}
 	}
 
-	for _, change := range changes {
-		field, value, found := strings.Cut(change, "=")
-
-		if !found || field == "" {
-			return program, fmt.Errorf("%q is not name=value", change)
-		}
-
-		if value == "" {
-			delete(fields, field)
-			continue
-		}
-
-		if !json.Valid([]byte(value)) {
-			quoted, _ := json.Marshal(value)
-			value = string(quoted)
-		}
-
-		fields[field] = json.RawMessage(value)
+	if err := applyChanges(fields, changes); err != nil {
+		return program, err
 	}
 
 	program.Config, _ = json.Marshal(fields)
