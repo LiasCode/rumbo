@@ -4,6 +4,8 @@ A minimal agent harness. Give it a task, and it works through four tools
 (`read`, `write`, `edit`, `bash`) until the model is done. The models behind
 it and the interfaces in front of it are separate programs you can replace.
 
+![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol.](docs/how-it-works.svg)
+
 ## What makes it different
 
 - **Any model, any interface, any language.** Providers and front ends are
@@ -26,6 +28,21 @@ it and the interfaces in front of it are separate programs you can replace.
 
 By design it does not judge the model's work, send context nobody asked
 for, or limit what the agent may do.
+
+## Where it comes from
+
+- **[pi](https://pi.dev)**, the minimal agent harness Mario Zechner started,
+  for what a harness leaves out. Like pi, rumbo gives the model four tools
+  and a short system prompt, and has no plan mode, no subagents, and no
+  permission prompts: a shell reaches everything else, and what a task needs
+  comes from the task and your instructions.
+- **The [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)**,
+  for how the parts meet. LSP lets any editor support any language by making
+  the two separate programs that speak JSON-RPC and say, on `initialize`,
+  what each can do. rumbo does the same on both sides of the loop: front ends
+  and providers are programs that speak JSON-RPC with the host, describe
+  their options and functions when they start, and can be written in any
+  language.
 
 ## Before you run it
 
