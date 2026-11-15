@@ -28,6 +28,8 @@ const (
 	escape       = "\x1b"
 	pasteOn      = escape + "[?2004h"
 	pasteOff     = escape + "[?2004l"
+	focusOn      = escape + "[?1004h"
+	focusOff     = escape + "[?1004l"
 	styleReset   = escape + "[0m"
 	styleBold    = escape + "[1m"
 	styleDim     = escape + "[2m"
@@ -177,9 +179,11 @@ type ui struct {
 	last  int
 	blank bool
 	// closed is true once the terminal was given back, and nothing is drawn
-	// any more.
-	closed  bool
-	history *history
+	// any more, and unfocused while the terminal says its window is not in
+	// front.
+	closed    bool
+	unfocused bool
+	history   *history
 	// searching is true while Ctrl-R looks back through the history for
 	// query; found is the entry shown, and before what the input held when
 	// the search began.
@@ -237,6 +241,8 @@ type job struct {
 	// run is the id of the run request, which names the run to the host.
 	run     int64
 	session string
+	// label is what the run was asked, as the conversation shows it.
+	label string
 	// tally is what the run took so far. A run told by a session's history,
 	// rather than followed, has no time.
 	tally tally
@@ -250,7 +256,7 @@ func (u *ui) open() {
 	defer u.mu.Unlock()
 
 	u.measure()
-	fmt.Fprint(u.screen.out, pasteOn)
+	fmt.Fprint(u.screen.out, pasteOn+focusOn)
 	u.footer()
 }
 
@@ -261,8 +267,29 @@ func (u *ui) close() {
 
 	u.flush()
 	u.screen.clear()
-	fmt.Fprint(u.screen.out, pasteOff)
+	fmt.Fprint(u.screen.out, pasteOff+focusOff)
 	u.closed = true
+}
+
+// notify tells the person that something they may be waiting for happened
+// while the terminal was not in front of them: with the bell, which
+// terminals and tmux show on their window, and as a desktop notification in
+// the terminals that take OSC 9. It does nothing while the terminal is in
+// front, or when it never said it left. The caller holds the lock.
+func (u *ui) notify(text string) {
+	if !u.unfocused || u.closed {
+		return
+	}
+
+	plain := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+
+		return r
+	}, text)
+
+	fmt.Fprint(u.screen.out, "\a"+escape+"]9;"+plain+"\a")
 }
 
 // tick draws again what is working, for its spinner and its clock.
@@ -339,11 +366,8 @@ func (u *ui) paint(done string) {
 
 	rows = append(rows, written[max(len(written)-u.maxInputRows(), 0):]...)
 
-	switch {
-	case u.tool != nil:
+	if u.tool != nil {
 		rows = append(rows, cut(u.tool.working(now), width-1))
-	case u.here != nil:
-		rows = append(rows, styleCyan+spin(now)+styleColorOff+styleDim+" working  "+elapsed(now.Sub(u.here.tally.started)))
 	}
 
 	if u.menu != nil {
@@ -365,53 +389,125 @@ func (u *ui) paint(done string) {
 		rows = append(rows, lead+text)
 	}
 
-	rows = append(rows, u.status(width))
+	rows = append(rows, u.status(width, now))
 
 	u.screen.paint(done, rows, top+row, len([]rune(prompt))+column)
 }
 
-// status is the status bar.
-func (u *ui) status(width int) string {
-	state := "ready"
-
-	switch {
-	case u.searching:
-		state = fmt.Sprintf("search: %s  (Ctrl-R older, Enter takes it, Escape leaves)", u.query)
-
-		if u.found < 0 && u.query != "" {
-			state = fmt.Sprintf("search: %s  (nothing holds it)", u.query)
-		}
-	case u.question != nil && u.question.secret:
-		state = "type the answer, which is not shown; Enter sends it, Ctrl-C gives up"
-	case u.question != nil:
-		state = "type the answer; Enter sends it, Ctrl-C gives up"
-	case u.here != nil && u.telling > 0:
-		state = fmt.Sprintf("working; %d message(s) wait for its next turn (Ctrl-C cancels)", u.telling)
-	case u.here != nil:
-		state = "working (Ctrl-C cancels)"
-	case u.asking:
-		state = "waiting for the answer"
-	}
-
-	if u.notice != "" {
-		state = u.notice
-	}
-
-	status := fmt.Sprintf(" rumbo | provider %s, model %s | %s", u.info.Provider, u.info.Model, state)
-
-	if len(u.away) > 0 {
-		status += fmt.Sprintf(" | %d working in the background", len(u.away))
-	}
+// status is the status bar: what is happening, the model, the session, and
+// the runs in the background on the left, and how full the context is and
+// what the session spent on the right. What does not fit goes, the least
+// needed first.
+func (u *ui) status(width int, now time.Time) string {
+	state := u.state(now)
+	model := u.info.Provider + "/" + u.info.Model
+	session, away := "", ""
 
 	if u.session != "" {
-		status += " | session " + u.session
+		session = "session " + u.session
 	}
 
-	if context := u.usage.Context(); context != "" {
-		status += " | " + context
+	if len(u.away) > 0 {
+		away = styleYellow + fmt.Sprintf("%d in the background", len(u.away)) + styleColorOff
 	}
 
-	return styleReverse + pad(cut(status+" | "+u.usage.String(), width), width) + styleReset
+	context, window := u.usage.Fill()
+	meter := contextMeter(context, window)
+	total := u.usage.Total()
+	spent := ""
+
+	if total.Input+total.Output > 0 {
+		spent = fmt.Sprintf("%s in, %s cached, %s out", tokens(total.Input), tokens(total.CacheRead), tokens(total.Output))
+	}
+
+	for _, parts := range [][2][]string{
+		{{state, model, session, away}, {meter, spent}},
+		{{state, model, session, away}, {meter}},
+		{{state, model, away}, {meter}},
+		{{state, model, away}, nil},
+		{{state}, nil},
+	} {
+		left, right := " "+together(parts[0]), together(parts[1])
+
+		if right != "" {
+			right += " "
+		}
+
+		if gap := width - visibleWidth(left) - visibleWidth(right); gap >= 2 || parts[1] == nil && gap >= 0 {
+			return left + strings.Repeat(" ", max(gap, 0)) + right
+		}
+	}
+
+	return cut(" "+state, width)
+}
+
+// state says what is happening, and what keys do about it.
+func (u *ui) state(now time.Time) string {
+	switch {
+	case u.notice != "":
+		return styleYellow + u.notice + styleColorOff
+	case u.searching && u.found < 0 && u.query != "":
+		return fmt.Sprintf("search: %s  %s(nothing holds it)%s", u.query, styleDim, styleWeightOff)
+	case u.searching:
+		return fmt.Sprintf("search: %s  %s(Ctrl-R older, Enter takes it, Escape leaves)%s", u.query, styleDim, styleWeightOff)
+	case u.question != nil && u.question.secret:
+		return styleYellow + "type the answer, which is not shown; Enter sends it, Ctrl-C gives up" + styleColorOff
+	case u.question != nil:
+		return styleYellow + "type the answer; Enter sends it, Ctrl-C gives up" + styleColorOff
+	case u.here != nil:
+		working := styleCyan + spin(now) + styleColorOff + " working " + elapsed(now.Sub(u.here.tally.started))
+
+		if u.telling > 0 {
+			working += fmt.Sprintf("; %d message(s) wait for its next turn", u.telling)
+		}
+
+		return working + styleDim + "  Ctrl-C cancels" + styleWeightOff
+	case u.asking:
+		return "waiting for the answer"
+	}
+
+	return styleDim + "ready" + styleWeightOff
+}
+
+// together joins the parts there are, apart.
+func together(parts []string) string {
+	var there []string
+
+	for _, part := range parts {
+		if part != "" {
+			there = append(there, part)
+		}
+	}
+
+	return strings.Join(there, styleDim+" · "+styleWeightOff)
+}
+
+// contextMeter shows how full the model's context is: a bar and a share
+// when its size is known, colored as it fills, and a count of tokens when
+// it is not.
+func contextMeter(context, window int64) string {
+	switch {
+	case context == 0:
+		return ""
+	case window <= 0:
+		return "context " + tokens(context)
+	}
+
+	share := min(context*100/window, 100)
+	// A full bar is a full context.
+	filled := int(share / 10)
+	color := ""
+
+	switch {
+	case share >= 80:
+		color = styleRed
+	case share >= 50:
+		color = styleYellow
+	}
+
+	bar := color + strings.Repeat("▰", filled) + styleColorOff + styleDim + strings.Repeat("▱", 10-filled) + styleWeightOff
+
+	return fmt.Sprintf("%s %s%d%%%s of %s", bar, color, share, styleColorOff, tokens(window))
 }
 
 // write adds text the model wrote to the conversation. Whole lines go into
@@ -532,6 +628,10 @@ func (u *ui) show(from *job, event protocol.Event) {
 	// no run, such as a provider's diagnostics, is shown whatever run it
 	// came with.
 	if from != u.here && event.Run != 0 {
+		if event.Type == protocol.EventTurn {
+			from.tally.add(event.Usage)
+		}
+
 		return
 	}
 
@@ -605,8 +705,14 @@ func (u *ui) tell(from *job, event protocol.Event) {
 // settle shows a call told as started that will not finish. The caller
 // holds the lock.
 func (u *ui) settle() {
+	u.leave("it never finished")
+}
+
+// leave puts the call in progress in the scrollback as it stands, saying
+// why it is not followed further. The caller holds the lock.
+func (u *ui) leave(why string) {
 	if u.tool != nil {
-		done := u.tool.interrupted(u.screen.width)
+		done := u.tool.unfinished(why, u.screen.width)
 		u.tool = nil
 		u.rows(blockWork, done)
 	}
@@ -670,7 +776,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 		return
 	}
 
-	started := &job{session: u.session, tally: tally{started: time.Now()}}
+	started := &job{session: u.session, label: label, tally: tally{started: time.Now()}}
 	u.here = started
 	u.notice = ""
 	u.input.clear()
@@ -706,19 +812,27 @@ func (u *ui) end(done *job, result protocol.RunResult, err error) {
 		done.session = result.Session
 	}
 
+	outcome := result.Status
+
+	switch {
+	case err != nil:
+		outcome = err.Error()
+	case result.Status == protocol.RunFailed:
+		outcome += ": " + result.Error
+	}
+
+	u.notify("rumbo: " + outcome + " · " + render.FirstLine(done.label))
+
 	if done != u.here {
 		u.away = slices.DeleteFunc(u.away, func(other *job) bool { return other == done })
 
-		outcome := result.Status
+		ended := done.tally.summary(result.Status, result.Error, time.Now())
 
-		switch {
-		case err != nil:
-			outcome = err.Error()
-		case result.Status == protocol.RunFailed:
-			outcome += ": " + result.Error
+		if err != nil {
+			ended = styleRed + err.Error() + styleColorOff
 		}
 
-		u.line("", u.label(fromHost)+" "+styleDim+"session "+done.session+" finished: "+outcome)
+		u.rows(blockOther, []string{styleYellow + "◆" + styleColorOff + " session " + done.session + ", in the background: " + ended + styleDim + "  /open " + done.session + " shows it"})
 		u.footer()
 
 		return
@@ -748,6 +862,15 @@ func (u *ui) end(done *job, result protocol.RunResult, err error) {
 // holds the lock.
 func (u *ui) follow() {
 	here, runs := u.here, u.away
+
+	// What the run left behind was showing goes into the scrollback as it
+	// stands, and the rest of it is not shown.
+	defer func() {
+		if u.here != here {
+			u.flush()
+			u.leave("it goes on in the background")
+		}
+	}()
 
 	if here != nil {
 		runs = append(runs, here)
@@ -847,6 +970,13 @@ func (u *ui) readKeys(keys *bufio.Reader) {
 // press applies one key and reports whether to keep running.
 func (u *ui) press(pressed key) bool {
 	u.mu.Lock()
+
+	if pressed.name == keyFocusIn || pressed.name == keyFocusOut {
+		u.unfocused = pressed.name == keyFocusOut
+		u.mu.Unlock()
+
+		return true
+	}
 
 	if u.searching {
 		u.searchKey(pressed)
@@ -1020,7 +1150,9 @@ func (u *ui) enter(open bool) bool {
 		if chosen, ok := u.menu.current(); ok && chosen.value != token {
 			u.take()
 
-			if u.needsMore(u.input.String()) {
+			// A name= waits for its value, or for Enter again to send it
+			// empty.
+			if u.needsMore(u.input.String()) || strings.HasSuffix(chosen.value, "=") {
 				u.refreshMenu()
 				u.footer()
 				u.mu.Unlock()
@@ -1028,6 +1160,21 @@ func (u *ui) enter(open bool) bool {
 				return true
 			}
 		}
+	}
+
+	// A command that still needs something opens the menu of what it takes
+	// next, rather than failing for the want of it.
+	if typed := u.input.String(); u.pending == nil && isCommand(strings.TrimSpace(typed)) && u.needsMore(typed) {
+		if !strings.HasSuffix(typed, " ") {
+			u.input.set(typed + " ")
+		}
+
+		u.dismissed = false
+		u.refreshMenu()
+		u.footer()
+		u.mu.Unlock()
+
+		return true
 	}
 
 	line, running := strings.TrimSpace(u.input.String()), u.here != nil
@@ -1063,6 +1210,13 @@ func (u *ui) take() {
 	}
 
 	head, _ := splitLast(u.input.String())
+
+	// A name= is taken to go on with its value.
+	if strings.HasSuffix(chosen.value, "=") {
+		u.input.set(head + chosen.value)
+		return
+	}
+
 	u.input.set(head + chosen.value + " ")
 }
 

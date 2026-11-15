@@ -296,7 +296,7 @@ func (u *ui) help() string {
 	}
 
 	fmt.Fprintf(&out, "\n%-28s %s\n", commandHelp, "Show this list")
-	out.WriteString("A slash opens a menu of the commands, and after one, of what it takes: Up and Down choose, Tab or Enter take, Escape closes it.\n")
+	out.WriteString("A slash opens a menu of the commands, and after one, of what it takes: Up and Down choose, Tab or Enter take, Escape closes it. Enter on a command that still needs something opens what it takes next.\n")
 	out.WriteString("Enter sends; Alt-Enter, Shift-Enter, or Ctrl-J starts a new line. Up and Down go through the lines typed, and past them through what you entered before, which Ctrl-R searches.\n")
 	out.WriteString("Anything that is not a command is a task.")
 
@@ -304,17 +304,23 @@ func (u *ui) help() string {
 }
 
 func usage(function protocol.Function) string {
-	signature := "/" + function.Name
+	written := "/" + function.Name
 
 	for _, param := range function.Params {
-		if param.Optional {
-			signature += " [" + param.Name + "]"
-		} else {
-			signature += " <" + param.Name + ">"
-		}
+		written += " " + signature(param)
 	}
 
-	return fmt.Sprintf("%-28s %s", signature, function.Description)
+	return fmt.Sprintf("%-28s %s", written, function.Description)
+}
+
+// signature is how a parameter is written in a command's usage: in angle
+// brackets, or in square ones when it can be left out.
+func signature(param protocol.Option) string {
+	if param.Optional {
+		return "[" + param.Name + "]"
+	}
+
+	return "<" + param.Name + ">"
 }
 
 // arguments turns the words after a command into the function's parameters,
@@ -463,6 +469,7 @@ func (t talk) Ask(ctx context.Context, text string, secret bool) (string, error)
 	u.input.clear()
 	u.notice = ""
 	u.line("", u.label(fromProvider)+" "+text)
+	u.notify("rumbo: the provider asks: " + text)
 	u.mu.Unlock()
 
 	select {

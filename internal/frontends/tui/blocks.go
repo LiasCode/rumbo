@@ -102,10 +102,10 @@ func (r *running) finished(result string, failed bool, now time.Time, width int)
 	return rows
 }
 
-// interrupted shows a call that never got a result: its run ended, or the
-// process died, before it finished.
-func (r *running) interrupted(width int) []string {
-	return []string{cut(styleDim+markUnknown+" "+title(r.name, r.args)+styleDim+"  (it never finished)", width)}
+// unfinished shows a call that is not followed to its end, saying why: it
+// never finished, or it goes on in the background.
+func (r *running) unfinished(why string, width int) []string {
+	return []string{cut(styleDim+markUnknown+" "+title(r.name, r.args)+styleDim+"  ("+why+")", width)}
 }
 
 // excerpt shows some lines of text, indented and in style: the first ones,
@@ -328,13 +328,14 @@ func elapsed(took time.Duration) string {
 	return took.Round(time.Second).String()
 }
 
-// tokens says a count of tokens in thousands or millions past a thousand.
+// tokens says a count of tokens in thousands or millions past a thousand,
+// to a tenth, and without one that is nought.
 func tokens(count int64) string {
 	switch {
 	case count >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(count)/1_000_000)
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(count)/1_000_000), ".0") + "M"
 	case count >= 1000:
-		return fmt.Sprintf("%.1fk", float64(count)/1000)
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(count)/1000), ".0") + "k"
 	}
 
 	return fmt.Sprint(count)

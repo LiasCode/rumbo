@@ -31,6 +31,10 @@ const (
 	keyEscape     = "escape"
 	keyPasteStart = "paste-start"
 	keyPasteEnd   = "paste-end"
+	// The terminal says when its window comes to the front and leaves it,
+	// once asked to.
+	keyFocusIn  = "focus-in"
+	keyFocusOut = "focus-out"
 )
 
 // sequences are what terminals send for the keys with a name, after the
@@ -54,6 +58,8 @@ var sequences = map[string]string{
 	"[13;2u": keyNewline, "[13;3u": keyNewline, "[27;2;13~": keyNewline, "[27;3;13~": keyNewline,
 	"[200~": keyPasteStart,
 	"[201~": keyPasteEnd,
+	"[I":    keyFocusIn,
+	"[O":    keyFocusOut,
 }
 
 // readKey reads one key press. A lone escape is the Escape key: a terminal

@@ -157,3 +157,107 @@ func TestAHistoryIsToldAsARunIs(t *testing.T) {
 		t.Fatalf("usage = %q, context %q", got, u.usage.Context())
 	}
 }
+
+// The status bar says what is happening, the model, and the session on the
+// left, and how full the context is and what was spent on the right, and
+// leaves out what does not fit, the least needed first.
+func TestTheStatusBarKeepsWhatMattersMost(t *testing.T) {
+	u := quiet()
+	u.info.Provider, u.info.Model, u.session = "anthropic", "claude-opus-5-5", "4cf0261c"
+	u.usage.Turn(protocol.Event{Usage: &protocol.Usage{Input: 6000, CacheRead: 4500, Output: 425}, Context: 84000, Window: 200000})
+
+	now := time.Now()
+
+	for width, want := range map[int][]string{
+		120: {"ready · anthropic/claude-opus-5-5 · session 4cf0261c", "▰▰▰▰▱▱▱▱▱▱ 42% of 200k · 6k in, 4.5k cached, 425 out"},
+		80:  {"ready · anthropic/claude-opus-5-5 · session 4cf0261c", "▰▰▰▰▱▱▱▱▱▱ 42% of 200k"},
+		60:  {"ready · anthropic/claude-opus-5-5", "42% of 200k"},
+		30:  {"ready"},
+	} {
+		got := plain(u.status(width, now))
+
+		if visibleWidth(got) > width || !inOrder(got, want...) {
+			t.Errorf("at %d columns: %q, want %q", width, got, want)
+		}
+
+		if width == 30 && strings.Contains(got, "session") {
+			t.Errorf("at 30 columns: %q", got)
+		}
+	}
+
+	if meter := plain(contextMeter(190000, 200000)); meter != "▰▰▰▰▰▰▰▰▰▱ 95% of 200k" || !strings.Contains(contextMeter(190000, 200000), styleRed) {
+		t.Fatalf("a full context: %q", meter)
+	}
+
+	if meter := contextMeter(2200, 0); meter != "context 2.2k" {
+		t.Fatalf("a context of no known size: %q", meter)
+	}
+}
+
+// A run that ends while the terminal is not in front rings its bell and
+// sends a notification; one that ends in front of the person does not.
+func TestARunThatEndsAwayIsNotified(t *testing.T) {
+	u := quiet()
+	written := u.screen.out.(*bytes.Buffer)
+
+	for _, unfocused := range []bool{false, true} {
+		run := &job{label: "fix the parser\nand its tests", tally: tally{started: time.Now()}}
+		u.here = run
+		u.press(key{name: map[bool]string{false: keyFocusIn, true: keyFocusOut}[unfocused]})
+
+		written.Reset()
+		u.end(run, protocol.RunResult{Status: protocol.RunDone}, nil)
+
+		notified := strings.Contains(written.String(), "\a"+escape+"]9;rumbo: done · fix the parser\a")
+
+		if notified != unfocused {
+			t.Fatalf("unfocused %v: notified %v, wrote %q", unfocused, notified, written.String())
+		}
+	}
+}
+
+// A run in the background counts what it takes, and says how it ended and
+// where to see it.
+func TestARunInTheBackgroundSaysHowItEnded(t *testing.T) {
+	u := quiet()
+	away := &job{session: "57ffcc97", tally: tally{started: time.Now()}}
+	u.away = []*job{away}
+
+	u.show(away, protocol.Event{Type: protocol.EventText, Run: 2, Text: "not shown"})
+	u.show(away, protocol.Event{Type: protocol.EventTurn, Run: 2, Usage: &protocol.Usage{Input: 1200, Output: 30}})
+	u.end(away, protocol.RunResult{Status: protocol.RunDone, Session: "57ffcc97"}, nil)
+
+	shown := drawn(u)
+
+	if strings.Contains(shown, "not shown") || !inOrder(shown, "◆ session 57ffcc97, in the background: ✓ done", "1 turn · 1.2k in, 0 cached, 30 out", "/open 57ffcc97 shows it") {
+		t.Fatalf("shown:\n%s", shown)
+	}
+
+	if len(u.away) != 0 {
+		t.Fatalf("still away: %v", u.away)
+	}
+}
+
+// A run that goes to the background as the session changes leaves what it
+// was showing in the scrollback, its call said to go on there, and nothing
+// of it in the live area.
+func TestARunLeftBehindTakesNothingOfTheLiveArea(t *testing.T) {
+	u := quiet()
+	run := &job{session: "4cf0261c", tally: tally{started: time.Now()}}
+	u.here, u.session = run, "4cf0261c"
+
+	u.tell(run, protocol.Event{Type: protocol.EventText, Text: "Looking at it"})
+	u.tell(run, protocol.Event{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"sleep 2"}`)})
+
+	u.session = ""
+	u.follow()
+	u.footer()
+
+	if u.tool != nil || u.here != nil || len(u.away) != 1 {
+		t.Fatalf("tool %v, here %v, away %v", u.tool, u.here, u.away)
+	}
+
+	if shown := drawn(u); !inOrder(shown, "Looking at it", "· bash sleep 2  (it goes on in the background)") || strings.Count(shown, "sleep 2") != 1 {
+		t.Fatalf("shown:\n%s", shown)
+	}
+}

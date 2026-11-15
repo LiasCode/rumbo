@@ -190,3 +190,62 @@ func TestARecalledCommandLeavesTheArrowsToTheHistory(t *testing.T) {
 		t.Fatal("typing after a recalled command opens no menu")
 	}
 }
+
+// Enter on a command that needs more opens the menu of what it takes next,
+// which says what that is when it takes any value.
+func TestEnterOnACommandThatNeedsMoreOpensItsMenu(t *testing.T) {
+	u := quiet()
+	u.info.Functions = []protocol.Function{
+		{Name: "system-set", Params: []protocol.Option{{Name: "key"}, {Name: "value", Description: "what to store"}}},
+	}
+
+	typing(u, "/system-set")
+	u.press(key{r: '\r'})
+	u.wait.Wait()
+
+	if got := u.input.String(); got != "/system-set " || u.menu == nil || u.menu.hint != "<key>" {
+		t.Fatalf("after Enter: %q, menu %+v", got, u.menu)
+	}
+
+	typing(u, "max_turns")
+	u.press(key{r: '\r'})
+	u.wait.Wait()
+
+	if got := u.input.String(); got != "/system-set max_turns " || u.menu == nil || u.menu.hint != "<value>  what to store" {
+		t.Fatalf("after the key: %q, menu %+v", got, u.menu)
+	}
+}
+
+// A function that lists values is given what was typed for the parameters
+// it takes, and nothing else.
+func TestValuesAreAskedWithWhatCameBefore(t *testing.T) {
+	u := quiet()
+	u.info.Functions = []protocol.Function{
+		{Name: "provider-models", Params: []protocol.Option{{Name: "provider", Optional: true}}},
+		{Name: "sessions"},
+	}
+
+	given := map[string]string{"provider": "openai", "model": "x"}
+
+	if got := string(u.passed("provider-models", protocol.TargetHost, given)); got != `{"provider":"openai"}` {
+		t.Fatalf("passed = %s", got)
+	}
+
+	if got := u.passed("sessions", protocol.TargetHost, given); got != nil {
+		t.Fatalf("passed to a function that takes nothing = %s", got)
+	}
+}
+
+// A name= taken from the menu waits for its value.
+func TestANameIsTakenToGoOnWithItsValue(t *testing.T) {
+	u := quiet()
+	u.input.set("/session-options eff")
+	u.menu = &menu{head: "/session-options ", choices: []choice{{value: "effort="}, {value: "effort=high"}}}
+	u.menu.filter("eff")
+
+	u.press(key{r: '\r'})
+
+	if got := u.input.String(); got != "/session-options effort=" {
+		t.Fatalf("taken: %q", got)
+	}
+}

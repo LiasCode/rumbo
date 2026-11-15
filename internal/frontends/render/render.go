@@ -72,6 +72,17 @@ func (u *Usage) Context() string {
 	return fmt.Sprintf("context %d tokens", u.context)
 }
 
+// Fill returns the size of the conversation and of the model's context, as
+// of the last response that said; either is zero while it is not known.
+func (u *Usage) Fill() (context, window int64) {
+	return u.context, u.window
+}
+
+// Total returns the tokens counted.
+func (u *Usage) Total() protocol.Usage {
+	return u.total
+}
+
 // Add counts one model response.
 func (u *Usage) Add(usage *protocol.Usage) {
 	if usage == nil {

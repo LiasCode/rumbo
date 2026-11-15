@@ -11,8 +11,9 @@ import (
 // Completion works from the same descriptions the commands do. A command's
 // name is completed from the functions the host and the provider described,
 // and an argument from what its parameter says it accepts: fixed values, or
-// the function that lists them, so /open offers sessions with their titles
-// and /use offers providers without this file knowing either.
+// the function that lists them, given the arguments before it that it
+// takes, so /open offers sessions with their titles and /use the models of
+// the provider named before, without this file knowing either.
 
 // refreshMenu works out the menu for what is typed: commands while the
 // first word is, and then the values of the parameter the word being typed
@@ -77,8 +78,8 @@ func isCommandStart(line string) bool {
 }
 
 // offer returns what the word after head can be, with what describes each,
-// or a hint saying why there is nothing to offer. It may ask the host or
-// the provider, so it runs without the lock.
+// or a hint saying what it is or why there is nothing to offer. It may ask
+// the host or the provider, so it runs without the lock.
 func (u *ui) offer(head string) (choices []choice, hint string) {
 	words := strings.Fields(head)
 	position := len(words) - 1
@@ -93,7 +94,21 @@ func (u *ui) offer(head string) (choices []choice, hint string) {
 		return nil, ""
 	}
 
-	return u.values(function.Params[position], target)
+	given := map[string]string{}
+
+	for index, param := range function.Params[:position] {
+		given[param.Name] = words[index+1]
+	}
+
+	param := function.Params[position]
+	choices, hint = u.values(param, target, given)
+
+	// What takes any value says what it is.
+	if len(choices) == 0 && hint == "" {
+		hint = strings.TrimSpace(signature(param) + "  " + param.Description)
+	}
+
+	return choices, hint
 }
 
 // function finds what a command names: a function of the host, or one of
@@ -137,9 +152,10 @@ func (u *ui) function(command string) (protocol.Function, string, bool) {
 }
 
 // values returns what an option takes, asking its function when it names
-// one; target says whose function that is. When the function cannot
+// one, with what was given for the parameters before it that the function
+// takes; target says whose function that is. When the function cannot
 // answer, the hint says why.
-func (u *ui) values(option protocol.Option, target string) ([]choice, string) {
+func (u *ui) values(option protocol.Option, target string, given map[string]string) ([]choice, string) {
 	if option.Type == protocol.OptionBoolean {
 		return []choice{{value: "true"}, {value: "false"}}, ""
 	}
@@ -156,8 +172,10 @@ func (u *ui) values(option protocol.Option, target string) ([]choice, string) {
 
 	var listed []protocol.Value
 
+	params := u.passed(option.Values, target, given)
+
 	if target == protocol.TargetHost {
-		result, err := u.conn.InvokeHost(option.Values, nil)
+		result, err := u.conn.InvokeHost(option.Values, params)
 
 		if err != nil {
 			return nil, err.Error()
@@ -165,7 +183,7 @@ func (u *ui) values(option protocol.Option, target string) ([]choice, string) {
 
 		listed = result.Values
 	} else {
-		raw, err := u.conn.Invoke(option.Values, nil)
+		raw, err := u.conn.Invoke(option.Values, params)
 
 		if err != nil {
 			return nil, err.Error()
@@ -183,6 +201,41 @@ func (u *ui) values(option protocol.Option, target string) ([]choice, string) {
 	}
 
 	return choices, ""
+}
+
+// passed is what a function that lists values is given: the arguments,
+// among those given, for the parameters it takes.
+func (u *ui) passed(name, target string, given map[string]string) json.RawMessage {
+	u.mu.Lock()
+	functions := u.info.Functions
+
+	if target == protocol.TargetProvider && u.described != nil {
+		functions = u.described.Offers.Functions
+	}
+
+	u.mu.Unlock()
+
+	index := slices.IndexFunc(functions, func(function protocol.Function) bool { return function.Name == name })
+
+	if index < 0 {
+		return nil
+	}
+
+	params := map[string]string{}
+
+	for _, param := range functions[index].Params {
+		if value := given[param.Name]; value != "" {
+			params[param.Name] = value
+		}
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+
+	raw, _ := json.Marshal(params)
+
+	return raw
 }
 
 // commandChoices returns every command known without asking anyone, with

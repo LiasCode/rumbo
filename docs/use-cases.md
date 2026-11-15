@@ -342,7 +342,11 @@ speaks the Agent Frontend Protocol with the host.
   provider says of each value: a session's title, the text of a message to
   branch before. It narrows as one types, by value or by what describes
   it; Up and Down choose, Tab or Enter take, and Escape closes it. Enter on
-  a command that needs nothing more sends it.
+  a command that needs nothing more sends it, and on one that still needs
+  something opens the menu of what it takes next, or says what that is:
+  `/open` lists the sessions, and `/use openai` the models of `openai`.
+  After `/session-options `, the menu offers the values of the provider's
+  options as `name=value`, with those in force marked.
 - Answers, errors, and diagnostics are marked `[host]` or `[provider
   <name>]`, by where they come from.
 - `/new` or `/open` during a run leaves the run working in the background.
@@ -367,9 +371,16 @@ speaks the Agent Frontend Protocol with the host.
   words with Ctrl or Alt and the arrows, or Alt-B and Alt-F; Delete or
   Ctrl-D deletes under the cursor, and Ctrl-W, Ctrl-U, and Ctrl-K delete a
   word back, to the start of the line, and to its end.
-- The status bar shows the provider, the model, what is happening, the
-  session, and the size of its context and the tokens it has spent, which
-  start again with the session.
+- The status bar shows what is happening, with the time a run has worked,
+  the provider and the model, the session, and the runs in the
+  background; and, on the right, how full the context is, as a bar that
+  turns yellow past half and red past four fifths, and the tokens the
+  session has spent. What does not fit leaves, the least needed first.
+- A run in the background that ends says so, with what it took and how to
+  open its session. When a run ends, or a provider's function asks
+  something, while the terminal is not in front, it rings the terminal's
+  bell and sends a desktop notification, in the terminals that report
+  their focus and take OSC 9; in tmux, with `focus-events` on.
 - It gives the terminal back as it found it, when it quits or the host ends.
 
 **`plain`**, for pipes and scripts:

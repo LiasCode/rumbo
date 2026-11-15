@@ -30,6 +30,17 @@ it. The commits hold the reasons.
 - Opening, branching to, or continuing a session (`/open`, `/branch`, `-c`,
   `-s`) shows what it holds, and the status bar counts that session's
   context and tokens.
+- Enter on a command that still needs something opens the menu of what it
+  takes: `/open` lists the sessions, and `/use openai` the models of
+  `openai`. After `/session-options `, the menu offers the values of the
+  provider's options, with those in force marked.
+- The status bar shows how full the context is as a bar, yellow past half
+  and red past four fifths, and how long a run has worked, and leaves out
+  what does not fit, the least needed first.
+- A run in the background that ends says what it took and how to open its
+  session. A run that ends, or a provider that asks something, while the
+  terminal is not in front rings the bell and sends a desktop notification
+  (OSC 9), in terminals that report their focus.
 
 ### Sessions
 

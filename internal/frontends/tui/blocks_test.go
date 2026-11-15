@@ -85,7 +85,7 @@ func TestARunEndsWithWhatItTook(t *testing.T) {
 	run.add(&protocol.Usage{Input: 12345, CacheRead: 10000, Output: 999})
 	run.add(&protocol.Usage{Input: 100, Output: 1})
 
-	if got := plain(run.summary(protocol.RunDone, "", time.Now())); got != "✓ done  1m15s · 2 turns · 12.4k in, 10.0k cached, 1.0k out" {
+	if got := plain(run.summary(protocol.RunDone, "", time.Now())); got != "✓ done  1m15s · 2 turns · 12.4k in, 10k cached, 1k out" {
 		t.Fatalf("done = %q", got)
 	}
 

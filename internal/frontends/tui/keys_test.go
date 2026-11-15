@@ -26,6 +26,8 @@ func TestEscapeSequencesBecomeKeys(t *testing.T) {
 		"\x1b[27;2;13~": {name: keyNewline},
 		"\x1b[200~":     {name: keyPasteStart},
 		"\x1b[201~":     {name: keyPasteEnd},
+		"\x1b[I":        {name: keyFocusIn},
+		"\x1b[O":        {name: keyFocusOut},
 		"\x1b":          {name: keyEscape},
 		"\x1b[99X":      {},
 		"\x1bx":         {},
