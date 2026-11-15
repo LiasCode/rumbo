@@ -98,11 +98,15 @@ type InitializeParams struct {
 	Config   json.RawMessage `json:"config,omitempty"`
 }
 
-// InitializeResult identifies the provider and carries what it says about
-// itself.
+// InitializeResult identifies the provider, or the front end, and carries
+// what it says about itself.
 type InitializeResult struct {
 	Protocol int    `json:"protocol"`
 	Name     string `json:"name"`
+	// Config is the configuration in force: what initialize gave, with the
+	// program's own default for every field it left out. The host keeps it
+	// with the registration, so every field is there to see and change.
+	Config json.RawMessage `json:"config,omitempty"`
 	Description
 }
 
@@ -138,7 +142,9 @@ type Option struct {
 	// Values names the function that returns the accepted values, when they
 	// are not fixed. The function answers with a ValuesResult.
 	Values string `json:"values,omitempty"`
-	// Default is the value in force when none is chosen, for display.
+	// Default is the value in force when none is chosen. Every option of a
+	// provider has one, which the host keeps as the provider's own value;
+	// it may be empty when that means the model decides.
 	Default json.RawMessage `json:"default,omitempty"`
 	// Optional says a parameter of a function may be left out. Optional
 	// parameters come after the required ones.

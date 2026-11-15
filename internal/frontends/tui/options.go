@@ -36,6 +36,11 @@ func (u *ui) offered(described protocol.DescribeResult) string {
 			}
 		}
 
+		// An empty value is one too, often the model's own default.
+		if value == "" {
+			value = `""`
+		}
+
 		fmt.Fprintf(&out, "\n%s = %s", option.Name, value)
 
 		if option.Description != "" {

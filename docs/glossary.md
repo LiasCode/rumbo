@@ -99,7 +99,9 @@ the runs that made it, plus what the person asked and how each run ended. It
 lets a front end show a session it opens as if it had followed every run.
 
 **Program.** A registered provider or front end: a name, the command that
-starts it, and its configuration.
+starts it, its start configuration, and for a provider the values of its
+options. Each field and option has a value: the one the user gave, or the
+program's own default, kept the first time the program says it.
 
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
 

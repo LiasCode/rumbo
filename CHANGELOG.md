@@ -25,16 +25,24 @@ a provider.
   slash: `rumbo -p local -m qwen3-coder`. `-m provider/model` no longer
   works. What `-p`, `-m`, and `-o` choose is the session's, kept from one
   start to the next, as `/use` and `/session-options` make it.
-- A provider's options are its own, no longer the `options.<provider>`
-  setting: `rumbo provider options <name> effort=high`, or
-  `/provider-options` in the terminal UI. Those already stored stay in
-  force.
+- A provider's options are its own, kept with its registration, no longer
+  the `options.<provider>` setting: `rumbo provider options <name>
+  effort=high`, or `/provider-options` in the terminal UI. Those already
+  stored are carried over.
+- Every field of a provider's or a front end's configuration, and every
+  option of a provider, now has a value you can see in
+  `rumbo provider show` and `rumbo provider list`: the one you gave, or the
+  program's own default, which rumbo keeps the first time the program
+  starts. `rumbo provider add` starts the provider, so one that does not
+  work is not registered.
 - In the terminal UI, `/help` lists the commands by what they act on, and
   some have new names: `/system`, `/system-set`, `/system-unset`, and
   `/system-keys` were `/settings`, `/setting`, `/unset`, and
-  `/setting-keys`; `/provider-add`, `/provider-set`, `/provider-show`, and
-  `/provider-rm` were `/register`, `/configure`, `/inspect`, and
-  `/unregister`.
+  `/setting-keys`; `/provider-add`, `/provider-config`, `/provider-show`,
+  and `/provider-rm` were `/register`, `/configure`, `/inspect`, and
+  `/unregister`. On the command line, `rumbo provider set` and
+  `rumbo frontend set` are now `rumbo provider config` and
+  `rumbo frontend config`.
 - A session keeps the provider options chosen in it, as it keeps its model:
   `/session-options effort=high`. Changing its provider with `/use` leaves
   them behind. The terminal UI's `/set`, whose choices lasted until it
@@ -58,7 +66,7 @@ a provider.
 - The built-in `openai` provider can speak OpenAI's Responses API, which
   its reasoning models need to use tools with an effort, and the `openai`
   rumbo registers on a new installation does. One registered before keeps
-  Chat Completions until `rumbo provider set openai api=responses`. It asks
+  Chat Completions until `rumbo provider config openai api=responses`. It asks
   the server to store nothing, and gives a model its own reasoning back,
   encrypted.
 - In the terminal UI, what a provider's function answers in words shows

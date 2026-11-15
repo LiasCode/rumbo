@@ -46,8 +46,16 @@ host                                   provider
 -config`). Its meaning is the provider's own. Credentials should not be in it:
 read them from the environment or from the provider's own storage.
 
-Result: `{"protocol":1,"name":"my-provider"}`. The host refuses a provider
-that answers with a different protocol version.
+Result: `{"protocol":1,"name":"my-provider","config":{"base_url":"https://example"}}`.
+The host refuses a provider that answers with a different protocol version.
+
+`config` in the result is the configuration in force: the one given, with
+the provider's own default for every field it was not given. A provider
+says it, so that every field has a value the user can see and change. The
+host keeps with the registration each field it does not hold yet, the first
+time the provider starts (`rumbo provider add` starts it), and never
+changes one it holds. A provider that leaves `config` out is kept with what
+was given.
 
 The result may also carry what the provider says about itself. See
 [Describing the provider](#describing-the-provider).
@@ -201,7 +209,7 @@ The description travels in the `initialize` result. Every part is optional.
 | `description` | For a person choosing it. |
 | `enum` | The accepted values of a string option, when they are fixed. |
 | `values` | The name of a function that returns the accepted values, when they are not. |
-| `default` | What applies when nothing is chosen. For display only. |
+| `default` | What applies when nothing is chosen. Every option of a provider has one, which the host keeps as the provider's value of the option the first time the provider starts; it may be empty when that means the model decides. An option without one is the provider's to decide, and `rumbo provider add` says so. |
 | `optional` | For a parameter of a function: it may be left out. Optional parameters come last. |
 
 This is a small subset of JSON Schema on purpose: a front end can offer it

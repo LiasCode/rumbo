@@ -116,7 +116,11 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 	h.client = sdk.NewClient(options...)
 	h.environment = fromEnvironment()
 
-	return protocol.InitializeResult{Protocol: protocol.Version, Name: "anthropic", Description: description}, nil
+	// Every field is said, given or not, so the host can keep each with
+	// its value. An empty one is left to the SDK and the model.
+	config, _ := json.Marshal(h.config)
+
+	return protocol.InitializeResult{Protocol: protocol.Version, Name: "anthropic", Config: config, Description: description}, nil
 }
 
 // description is what this provider lets the user choose and ask.
@@ -126,7 +130,8 @@ var description = protocol.Description{
 		Name:        "effort",
 		Type:        protocol.OptionString,
 		Enum:        []string{"low", "medium", "high", "xhigh", "max"},
-		Description: "How much the model thinks and how thorough it is. Without it, the model's own default applies.",
+		Description: "How much the model thinks and how thorough it is. Empty, the model's own default applies.",
+		Default:     json.RawMessage(`""`),
 	}},
 	Functions: []protocol.Function{
 		{Name: "models", Description: "List the models this account can use"},

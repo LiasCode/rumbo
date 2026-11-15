@@ -26,11 +26,14 @@ const (
 )
 
 // Program is a registered provider or front end: the command that starts it
-// and the configuration handed to it on initialize.
+// and the configuration handed to it on initialize. Options are the values a
+// provider gets with every request, a JSON object or nothing; a front end
+// has none.
 type Program struct {
 	Name    string
 	Command []string
 	Config  json.RawMessage
+	Options json.RawMessage
 }
 
 // Session is one conversation. Dir is the directory it works in; Project is

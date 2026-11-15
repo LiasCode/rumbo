@@ -234,3 +234,19 @@ func TestEffortIsSentAsReasoningEffort(t *testing.T) {
 		t.Fatalf("an option the provider does not describe: err = %v", err)
 	}
 }
+
+// Every field of the configuration, and every option, has a value the host
+// can keep: what was given, or the provider's own default.
+func TestInitializeSaysEveryDefault(t *testing.T) {
+	said, err := testHandler(t).Initialize(context.Background(), protocol.InitializeParams{Config: json.RawMessage(`{"base_url":"http://localhost:11434/v1"}`)})
+
+	if err != nil || string(said.Config) != `{"base_url":"http://localhost:11434/v1","api_key_env":"OPENAI_API_KEY","context_window":0,"effort":"","api":"chat"}` {
+		t.Fatalf("config = %s, err = %v", said.Config, err)
+	}
+
+	for _, option := range said.Options {
+		if len(option.Default) == 0 {
+			t.Errorf("option %s has no default", option.Name)
+		}
+	}
+}

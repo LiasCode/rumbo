@@ -160,6 +160,7 @@ func launch(database store.Store, args []string) error {
 	}
 
 	host.info.Config = program.Config
+	host.frontend = program.Name
 
 	err = host.serve(process.Reader, process.Writer)
 
@@ -206,6 +207,9 @@ type host struct {
 	single bool
 	info   protocol.FrontendInitializeParams
 	conn   *frontend.Conn
+	// frontend is the registered front end the host started, empty when a
+	// front end started the host itself.
+	frontend string
 	// tools holds the processes the sessions leave running, which stop with
 	// the host. Each session has tools of its own besides.
 	tools *tool.Set
@@ -414,6 +418,14 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 	}
 
 	h.conn = conn
+
+	// The front end says its defaults, which its registration keeps for
+	// what it does not hold yet.
+	if h.frontend != "" {
+		if _, err := adopt(h.database, store.KindFrontend, h.frontend, conn.Config(), protocol.Description{}); err != nil {
+			fmt.Fprintf(conn.Log(), "the defaults of the front end %s were not stored: %v\n", h.frontend, err)
+		}
+	}
 
 	// Before the front end is attached there is nothing to stop but the
 	// process, which the signals still do by themselves.

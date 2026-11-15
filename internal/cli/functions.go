@@ -157,7 +157,7 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "provider-add",
-			Description: "Register a provider: a name and the command that starts it",
+			Description: "Register a provider: a name and the command that starts it, which is started to store its defaults",
 			Params: []protocol.Option{
 				{Name: "name", Type: protocol.OptionString},
 				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
@@ -165,12 +165,13 @@ var hostFunctions = []hostFunction{
 			Group: protocol.GroupProvider,
 		},
 		duringRun: true,
+		slow:      true,
 		call:      (*host).registerProvider,
 	},
 	{
 		Function: protocol.Function{
-			Name:        "provider-set",
-			Description: "Change a field of a provider's configuration; an empty value removes it",
+			Name:        "provider-config",
+			Description: "Change a field of a provider's start configuration; an empty value gives it back to the provider's default",
 			Params: []protocol.Option{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
 				{Name: "change", Type: protocol.OptionString, Description: "field=value"},
@@ -721,11 +722,15 @@ func (h *host) removeSetting(_ context.Context, params map[string]string) (proto
 }
 
 func (h *host) registerProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	if err := registerProgram(h.database, store.KindProvider, params["name"], strings.Fields(params["command"]), nil); err != nil {
+	undecided, err := registerProvider(h.database, params["name"], strings.Fields(params["command"]), nil, h.conn.Log())
+
+	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: fmt.Sprintf("registered the provider %s; provider-show starts it, to see that it works and what it offers", params["name"])}, nil
+	text := fmt.Sprintf("registered the provider %s, which started, with its defaults%s; provider-show says what it offers", params["name"], undecidedNote(params["name"], undecided))
+
+	return protocol.HostResult{Text: text}, nil
 }
 
 // providerOptions shows the option values a provider gets here, after

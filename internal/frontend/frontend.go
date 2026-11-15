@@ -50,6 +50,8 @@ type Conn struct {
 	reader *bufio.Reader
 	// stopped ends Serve after the request being answered.
 	stopped atomic.Bool
+	// config is the start configuration the front end said is in force.
+	config json.RawMessage
 
 	mu  sync.Mutex
 	out *json.Encoder
@@ -120,8 +122,17 @@ func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (
 			return nil, fmt.Errorf("front end %q speaks protocol %d, host speaks %d", result.Name, result.Protocol, protocol.Version)
 		}
 
+		conn.config = result.Config
+
 		return conn, nil
 	}
+}
+
+// Config is the start configuration the front end said is in force, with
+// its own default for every field it was not given. A front end that says
+// nothing leaves it empty.
+func (c *Conn) Config() json.RawMessage {
+	return c.config
 }
 
 // Serve handles the front end's requests until it disconnects or Shutdown

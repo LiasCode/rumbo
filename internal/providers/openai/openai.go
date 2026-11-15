@@ -94,7 +94,11 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 		return protocol.InitializeResult{}, fmt.Errorf("invalid config: api is %s or %s, not %q", apiChat, apiResponses, h.config.API)
 	}
 
-	return protocol.InitializeResult{Protocol: protocol.Version, Name: "openai", Description: description}, nil
+	// Every field is said, given or not, so the host can keep each with
+	// its value.
+	config, _ := json.Marshal(h.config)
+
+	return protocol.InitializeResult{Protocol: protocol.Version, Name: "openai", Config: config, Description: description}, nil
 }
 
 // description is what this provider lets the user choose and ask. The
@@ -105,7 +109,8 @@ var description = protocol.Description{
 	Options: []protocol.Option{{
 		Name:        "effort",
 		Type:        protocol.OptionString,
-		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Without it, the model's own default applies.",
+		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Empty, none is sent and the model's own default applies.",
+		Default:     json.RawMessage(`""`),
 	}},
 	Functions: []protocol.Function{
 		{Name: "models", Description: "List the models the server offers"},

@@ -88,6 +88,10 @@ var migrations = []string{
 	// 4: the provider options chosen in a session, so it keeps them as it
 	// keeps its model. Sessions from before have none chosen.
 	`ALTER TABLE sessions ADD COLUMN options TEXT NOT NULL DEFAULT '';`,
+
+	// 5: the option values a provider gets with every request, kept with
+	// its registration. Providers from before have none stored here.
+	`ALTER TABLE providers ADD COLUMN options TEXT NOT NULL DEFAULT '';`,
 }
 
 // sessionColumns are selected in the order scanSession reads them. Activity
@@ -219,33 +223,35 @@ func (s *SQLite) DeleteSetting(scope, key string) error {
 
 // programTable returns the table that holds a kind of program. Each kind has
 // its own table with the same columns.
-func programTable(kind string) (string, error) {
+// programTable returns the table of a kind of program, and the columns read
+// from it in the order scanProgram reads them. A front end has no options.
+func programTable(kind string) (table, columns string, err error) {
 	switch kind {
 	case KindProvider:
-		return "providers", nil
+		return "providers", "name, command, config, options", nil
 	case KindFrontend:
-		return "frontends", nil
+		return "frontends", "name, command, config, ''", nil
 	}
 
-	return "", fmt.Errorf("unknown program kind %q", kind)
+	return "", "", fmt.Errorf("unknown program kind %q", kind)
 }
 
 // Program implements Store.
 func (s *SQLite) Program(kind, name string) (Program, error) {
-	table, err := programTable(kind)
+	table, columns, err := programTable(kind)
 
 	if err != nil {
 		return Program{}, err
 	}
 
-	row := s.db.QueryRow(`SELECT name, command, config FROM `+table+` WHERE name = ?`, name)
+	row := s.db.QueryRow(`SELECT `+columns+` FROM `+table+` WHERE name = ?`, name)
 
 	return scanProgram(row)
 }
 
 // PutProgram implements Store.
 func (s *SQLite) PutProgram(kind string, program Program) error {
-	table, err := programTable(kind)
+	table, _, err := programTable(kind)
 
 	if err != nil {
 		return err
@@ -263,6 +269,16 @@ func (s *SQLite) PutProgram(kind string, program Program) error {
 		config = json.RawMessage(`{}`)
 	}
 
+	if kind == KindProvider {
+		_, err = s.db.Exec(
+			`INSERT INTO providers (name, command, config, options) VALUES (?, ?, ?, ?)
+			 ON CONFLICT (name) DO UPDATE SET command = excluded.command, config = excluded.config, options = excluded.options`,
+			program.Name, string(command), string(config), string(program.Options),
+		)
+
+		return err
+	}
+
 	_, err = s.db.Exec(
 		`INSERT INTO `+table+` (name, command, config) VALUES (?, ?, ?)
 		 ON CONFLICT (name) DO UPDATE SET command = excluded.command, config = excluded.config`,
@@ -274,7 +290,7 @@ func (s *SQLite) PutProgram(kind string, program Program) error {
 
 // DeleteProgram implements Store.
 func (s *SQLite) DeleteProgram(kind, name string) error {
-	table, err := programTable(kind)
+	table, _, err := programTable(kind)
 
 	if err != nil {
 		return err
@@ -295,13 +311,13 @@ func (s *SQLite) DeleteProgram(kind, name string) error {
 
 // Programs implements Store.
 func (s *SQLite) Programs(kind string) ([]Program, error) {
-	table, err := programTable(kind)
+	table, columns, err := programTable(kind)
 
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := s.db.Query(`SELECT name, command, config FROM ` + table + ` ORDER BY name`)
+	rows, err := s.db.Query(`SELECT ` + columns + ` FROM ` + table + ` ORDER BY name`)
 
 	if err != nil {
 		return nil, err
@@ -564,9 +580,9 @@ type scanner interface {
 
 func scanProgram(row scanner) (Program, error) {
 	var program Program
-	var command, config string
+	var command, config, options string
 
-	err := row.Scan(&program.Name, &command, &config)
+	err := row.Scan(&program.Name, &command, &config, &options)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return program, ErrNotFound
@@ -577,6 +593,10 @@ func scanProgram(row scanner) (Program, error) {
 	}
 
 	program.Config = json.RawMessage(config)
+
+	if options != "" {
+		program.Options = json.RawMessage(options)
+	}
 
 	return program, json.Unmarshal([]byte(command), &program.Command)
 }

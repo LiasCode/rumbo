@@ -16,8 +16,14 @@ import (
 )
 
 // This file owns the registered programs, providers and front ends: adding
-// one, changing its configuration, and asking a provider what it offers. The
-// command line and the host's functions both go through it.
+// one, changing its configuration, asking a provider what it offers, and
+// keeping the defaults a program gives. The command line and the host's
+// functions both go through it.
+//
+// Every field of a program's configuration, and every option of a provider,
+// has a value in its registration: the one the user gave, or else the
+// program's own default, which the host stores the first time the program
+// says it.
 
 // selfPlaceholder in a registered command stands for the rumbo executable, so
 // built-in programs keep working wherever the binary is installed.
@@ -93,6 +99,44 @@ func seedBuiltins(database store.Store) error {
 
 // registerProgram adds a program, or replaces the one with that name.
 func registerProgram(database store.Store, kind, name string, command []string, config json.RawMessage) error {
+	if err := checkProgram(name, command, config); err != nil {
+		return err
+	}
+
+	return database.PutProgram(kind, store.Program{Name: name, Command: command, Config: config})
+}
+
+// registerProvider registers a provider after starting it, which is also
+// the test that it works, and stores the defaults it gives. One that does
+// not start is not registered. It returns the options the provider gives no
+// default for.
+func registerProvider(database store.Store, name string, command []string, config json.RawMessage, diagnostics io.Writer) ([]string, error) {
+	if err := checkProgram(name, command, config); err != nil {
+		return nil, err
+	}
+
+	argv, err := programCommand(command)
+
+	if err != nil {
+		return nil, err
+	}
+
+	process, err := provider.Start(context.Background(), argv, config, diagnostics)
+
+	if err != nil {
+		return nil, fmt.Errorf("provider %q was not registered: %w", name, err)
+	}
+
+	defer process.Close()
+
+	if err := database.PutProgram(store.KindProvider, store.Program{Name: name, Command: command, Config: config}); err != nil {
+		return nil, err
+	}
+
+	return adopt(database, store.KindProvider, name, process.Config(), process.Description())
+}
+
+func checkProgram(name string, command []string, config json.RawMessage) error {
 	if name == "" || strings.ContainsAny(name, "/ ") {
 		return errors.New(`a name is one word without "/"`)
 	}
@@ -105,7 +149,67 @@ func registerProgram(database store.Store, kind, name string, command []string, 
 		return fmt.Errorf("its configuration: %w", err)
 	}
 
-	return database.PutProgram(kind, store.Program{Name: name, Command: command, Config: config})
+	return nil
+}
+
+// adopt stores what a program said about itself, for what its registration
+// does not hold yet: the default of each field of its configuration, and of
+// each option a provider describes. What is stored stays. It returns the
+// options described without a default, which the provider decides itself.
+func adopt(database store.Store, kind, name string, config json.RawMessage, described protocol.Description) ([]string, error) {
+	program, err := database.Program(kind, name)
+
+	if err != nil {
+		return nil, err
+	}
+
+	stored, err := mergeOptions(program.Config)
+
+	if err != nil {
+		return nil, fmt.Errorf("the configuration of %s: %w", name, err)
+	}
+
+	merged, err := mergeOptions(config, stored)
+
+	if err != nil {
+		return nil, fmt.Errorf("the configuration %s says is in force: %w", name, err)
+	}
+
+	defaults := map[string]json.RawMessage{}
+	var undecided []string
+
+	for _, option := range described.Options {
+		if len(option.Default) == 0 {
+			undecided = append(undecided, option.Name)
+			continue
+		}
+
+		defaults[option.Name] = option.Default
+	}
+
+	chosen, err := mergeOptions(program.Options)
+
+	if err != nil {
+		return nil, fmt.Errorf("the options of %s: %w", name, err)
+	}
+
+	options := chosen
+
+	if len(defaults) > 0 {
+		raw, _ := json.Marshal(defaults)
+
+		if options, err = mergeOptions(raw, chosen); err != nil {
+			return nil, err
+		}
+	}
+
+	if string(merged) == string(stored) && string(options) == string(chosen) {
+		return undecided, nil
+	}
+
+	program.Config, program.Options = merged, options
+
+	return undecided, database.PutProgram(kind, program)
 }
 
 // configureProgram changes fields of a program's configuration and leaves
@@ -175,11 +279,34 @@ func inspectProvider(database store.Store, name string, diagnostics io.Writer) (
 
 	defer process.Close()
 
+	if _, err := adopt(database, store.KindProvider, name, process.Config(), process.Description()); err != nil {
+		return "", err
+	}
+
+	if program, err = database.Program(store.KindProvider, name); err != nil {
+		return "", err
+	}
+
 	return describeProgram(program) + "\n" + describeOffers(process.Description()), nil
 }
 
 func describeProgram(program store.Program) string {
-	return fmt.Sprintf("name: %s\ncommand: %s\nconfiguration: %s", program.Name, strings.Join(program.Command, " "), program.Config)
+	described := fmt.Sprintf("name: %s\ncommand: %s\nconfiguration: %s", program.Name, strings.Join(program.Command, " "), program.Config)
+
+	if len(program.Options) > 0 {
+		described += fmt.Sprintf("\noptions: %s", program.Options)
+	}
+
+	return described
+}
+
+// undecidedNote says which options a provider gives no default for, if any.
+func undecidedNote(name string, undecided []string) string {
+	if len(undecided) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("; %s gives no default for %s, so it decides them itself", name, strings.Join(undecided, ", "))
 }
 
 // describeOffers renders what a provider says about itself.

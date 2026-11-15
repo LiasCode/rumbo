@@ -79,13 +79,21 @@ func programUsage(kind string) string {
 		indent := "\n" + strings.Repeat(" ", 49)
 		options = "\n  rumbo provider options <name> [<option>=<value>...]" +
 			indent + "the option values it gets with every request, in the sessions" +
-			indent + "that choose none of their own; an empty value removes one"
+			indent + "that choose none of their own; an empty value gives one back" +
+			indent + "to the provider's default"
 	}
 
 	return fmt.Sprintf(
-		"usage:\n  rumbo %[1]s list\n  rumbo %[1]s add [-config <json>] <name> <command> [args...]\n  rumbo %[1]s set <name> <field>=<value>...   change its configuration; an empty value removes the field%[3]s\n  rumbo %[1]s show <name>                     what is registered; a provider is started and says what it offers\n  rumbo %[1]s rm <name>\n\n%[2]s\n\"{self}\" as the command stands for the rumbo executable.",
-		kind, programHelp[kind], options,
+		"usage:\n  rumbo %[1]s list\n  rumbo %[1]s add [-config <json>] <name> <command> [args...]\n  rumbo %[1]s config <name> <field>=<value>...   change its start configuration; an empty value gives a field\n                                                 back to the %[1]s's default%[3]s\n  rumbo %[1]s show <name>                     what is registered; a provider is started and says what it offers\n  rumbo %[1]s rm <name>\n\n%[2]s\n\"{self}\" as the command stands for the rumbo executable.\nA %[1]s gives a default for every field of its configuration it was not given,\nwhich is stored with it the first time it starts%[4]s.",
+		kind, programHelp[kind], options, programStart[kind],
 	)
+}
+
+// programStart says when a kind of program first starts, which is when its
+// defaults are stored.
+var programStart = map[string]string{
+	store.KindProvider: ", which for one added here is when it is added",
+	store.KindFrontend: "",
 }
 
 // programCommands returns the list, add, and rm commands for one kind of
@@ -112,7 +120,13 @@ func manageProgram(database store.Store, kind string, args []string) error {
 		}
 
 		for _, program := range programs {
-			fmt.Printf("%s\t%s\t%s\n", program.Name, strings.Join(program.Command, " "), program.Config)
+			line := fmt.Sprintf("%s\t%s\t%s", program.Name, strings.Join(program.Command, " "), program.Config)
+
+			if kind == store.KindProvider {
+				line += "\t" + string(program.Options)
+			}
+
+			fmt.Println(line)
 		}
 
 		return nil
@@ -131,9 +145,19 @@ func manageProgram(database store.Store, kind string, args []string) error {
 			return errors.New(help)
 		}
 
-		return registerProgram(database, kind, rest[0], rest[1:], json.RawMessage(*config))
+		if kind != store.KindProvider {
+			return registerProgram(database, kind, rest[0], rest[1:], json.RawMessage(*config))
+		}
 
-	case "set":
+		undecided, err := registerProvider(database, rest[0], rest[1:], json.RawMessage(*config), os.Stderr)
+
+		if note := undecidedNote(rest[0], undecided); err == nil && note != "" {
+			fmt.Fprintln(os.Stderr, "rumbo: registered"+note)
+		}
+
+		return err
+
+	case "config":
 		if len(args) < 3 {
 			return errors.New(help)
 		}

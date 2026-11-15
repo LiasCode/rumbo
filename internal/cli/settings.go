@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -310,38 +311,94 @@ func describeSettings(settings []effective, ignored []store.Setting) string {
 	return strings.Join(lines, "\n")
 }
 
-// keyUpgraded records that the settings stored by an earlier version were
-// carried over to the ones that replace them.
+// keyUpgraded records how far the settings stored by an earlier version
+// were carried over to the ones that replace them, as the number of the
+// last step taken.
 const keyUpgraded = internalPrefix + "settings_upgraded"
 
-// upgradeSettings carries the settings an earlier version stored over to
-// the ones that replace them, once: the model, which held the provider too,
-// becomes the default provider and model. What was stored stays as it was,
-// unread.
-func upgradeSettings(database store.Store) error {
-	if _, done, err := database.Setting(store.GlobalScope, keyUpgraded); err != nil || done {
-		return err
-	}
+// upgrades carry what an earlier version stored over to what replaces it,
+// each once, in order. What was stored stays as it was, unread.
+var upgrades = []func(database store.Store) error{
+	// 1: the model, which held the provider too, becomes the default
+	// provider and model.
+	func(database store.Store) error {
+		model, found, err := database.Setting(store.GlobalScope, legacyModel)
 
-	model, found, err := database.Setting(store.GlobalScope, legacyModel)
+		if err != nil {
+			return err
+		}
 
-	if err != nil {
-		return err
-	}
+		_, chosen, err := database.Setting(store.GlobalScope, keyDefaultProvider)
 
-	_, chosen, err := database.Setting(store.GlobalScope, keyDefaultProvider)
+		if err != nil {
+			return err
+		}
 
-	if err != nil {
-		return err
-	}
+		provider, name, split := strings.Cut(model, "/")
 
-	if provider, name, split := strings.Cut(model, "/"); found && split && !chosen {
+		if !found || !split || chosen {
+			return nil
+		}
+
 		for key, value := range map[string]string{keyDefaultProvider: provider, keyDefaultModel: name} {
 			if err := database.SetSetting(store.GlobalScope, key, value); err != nil {
 				return err
 			}
 		}
+
+		return nil
+	},
+
+	// 2: a provider's options, a setting of their own, are kept with its
+	// registration.
+	func(database store.Store) error {
+		programs, err := database.Programs(store.KindProvider)
+
+		if err != nil {
+			return err
+		}
+
+		for _, program := range programs {
+			options, found, err := database.Setting(store.GlobalScope, optionsPrefix+program.Name)
+
+			if err != nil {
+				return err
+			}
+
+			if !found || len(program.Options) > 0 {
+				continue
+			}
+
+			program.Options = json.RawMessage(options)
+
+			if err := database.PutProgram(store.KindProvider, program); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	},
+}
+
+// upgradeSettings takes the upgrades not taken yet.
+func upgradeSettings(database store.Store) error {
+	value, _, err := database.Setting(store.GlobalScope, keyUpgraded)
+
+	if err != nil {
+		return err
 	}
 
-	return database.SetSetting(store.GlobalScope, keyUpgraded, "1")
+	done, _ := strconv.Atoi(value)
+
+	for step := done; step < len(upgrades); step++ {
+		if err := upgrades[step](database); err != nil {
+			return err
+		}
+
+		if err := database.SetSetting(store.GlobalScope, keyUpgraded, strconv.Itoa(step+1)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

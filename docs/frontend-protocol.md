@@ -93,7 +93,13 @@ The host speaks first.
 - `functions` are what the host itself can be asked, whatever the provider.
   See [Functions of the host](#functions-of-the-host).
 
-Result: `{"protocol":1,"name":"my-frontend"}`.
+Result: `{"protocol":1,"name":"my-frontend","config":{}}`.
+
+`config` in the result is the start configuration in force: the one given,
+with the front end's own default for every field it was not given. The host
+keeps with the registration each field it does not hold yet, the first time
+it starts the front end, and never changes one it holds. A front end that
+leaves `config` out, or that started the host itself, is kept as it is.
 
 ### `run` (request, front end to host)
 
@@ -361,8 +367,8 @@ The functions of this version, by group:
 | `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
 | `providers` | provider | | Lists the registered providers. |
-| `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
-| `provider-set` | provider | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
+| `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, and kept with the defaults it says; one that does not start is not registered. |
+| `provider-config` | provider | `provider`, `change` | Changes one field of a provider's start configuration, as `field=value`. An empty value removes it, and the provider's default comes back the next time it starts. |
 | `provider-options` | provider | `provider`, `change`? | Shows the option values stored for the provider, which a session's own win over. With a `change`, as `name=value`, first stores it; an empty value removes it. It applies to the runs that start after it. |
 | `provider-show` | provider | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
 | `provider-rm` | provider | `provider` | Removes a registered provider. Asks to be confirmed. |

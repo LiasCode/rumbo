@@ -99,9 +99,14 @@ nothing and knows no model API.
 
 **Providers**
 
-- Register, configure, show, and remove providers. The built-in `anthropic`
-  and `openai` are registered the first time rumbo runs, and `{self}` stands
-  for rumbo's own executable in a command.
+- Register, configure, show, and remove providers. A provider is started
+  when it is added, which is the test that it works. The built-in
+  `anthropic` and `openai` are registered the first time rumbo runs, and
+  `{self}` stands for rumbo's own executable in a command.
+- Keep with each registered provider and front end a value for every field
+  of its configuration, and for every option of a provider: the one the
+  user gave, or else the program's own default, stored the first time the
+  program says it.
 - Start a provider and show what it offers, which is also the test that it
   works.
 - Keep as many processes of a provider as the requests running at once need,
@@ -132,7 +137,8 @@ nothing and knows no model API.
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
   session: `status`, `sessions`, `open`, `new`, `delete`, `use`,
   `session-options`, and `compact`. For the providers: `providers`, `provider-add`,
-  `provider-set`, `provider-options`, `provider-show`, and `provider-rm`.
+  `provider-config`, `provider-options`, `provider-show`, and
+  `provider-rm`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
@@ -173,7 +179,10 @@ the Agent Provider Protocol on its stdin and stdout.
 
 ### Must
 
-- Answer `initialize` with protocol version 1 and its name.
+- Answer `initialize` with protocol version 1, its name, and its
+  configuration in force, with a default for every field it was not given.
+- Give a default for every option it describes. It may be empty when that
+  means the model decides.
 - Answer `complete` with the next assistant message, why it stopped (it
   ended, it calls tools, the output limit cut it, or the model refused), and
   what it cost. Every request carries the whole conversation.
@@ -250,7 +259,9 @@ speaks the Agent Frontend Protocol with the host.
 
 ### Must
 
-- Answer the host's `initialize` with protocol version 1 and its name.
+- Answer the host's `initialize` with protocol version 1, its name, and its
+  start configuration in force, with a default for every field it was not
+  given.
 - Run the objective the command line gave, or resume the unfinished run,
   when `initialize` asks for it.
 - Ignore event types and fields it does not know.

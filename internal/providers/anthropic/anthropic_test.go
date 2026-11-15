@@ -299,3 +299,19 @@ func TestContextWindowAndOverflow(t *testing.T) {
 		t.Fatalf("a prompt that does not fit: err = %v, want an overflow", err)
 	}
 }
+
+// Every field of the configuration, and every option, has a value the host
+// can keep: what was given, or the provider's own default.
+func TestInitializeSaysEveryDefault(t *testing.T) {
+	said, err := testHandler(t).Initialize(context.Background(), protocol.InitializeParams{Config: json.RawMessage(`{"effort":"high"}`)})
+
+	if err != nil || string(said.Config) != `{"base_url":"","effort":"high"}` {
+		t.Fatalf("config = %s, err = %v", said.Config, err)
+	}
+
+	for _, option := range said.Options {
+		if len(option.Default) == 0 {
+			t.Errorf("option %s has no default", option.Name)
+		}
+	}
+}

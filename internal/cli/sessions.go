@@ -425,7 +425,15 @@ func (h *host) pool(name string) (*provider.Pool, error) {
 		return nil, err
 	}
 
-	pool := provider.NewPool(command, program.Config, h.conn.Log())
+	// The first process says the provider's defaults, which its
+	// registration keeps for what it does not hold yet.
+	log := h.conn.Log()
+
+	pool := provider.NewPool(command, program.Config, log, func(config json.RawMessage, described protocol.Description) {
+		if _, err := adopt(h.database, store.KindProvider, name, config, described); err != nil {
+			fmt.Fprintf(log, "the defaults of the provider %s were not stored: %v\n", name, err)
+		}
+	})
 	h.pools[name] = pool
 
 	return pool, nil

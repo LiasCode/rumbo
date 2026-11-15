@@ -20,7 +20,7 @@ import (
 type echo struct{}
 
 func (echo) Initialize(context.Context, protocol.InitializeParams) (protocol.InitializeResult, error) {
-	return protocol.InitializeResult{Protocol: protocol.Version, Name: "echo"}, nil
+	return protocol.InitializeResult{Protocol: protocol.Version, Name: "echo", Config: json.RawMessage(`{"loud":false}`)}, nil
 }
 
 func (echo) Complete(ctx context.Context, params protocol.CompleteParams, emit func(string)) (protocol.CompleteResult, error) {

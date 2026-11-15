@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -162,5 +163,42 @@ func TestAProcessThatDiesFailsItsRequestAsTransient(t *testing.T) {
 
 	if answer, err := ask(pool, context.Background(), "again"); err != nil || answer != "again" || started.Load() != 2 {
 		t.Fatalf("answer = %q, err = %v, started %d", answer, err, started.Load())
+	}
+}
+
+// The pool tells what its first process said about the provider, once,
+// however many it starts.
+func TestPoolTellsWhatTheProviderSaidOnce(t *testing.T) {
+	pool, _ := testPool(t)
+
+	var told []string
+
+	pool.said = func(config json.RawMessage, described protocol.Description) {
+		told = append(told, string(config))
+	}
+
+	if err := pool.Ready(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	hung, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// The hung request takes the first process, so this one starts a
+	// second, which tells nothing.
+	go ask(pool, hung, "hang")
+
+	for started := false; !started; {
+		pool.mu.Lock()
+		started = len(pool.idle) == 0
+		pool.mu.Unlock()
+	}
+
+	if _, err := ask(pool, context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(told) != 1 || told[0] != `{"loud":false}` {
+		t.Fatalf("told %v", told)
 	}
 }

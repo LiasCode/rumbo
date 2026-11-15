@@ -25,8 +25,10 @@ type Stdio struct {
 	frames chan protocol.Frame
 	// exited is closed once the provider's stdout has closed.
 	exited chan struct{}
-	// description is what the provider said about itself on initialize.
+	// description is what the provider said about itself on initialize,
+	// and config the configuration it said is in force.
 	description protocol.Description
+	config      json.RawMessage
 
 	mu     sync.Mutex
 	nextID int64
@@ -82,7 +84,7 @@ func Start(ctx context.Context, argv []string, config json.RawMessage, stderr io
 		return nil, fmt.Errorf("provider %q speaks protocol %d, host speaks %d", result.Name, result.Protocol, protocol.Version)
 	}
 
-	stdio.description = result.Description
+	stdio.description, stdio.config = result.Description, result.Config
 
 	return stdio, nil
 }
@@ -90,6 +92,13 @@ func Start(ctx context.Context, argv []string, config json.RawMessage, stderr io
 // Description implements Provider.
 func (s *Stdio) Description() protocol.Description {
 	return s.description
+}
+
+// Config is the configuration the provider said is in force, with its own
+// default for every field it was not given. A provider that says nothing
+// leaves it empty.
+func (s *Stdio) Config() json.RawMessage {
+	return s.config
 }
 
 // Invoke implements Provider.

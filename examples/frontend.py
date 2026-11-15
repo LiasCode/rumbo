@@ -59,8 +59,11 @@ def run(objective, request_id):
 
 # The host speaks first: it says which directory, session, and model this
 # front end is attached to, and passes an objective given on the command line.
+# The answer gives back the configuration in force, with a default for every
+# field left out, which rumbo keeps with the registration; this one has none.
 hello = json.loads(from_host.readline())
-send({"id": hello["id"], "result": {"protocol": 1, "name": "simple"}})
+config = hello["params"].get("config") or {}
+send({"id": hello["id"], "result": {"protocol": 1, "name": "simple", "config": config}})
 
 info = hello["params"]
 print(f"rumbo in {info['dir']} with {info['provider']}/{info['model']}")

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,8 +26,7 @@ func testHost(t *testing.T) *host {
 	t.Cleanup(func() { database.Close() })
 
 	database.PutProgram(store.KindProvider, store.Program{Name: "first", Command: []string{"first-provider"}})
-	database.PutProgram(store.KindProvider, store.Program{Name: "second", Command: []string{"second-provider"}})
-	database.SetSetting(store.GlobalScope, "options.second", `{"depth":2}`)
+	database.PutProgram(store.KindProvider, store.Program{Name: "second", Command: []string{"second-provider"}, Options: json.RawMessage(`{"depth":2}`)})
 
 	return hostOn(t, database)
 }

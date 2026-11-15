@@ -70,14 +70,14 @@ works through the built-in `openai` provider:
 
 ```sh
 rumbo provider add -config '{"base_url":"http://localhost:11434/v1"}' local '{self}' provide openai
-rumbo provider set local context_window=32768   # a server cannot say its context size
+rumbo provider config local context_window=32768   # a server cannot say its context size
 rumbo -p local -m qwen3-coder "fix the failing test"   # the session keeps them
 ```
 
 The `openai` provider rumbo registers speaks OpenAI's Responses API, which
 its reasoning models need to use tools with an effort. One registered by an
 earlier version speaks Chat Completions until
-`rumbo provider set openai api=responses`.
+`rumbo provider config openai api=responses`.
 
 The model also reads your instructions: the `AGENTS.md` or `CLAUDE.md` files
 from the project's root down to where you are, and yours in

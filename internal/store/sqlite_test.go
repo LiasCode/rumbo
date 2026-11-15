@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -92,6 +93,23 @@ func TestProgramsAreKeptByKind(t *testing.T) {
 
 	if err := database.DeleteProgram(KindFrontend, "mine"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleting twice: err = %v", err)
+	}
+
+	// A provider keeps its options; a front end has none.
+	program.Options = json.RawMessage(`{"effort":"high"}`)
+
+	for _, kind := range []string{KindProvider, KindFrontend} {
+		if err := database.PutProgram(kind, program); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if provider, _ := database.Program(KindProvider, "mine"); string(provider.Options) != `{"effort":"high"}` {
+		t.Fatalf("the provider's options = %s", provider.Options)
+	}
+
+	if frontend, _ := database.Program(KindFrontend, "mine"); frontend.Options != nil {
+		t.Fatalf("the front end's options = %s", frontend.Options)
 	}
 }
 

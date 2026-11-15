@@ -13,12 +13,12 @@ import (
 // request, which belong to the provider and not to the system settings. The
 // command line and the host's functions both go through it.
 
-// optionsPrefix starts the stored key that holds the option values sent to
-// one provider: "options.anthropic", for example. Its value is a JSON
-// object. The host stores and forwards it; only the provider knows what it
-// means.
-//
-// A session's own values are laid over these, and win in it.
+// A provider's options are kept with its registration, a JSON object the
+// host stores and forwards; only the provider knows what it means. A
+// session's own values are laid over them, and win in it.
+
+// optionsPrefix started the setting that held a provider's options before
+// they were kept with its registration: "options.anthropic", for example.
 const optionsPrefix = "options."
 
 // optionFlags collects the -o name=value flags of the command line.
@@ -102,14 +102,14 @@ func mergeOptions(layers ...json.RawMessage) (json.RawMessage, error) {
 }
 
 // storedOptions returns the option values stored for the provider.
-func storedOptions(settings store.Store, provider string) (json.RawMessage, error) {
-	value, _, err := settings.Setting(store.GlobalScope, optionsPrefix+provider)
+func storedOptions(database store.Store, provider string) (json.RawMessage, error) {
+	program, err := database.Program(store.KindProvider, provider)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("provider %q is not registered", provider)
 	}
 
-	options, err := mergeOptions(json.RawMessage(value))
+	options, err := mergeOptions(program.Options)
 
 	if err != nil {
 		return nil, fmt.Errorf("the options stored for %s: %w", provider, err)
@@ -141,35 +141,20 @@ func changeObject(options json.RawMessage, changes []string) (json.RawMessage, e
 }
 
 // changeOptions changes the option values stored for a provider, and
-// leaves the rest. When none are left, nothing is stored.
+// leaves the rest. One removed goes back to the provider's default the next
+// time the provider says it.
 func changeOptions(database store.Store, provider string, changes []string) error {
-	if _, err := database.Program(store.KindProvider, provider); err != nil {
+	program, err := database.Program(store.KindProvider, provider)
+
+	if err != nil {
 		return fmt.Errorf("provider %q is not registered", provider)
 	}
 
-	key := optionsPrefix + provider
-
-	stored, found, err := database.Setting(store.GlobalScope, key)
-
-	if err != nil {
+	if program.Options, err = changeObject(program.Options, changes); err != nil {
 		return err
 	}
 
-	changed, err := changeObject(json.RawMessage(stored), changes)
-
-	if err != nil {
-		return err
-	}
-
-	if changed != nil {
-		return database.SetSetting(store.GlobalScope, key, string(changed))
-	}
-
-	if found {
-		return database.DeleteSetting(store.GlobalScope, key)
-	}
-
-	return nil
+	return database.PutProgram(store.KindProvider, program)
 }
 
 // describeOptions says which option values are stored for a provider.

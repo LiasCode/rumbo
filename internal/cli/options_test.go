@@ -19,11 +19,8 @@ func TestOptionsAreLayeredFromProviderToSession(t *testing.T) {
 
 	defer database.Close()
 
-	database.SetSetting(store.GlobalScope, "options.anthropic", `{"effort":"low","verbose":false}`)
-	database.SetSetting(store.GlobalScope, "options.other", `{"effort":"max"}`)
-
-	// One stored for a project is no longer read.
-	database.SetSetting("/repo", "options.anthropic", `{"effort":"medium"}`)
+	database.PutProgram(store.KindProvider, store.Program{Name: "anthropic", Command: []string{"run"}, Options: json.RawMessage(`{"effort":"low","verbose":false}`)})
+	database.PutProgram(store.KindProvider, store.Program{Name: "other", Command: []string{"run"}, Options: json.RawMessage(`{"effort":"max"}`)})
 
 	if stored, err := storedOptions(database, "anthropic"); err != nil || string(stored) != `{"effort":"low","verbose":false}` {
 		t.Fatalf("stored = %s, err = %v", stored, err)

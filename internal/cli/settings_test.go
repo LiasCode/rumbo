@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -169,21 +171,18 @@ func TestTheOldModelSettingIsCarriedOverOnce(t *testing.T) {
 	}
 }
 
-// A provider's options are stored where they always were, so the values a
-// user stored before keep reaching the provider.
+// A provider's options are kept with its registration, and changed one by
+// one.
 func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
 	database := testStore(t)
-
-	if err := database.SetSetting(store.GlobalScope, "options.anthropic", `{"effort":"low","beta":true}`); err != nil {
-		t.Fatal(err)
-	}
+	database.PutProgram(store.KindProvider, store.Program{Name: "anthropic", Command: []string{"run"}, Options: json.RawMessage(`{"effort":"low","beta":true}`)})
 
 	if err := changeOptions(database, "anthropic", []string{"beta=", "depth=3"}); err != nil {
 		t.Fatal(err)
 	}
 
-	if stored, _, _ := database.Setting(store.GlobalScope, "options.anthropic"); stored != `{"depth":3,"effort":"low"}` {
-		t.Fatalf("stored options = %s", stored)
+	if program, _ := database.Program(store.KindProvider, "anthropic"); string(program.Options) != `{"depth":3,"effort":"low"}` {
+		t.Fatalf("stored options = %s", program.Options)
 	}
 
 	// The session's are over the provider's.
@@ -197,17 +196,94 @@ func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
 		t.Fatalf("described = %q", described)
 	}
 
-	// Removing the last one leaves nothing stored.
-	changeOptions(database, "anthropic", []string{"depth=", "effort="})
-
-	if _, found, _ := database.Setting(store.GlobalScope, "options.anthropic"); found {
-		t.Fatal("an empty object was left stored")
-	}
-
 	for name, changes := range map[string][]string{"missing": {"effort=high"}, "anthropic": {"novalue"}} {
 		if err := changeOptions(database, name, changes); err == nil {
 			t.Errorf("%s %v was accepted", name, changes)
 		}
+	}
+}
+
+// What a program says its defaults are fills what its registration does not
+// hold, and changes nothing that it does.
+func TestDefaultsAreKeptForWhatIsNotStored(t *testing.T) {
+	database := testStore(t)
+	database.PutProgram(store.KindProvider, store.Program{
+		Name: "mine", Command: []string{"run"},
+		Config:  json.RawMessage(`{"base_url":"http://mine"}`),
+		Options: json.RawMessage(`{"effort":"high"}`),
+	})
+
+	described := protocol.Description{Options: []protocol.Option{
+		{Name: "effort", Default: json.RawMessage(`""`)},
+		{Name: "web", Default: json.RawMessage(`false`)},
+		{Name: "style"},
+	}}
+
+	undecided, err := adopt(database, store.KindProvider, "mine", json.RawMessage(`{"base_url":"https://default","api":"chat"}`), described)
+
+	if err != nil || len(undecided) != 1 || undecided[0] != "style" {
+		t.Fatalf("undecided = %v, err = %v", undecided, err)
+	}
+
+	program, _ := database.Program(store.KindProvider, "mine")
+
+	if string(program.Config) != `{"api":"chat","base_url":"http://mine"}` || string(program.Options) != `{"effort":"high","web":false}` {
+		t.Fatalf("registered with %s and %s", program.Config, program.Options)
+	}
+
+	// A front end has a configuration and no options.
+	database.PutProgram(store.KindFrontend, store.Program{Name: "editor", Command: []string{"run"}})
+	adopt(database, store.KindFrontend, "editor", json.RawMessage(`{"theme":"dark"}`), protocol.Description{})
+
+	if editor, _ := database.Program(store.KindFrontend, "editor"); string(editor.Config) != `{"theme":"dark"}` || editor.Options != nil {
+		t.Fatalf("front end registered with %s and %s", editor.Config, editor.Options)
+	}
+}
+
+// A provider is started when it is added, which is the test that it works,
+// and stored with the defaults it says.
+func TestAProviderIsStartedWhenAdded(t *testing.T) {
+	database := testStore(t)
+
+	undecided, err := registerProvider(database, "local", []string{selfPlaceholder, "provide", "openai"}, json.RawMessage(`{"base_url":"http://localhost:11434/v1"}`), io.Discard)
+
+	if err != nil || len(undecided) != 0 {
+		t.Fatalf("undecided = %v, err = %v", undecided, err)
+	}
+
+	program, _ := database.Program(store.KindProvider, "local")
+
+	if string(program.Config) != `{"api":"chat","api_key_env":"OPENAI_API_KEY","base_url":"http://localhost:11434/v1","context_window":0,"effort":""}` || string(program.Options) != `{"effort":""}` {
+		t.Fatalf("registered with %s and %s", program.Config, program.Options)
+	}
+
+	// One that does not start is not registered.
+	if _, err := registerProvider(database, "broken", []string{"/no/such/program"}, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "was not registered") {
+		t.Fatalf("a provider that does not start: err = %v", err)
+	}
+
+	if _, err := database.Program(store.KindProvider, "broken"); err == nil {
+		t.Fatal("a provider that does not start was registered")
+	}
+}
+
+// The options an earlier version stored as a setting of their own are kept
+// with the provider's registration, once.
+func TestOldProviderOptionsAreCarriedOver(t *testing.T) {
+	database := testStore(t)
+	database.SetSetting(store.GlobalScope, keyUpgraded, "1")
+	database.SetSetting(store.GlobalScope, "options.anthropic", `{"effort":"max"}`)
+
+	if err := upgradeSettings(database); err != nil {
+		t.Fatal(err)
+	}
+
+	if program, _ := database.Program(store.KindProvider, "anthropic"); string(program.Options) != `{"effort":"max"}` {
+		t.Fatalf("carried over as %s", program.Options)
+	}
+
+	if done, _, _ := database.Setting(store.GlobalScope, keyUpgraded); done != "2" {
+		t.Fatalf("the upgrades taken are recorded as %q", done)
 	}
 }
 
@@ -289,16 +365,18 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 		t.Fatalf("keys = %+v", keys.Values)
 	}
 
-	call(t, h, "provider-add", `{"name":"mine","command":"python3 mine.py --fast"}`)
+	if added := call(t, h, "provider-add", `{"name":"mine","command":"{self} provide openai"}`); !strings.Contains(added.Text, "which started, with its defaults") {
+		t.Fatalf("provider-add = %q", added.Text)
+	}
 
 	program, err := h.database.Program(store.KindProvider, "mine")
 
-	if err != nil || len(program.Command) != 3 {
+	if err != nil || len(program.Command) != 3 || !strings.Contains(string(program.Config), `"api_key_env":"OPENAI_API_KEY"`) {
 		t.Fatalf("registered = %+v, err = %v", program, err)
 	}
 
-	if configured := call(t, h, "provider-set", `{"provider":"mine","change":"effort=high"}`); !strings.Contains(configured.Text, `{"effort":"high"}`) {
-		t.Fatalf("provider-set = %q", configured.Text)
+	if configured := call(t, h, "provider-config", `{"provider":"mine","change":"effort=high"}`); !strings.Contains(configured.Text, `"effort":"high"`) {
+		t.Fatalf("provider-config = %q", configured.Text)
 	}
 
 	// Its options are the provider's own, apart from its configuration.
@@ -308,8 +386,8 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 
 	call(t, h, "provider-options", `{"provider":"mine","change":"effort=low"}`)
 
-	if value, _, _ := h.database.Setting(store.GlobalScope, "options.mine"); value != `{"effort":"low"}` {
-		t.Fatalf("options stored for the provider = %q", value)
+	if mine, _ := h.database.Program(store.KindProvider, "mine"); string(mine.Options) != `{"effort":"low"}` {
+		t.Fatalf("options stored with the provider = %s", mine.Options)
 	}
 
 	call(t, h, "provider-rm", `{"provider":"mine"}`)

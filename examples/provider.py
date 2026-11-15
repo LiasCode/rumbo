@@ -82,9 +82,12 @@ for line in sys.stdin:
 
     if method == "initialize":
         # `params.config` holds this provider's settings as registered in rumbo.
-        # The functions it lists become commands in any front end.
+        # The answer gives them back with a default for every field left out,
+        # which rumbo keeps with the registration; this toy has none. The
+        # functions it lists become commands in any front end.
+        config = frame["params"].get("config") or {}
         functions = [{"name": "greet", "description": "Ask your name, and greet you"}]
-        send({"id": frame["id"], "result": {"protocol": 1, "name": "toy", "functions": functions}})
+        send({"id": frame["id"], "result": {"protocol": 1, "name": "toy", "config": config, "functions": functions}})
 
     elif method == "complete":
         result = answer(frame["id"], frame["params"])
