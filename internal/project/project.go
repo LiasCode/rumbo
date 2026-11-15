@@ -10,8 +10,8 @@ import (
 )
 
 // Root returns the directory that identifies the project dir is part of: the
-// top of its git repository, or dir itself when it is not in one. Settings
-// and sessions belong to the root, so they are found from any subdirectory.
+// top of its git repository, or dir itself when it is not in one. Sessions
+// belong to the root, so they are found from any subdirectory.
 func Root(ctx context.Context, dir string) string {
 	if root := strings.TrimSpace(git(ctx, dir, "git rev-parse --show-toplevel 2>/dev/null")); root != "" {
 		return root
