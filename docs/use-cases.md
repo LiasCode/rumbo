@@ -308,16 +308,22 @@ speaks the Agent Frontend Protocol with the host.
 
 **`tui`**, the terminal UI:
 
-- The conversation scrolls above a status bar and an input line, and stays
-  in the terminal's scrollback.
+- It draws inline, below what the terminal showed before: the
+  conversation goes into the terminal's own scrollback, and a live area
+  under it shows the line the model is still writing, the menu while a
+  command is typed, the input, and the status bar.
 - Enter sends a task. During a run it tells the run what was typed, which
   shows once the model has it, and goes back to the input if the run ended
   first.
 - Its commands are the functions the host and the provider describe, and
   its own `/options` and `/help`. `/help` lists the host's by what
-  they act on: the system, the session, and the providers. Tab completes a
-  command and its arguments, and the status bar shows what a command could
-  become.
+  they act on: the system, the session, and the providers.
+- A slash opens a menu of the commands, with what each does, and after a
+  command, of what its next parameter takes, with what the host or the
+  provider says of each value: a session's title, the text of a message to
+  branch before. It narrows as one types, by value or by what describes
+  it; Up and Down choose, Tab or Enter take, and Escape closes it. Enter on
+  a command that needs nothing more sends it.
 - Answers, errors, and diagnostics are marked `[host]` or `[provider
   <name>]`, by where they come from.
 - `/new` or `/open` during a run leaves the run working in the background.
@@ -325,16 +331,23 @@ speaks the Agent Frontend Protocol with the host.
 - What a provider's function says shows marked as the provider's. Its
   question takes the next line typed; a secret one shows as dots and is kept
   nowhere, not even in the history.
-- Up and Down, or Ctrl-P and Ctrl-N, bring back what was entered. Ctrl-C
-  gives up a provider's function in progress, else cancels the run, else
-  clears the input, else quits; Ctrl-D quits on an empty line, and Ctrl-L
-  redraws. Pasted line breaks stay text.
-- The line edits where the cursor is, with readline's keys: Left, Right,
+- The input takes several lines: Enter sends it, and Alt-Enter,
+  Shift-Enter, or Ctrl-J starts a new line. Pasted text keeps its line
+  breaks. It grows to ten rows, or a third of a short screen, and then
+  scrolls with the cursor.
+- Up and Down move through the rows typed, and past them through what was
+  entered, as Ctrl-P and Ctrl-N do; Ctrl-R searches it. It starts with what
+  the host recalls of the project's sessions, and adds what is entered
+  while it runs, commands too, which it keeps nowhere; answers to a
+  question or a confirmation are not in it.
+- Ctrl-C gives up a provider's function in progress, else cancels the run,
+  else clears the input, else quits; Ctrl-D quits on an empty input, and
+  Ctrl-L starts the screen again, the conversation kept in the scrollback.
+- The input edits where the cursor is, with readline's keys: Left, Right,
   Home, and End, or Ctrl-B, Ctrl-F, Ctrl-A, and Ctrl-E, move in it, and by
   words with Ctrl or Alt and the arrows, or Alt-B and Alt-F; Delete or
   Ctrl-D deletes under the cursor, and Ctrl-W, Ctrl-U, and Ctrl-K delete a
-  word back, to the start, and to the end. A line wider than the screen
-  scrolls with the cursor.
+  word back, to the start of the line, and to its end.
 - The status bar shows the provider, the model, what is happening, the
   session, the size of the context, and the tokens spent.
 - It gives the terminal back as it found it, when it quits or the host ends.

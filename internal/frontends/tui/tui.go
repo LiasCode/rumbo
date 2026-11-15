@@ -1,11 +1,12 @@
-// Package tui is the built-in terminal front end. The conversation scrolls
-// in the upper part of the screen and stays in the terminal's own scrollback;
-// the last two rows are a status bar and the input line.
+// Package tui is the built-in terminal front end. It draws inline: the
+// conversation goes into the terminal's own scrollback like the output of
+// any command, and a live area under it shows what is still changing: the
+// text the model is writing, the menu of what a command can become, the
+// input, and the status bar.
 package tui
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,10 +25,6 @@ import (
 // Terminal control sequences.
 const (
 	escape       = "\x1b"
-	saveCursor   = escape + "7"
-	loadCursor   = escape + "8"
-	clearLine    = escape + "[2K"
-	resetRegion  = escape + "[r"
 	pasteOn      = escape + "[?2004h"
 	pasteOff     = escape + "[?2004l"
 	styleReset   = escape + "[0m"
@@ -41,6 +38,12 @@ const (
 )
 
 const prompt = "> "
+
+// echoed is what the person typed as the conversation shows it: after the
+// prompt, with the lines after the first under the first.
+func echoed(text string) string {
+	return prompt + strings.ReplaceAll(text, "\n", "\n"+strings.Repeat(" ", len([]rune(prompt))))
+}
 
 // Run attaches to the host on r and w, takes over the terminal, and returns
 // the process exit code.
@@ -66,7 +69,19 @@ func Run(r io.Reader, w io.Writer) int {
 		return 1
 	}
 
-	ui := &ui{conn: conn, info: info, out: os.Stdout, session: info.Session}
+	ui := &ui{
+		conn:    conn,
+		info:    info,
+		screen:  screen{out: os.Stdout},
+		session: info.Session,
+		history: &history{},
+	}
+
+	// What was asked before comes back from the host, which keeps it with
+	// the sessions. A host that keeps nothing to recall leaves it empty.
+	if recalled, err := conn.Recall(); err == nil {
+		ui.history.earlier(recalled.Asked)
+	}
 
 	defer func() {
 		ui.close()
@@ -83,6 +98,10 @@ func Run(r io.Reader, w io.Writer) int {
 			ui.resize()
 		}
 	}()
+
+	// The provider's own commands are known once it says what it offers,
+	// which is asked for at once, so the menu has them from the start.
+	ui.wait.Go(func() { _, _ = ui.describe() })
 
 	switch {
 	case info.Resume:
@@ -115,20 +134,26 @@ func Run(r io.Reader, w io.Writer) int {
 type ui struct {
 	conn *protocol.FrontendConn
 	info protocol.FrontendInitializeParams
-	out  io.Writer
 	wait sync.WaitGroup
 
-	mu      sync.Mutex
-	width   int
-	height  int
-	input   inputLine
-	midLine bool
-	// history is what was entered here, oldest first, for Up and Down to
-	// bring back. recalled is the line of it in the input, len(history)
-	// when none is, and draft is what was being typed before going back.
-	history  []string
-	recalled int
-	draft    string
+	mu     sync.Mutex
+	screen screen
+	input  inputLine
+	// partial is what the model wrote of a line it has not ended yet, which
+	// the live area shows until the line is done.
+	partial string
+	history *history
+	// searching is true while Ctrl-R looks back through the history for
+	// query; found is the entry shown, and before what the input held when
+	// the search began.
+	searching bool
+	query     string
+	found     int
+	before    string
+	// menu offers what the command being typed can become; dismissed says
+	// Escape closed it, until the input changes.
+	menu      *menu
+	dismissed bool
 	// here is the run in the current session, which the screen follows, and
 	// away are the runs left working in other sessions.
 	here *job
@@ -168,16 +193,15 @@ type job struct {
 	session string
 }
 
-// open pushes what is on the screen into the scrollback and draws the
-// layout on a clean screen.
+// open draws the live area where the cursor is, below what the terminal
+// showed before.
 func (u *ui) open() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
 	u.measure()
-
-	fmt.Fprint(u.out, strings.Repeat("\r\n", u.height), pasteOn)
-	u.layout(1)
+	fmt.Fprint(u.screen.out, pasteOn)
+	u.footer()
 }
 
 // close gives the terminal back as an ordinary one, below the conversation.
@@ -185,42 +209,92 @@ func (u *ui) close() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	fmt.Fprintf(u.out, "%s%s%s[%d;1H%s%s[%d;1H%s", pasteOff, resetRegion, escape, u.height-1, clearLine, escape, u.height, clearLine)
-	fmt.Fprintf(u.out, "%s[%d;1H", escape, u.height-1)
+	u.flush()
+	u.screen.clear()
+	fmt.Fprint(u.screen.out, pasteOff)
 }
 
 func (u *ui) resize() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	u.measure()
-	u.layout(u.height - 2)
-	u.midLine = false
-}
-
-func (u *ui) measure() {
-	width, height, err := term.GetSize(int(os.Stdout.Fd()))
-
-	if err != nil || width < 20 || height < 5 {
-		width, height = 80, 24
-	}
-
-	u.width, u.height = width, height
-}
-
-// layout confines scrolling to the rows above the footer and puts the output
-// cursor on row. The terminal keeps what scrolls off the top.
-func (u *ui) layout(row int) {
-	fmt.Fprintf(u.out, "%s[1;%dr%s[%d;1H%s", escape, u.height-2, escape, row, saveCursor)
+	width, height := size()
+	u.screen.resized(width, height)
 	u.footer()
 }
 
-// footer redraws the status bar and the input line, and leaves the cursor
-// where it is in the input.
+func (u *ui) measure() {
+	u.screen.width, u.screen.height = size()
+}
+
+func size() (int, int) {
+	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+
+	if err != nil || width < 20 || height < 5 {
+		return 80, 24
+	}
+
+	return width, height
+}
+
+// maxInputRows is how many rows the input may take before it scrolls.
+func (u *ui) maxInputRows() int {
+	return max(min(10, u.screen.height/3), 1)
+}
+
+// footer draws the live area again.
 func (u *ui) footer() {
+	u.paint("")
+}
+
+// paint writes done, which goes into the scrollback, and draws the live
+// area under it: what the model is writing, the menu, the input, and the
+// status bar.
+func (u *ui) paint(done string) {
+	width := u.screen.width
+	var rows []string
+
+	// A long line still being written shows its end.
+	if u.partial != "" {
+		written := wrap(u.partial, width-1)
+		rows = append(rows, written[max(len(written)-u.maxInputRows(), 0):]...)
+	}
+
+	if u.menu != nil {
+		rows = append(rows, u.menu.rows(width)...)
+	}
+
+	room := width - len([]rune(prompt))
+	masked := u.question != nil && u.question.secret
+	typed, row, column := u.input.view(room, u.maxInputRows(), masked)
+	top := len(rows)
+
+	for index, text := range typed {
+		lead := strings.Repeat(" ", len([]rune(prompt)))
+
+		if index == 0 && u.input.offset == 0 {
+			lead = styleBold + prompt + styleReset
+		}
+
+		rows = append(rows, lead+text)
+	}
+
+	rows = append(rows, u.status(width))
+
+	u.screen.paint(done, rows, top+row, len([]rune(prompt))+column)
+}
+
+// status is the status bar.
+func (u *ui) status(width int) string {
 	state := "ready"
 
 	switch {
+	case u.searching:
+		state = fmt.Sprintf("search: %s  (Ctrl-R older, Enter takes it, Escape leaves)", u.query)
+
+		if u.found < 0 && u.query != "" {
+			state = fmt.Sprintf("search: %s  (nothing holds it)", u.query)
+		}
 	case u.question != nil && u.question.secret:
 		state = "type the answer, which is not shown; Enter sends it, Ctrl-C gives up"
 	case u.question != nil:
@@ -231,13 +305,6 @@ func (u *ui) footer() {
 		state = "working (Ctrl-C cancels)"
 	case u.asking:
 		state = "waiting for the answer"
-	}
-
-	// While a command is being typed, the bar shows what it could become.
-	if typed := u.input.String(); strings.HasPrefix(typed, "/") && !strings.Contains(typed, " ") {
-		if matches := narrow(u.commandNames(), typed); len(matches) > 0 {
-			state = "Tab: " + suggest(matches)
-		}
 	}
 
 	if u.notice != "" {
@@ -258,38 +325,41 @@ func (u *ui) footer() {
 		status += " | " + context
 	}
 
-	status = fit(status+" | "+u.usage.String(), u.width)
-	status += strings.Repeat(" ", u.width-len([]rune(status)))
-
-	// A line wider than the screen shows the part around the cursor.
-	room := u.width - len([]rune(prompt))
-	visible, column := u.input.view(room, u.question != nil && u.question.secret)
-
-	fmt.Fprintf(u.out, "%s[%d;1H%s%s%s", escape, u.height-1, styleReverse, status, styleReset)
-	fmt.Fprintf(u.out, "%s[%d;1H%s%s%s", escape, u.height, clearLine, prompt, visible)
-	fmt.Fprintf(u.out, "%s[%d;%dH", escape, u.height, len([]rune(prompt))+column+1)
+	return styleReverse + pad(cut(status+" | "+u.usage.String(), width), width) + styleReset
 }
 
-// write adds text to the conversation at the output cursor.
+// write adds text the model wrote to the conversation. Whole lines go into
+// the scrollback; the rest waits in the live area for the line to end.
 func (u *ui) write(text string) {
-	if text == "" {
-		return
+	u.partial += text
+	done := ""
+
+	if end := strings.LastIndexByte(u.partial, '\n'); end >= 0 {
+		done, u.partial = u.partial[:end+1], u.partial[end+1:]
 	}
 
-	fmt.Fprint(u.out, loadCursor, strings.ReplaceAll(text, "\n", "\r\n"), saveCursor)
-	u.midLine = !strings.HasSuffix(text, "\n")
-	u.footer()
+	u.paint(done)
 }
 
-// line adds a styled line of its own to the conversation.
+// line adds a styled line of its own to the conversation, after what the
+// model was writing.
 func (u *ui) line(style, text string) {
-	lead := ""
+	done := ""
 
-	if u.midLine {
-		lead = "\n"
+	if u.partial != "" {
+		done, u.partial = u.partial+"\n", ""
 	}
 
-	u.write(lead + style + text + styleReset + "\n")
+	u.paint(done + style + text + styleReset + "\n")
+}
+
+// flush ends the line the model was writing, if there is one.
+func (u *ui) flush() {
+	if u.partial != "" {
+		done := u.partial + "\n"
+		u.partial = ""
+		u.paint(done)
+	}
 }
 
 // show renders one event of a run.
@@ -375,7 +445,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 	u.here = started
 	u.notice = ""
 	u.input.clear()
-	u.line(styleBold, "\n"+prompt+label)
+	u.line(styleBold, "\n"+echoed(label))
 	u.mu.Unlock()
 
 	u.wait.Go(func() {
@@ -427,6 +497,7 @@ func (u *ui) end(done *job, result protocol.RunResult, err error) {
 
 	u.here = nil
 	u.notice = ""
+	u.flush()
 
 	switch {
 	case err != nil:
@@ -500,7 +571,7 @@ func (u *ui) steer(text string) {
 
 		switch {
 		case err == nil:
-			u.line(styleBold, "\n"+prompt+text)
+			u.line(styleBold, "\n"+echoed(text))
 		case u.input.empty():
 			u.line(styleRed, err.Error())
 			u.input.set(text)
@@ -512,140 +583,122 @@ func (u *ui) steer(text string) {
 	})
 }
 
-// readKeys edits the input line until the user quits or stdin ends.
+// readKeys edits the input until the user quits or stdin ends.
 func (u *ui) readKeys(keys *bufio.Reader) {
 	pasting := false
 
 	for {
-		key, _, err := keys.ReadRune()
+		pressed, err := readKey(keys)
 
 		if err != nil {
 			u.conn.Cancel()
 			return
 		}
 
-		if key == 0x1b {
-			sequence, err := readSequence(keys)
-
-			if err != nil {
-				return
-			}
-
-			switch sequence {
-			case "[200~":
-				pasting = true
-			case "[201~":
-				pasting = false
-
-			// Up and Down move through what was entered, as Ctrl-P and
-			// Ctrl-N do.
-			case "[A", "OA":
-				u.key(0x10)
-			case "[B", "OB":
-				u.key(0x0e)
-
-			// Left, Right, Home, and End move in the line, as Ctrl-B,
-			// Ctrl-F, Ctrl-A, and Ctrl-E do.
-			case "[D", "OD":
-				u.key(0x02)
-			case "[C", "OC":
-				u.key(0x06)
-			case "[H", "OH", "[1~", "[7~":
-				u.key(0x01)
-			case "[F", "OF", "[4~", "[8~":
-				u.key(0x05)
-
-			case "[3~": // Delete.
-				u.edit((*inputLine).remove)
-
-			// With Ctrl or Alt, Left and Right move by words, as Alt-B
-			// and Alt-F do.
-			case "[1;5D", "[1;3D", "b":
-				u.edit((*inputLine).wordLeft)
-			case "[1;5C", "[1;3C", "f":
-				u.edit((*inputLine).wordRight)
-			}
-
+		switch {
+		case pressed.name == keyPasteStart:
+			pasting = true
 			continue
+		case pressed.name == keyPasteEnd:
+			pasting = false
+			continue
+
+		// What is pasted is text, its line breaks and tabs included: none
+		// of it sends or completes anything.
+		case pasting && (pressed.r == '\r' || pressed.r == '\n'):
+			pressed = key{name: keyNewline}
+		case pasting && pressed.r == '\t':
+			pressed = key{r: ' '}
 		}
 
-		// A pasted line break is part of the text, not a submit.
-		if pasting && (key == '\r' || key == '\n') {
-			key = ' '
-		}
-
-		if !u.key(key) {
+		if !u.press(pressed) {
 			return
 		}
 	}
 }
 
-// edit changes the input line, for keys that do nothing else.
-func (u *ui) edit(change func(*inputLine)) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-
-	change(&u.input)
-	u.notice = ""
-	u.footer()
-}
-
-// key applies one key press and reports whether to keep running.
-func (u *ui) key(key rune) bool {
+// press applies one key and reports whether to keep running.
+func (u *ui) press(pressed key) bool {
 	u.mu.Lock()
 
-	switch key {
-	case '\r', '\n':
-		// The line answers what a function asked, when it asked something.
-		if asked := u.question; asked != nil {
-			u.answer(asked)
-			u.mu.Unlock()
-
-			return true
-		}
-
-		line, running := strings.TrimSpace(u.input.String()), u.here != nil
-
-		// The answer to a confirmation is not worth bringing back.
-		if line != "" && u.pending == nil {
-			u.remember(line)
-		}
-
-		u.mu.Unlock()
-
-		switch {
-		case u.confirm(line):
-		case isCommand(line):
-			u.command(line)
-		case line != "" && running:
-			u.steer(line)
-		case line != "":
-			u.submit(line)
-		}
-
-		return true
-
-	case '\t': // Tab: complete a command or its argument.
-		line := u.input.String()
-		answering := u.question != nil
-		u.mu.Unlock()
-
-		if !strings.HasPrefix(line, "/") || answering {
-			return true
-		}
-
-		// Completing may ask the host for values, so it runs unlocked.
-		completed, hint := u.complete(line)
-
-		u.mu.Lock()
-		u.input.set(completed)
-		u.notice = hint
-		u.footer()
+	if u.searching {
+		u.searchKey(pressed)
 		u.mu.Unlock()
 
 		return true
+	}
 
-	case 0x03: // Ctrl-C: cancel the function or the run here, else clear the input, else quit.
+	open := u.menu != nil && len(u.menu.shown) > 0
+	before := u.input.String()
+	browsed := false
+
+	switch {
+	case pressed.r == '\r':
+		return u.enter(open)
+
+	case pressed.name == keyNewline, pressed.r == '\n': // Alt-Enter, Shift-Enter, or Ctrl-J.
+		u.input.insert('\n')
+
+	case pressed.r == '\t':
+		if open {
+			u.take()
+		} else {
+			// Tab opens the menu Escape closed.
+			u.dismissed = false
+		}
+
+	case pressed.name == keyBackTab && open:
+		u.menu.move(-1)
+
+	case pressed.name == keyUp && open:
+		u.menu.move(-1)
+
+	case pressed.name == keyDown && open:
+		u.menu.move(1)
+
+	case pressed.name == keyPageUp && open:
+		u.menu.move(-maxChoices)
+
+	case pressed.name == keyPageDown && open:
+		u.menu.move(maxChoices)
+
+	// Up and Down go through the rows of what is typed, and past its first
+	// or last row through what was entered before.
+	case pressed.name == keyUp:
+		if !u.input.up() {
+			browsed = u.recall(-1)
+		}
+
+	case pressed.name == keyDown:
+		if !u.input.down() {
+			browsed = u.recall(1)
+		}
+
+	case pressed.name == keyEscape:
+		u.menu, u.dismissed = nil, true
+
+	case pressed.name == keyLeft, pressed.r == 0x02: // Left, or Ctrl-B.
+		u.input.left()
+
+	case pressed.name == keyRight, pressed.r == 0x06: // Right, or Ctrl-F.
+		u.input.right()
+
+	case pressed.name == keyHome, pressed.r == 0x01: // Home, or Ctrl-A: to the start of the line.
+		u.input.home()
+
+	case pressed.name == keyEnd, pressed.r == 0x05: // End, or Ctrl-E: to the end of the line.
+		u.input.end()
+
+	case pressed.name == keyWordLeft:
+		u.input.wordLeft()
+
+	case pressed.name == keyWordRight:
+		u.input.wordRight()
+
+	case pressed.name == keyDelete:
+		u.input.remove()
+
+	case pressed.r == 0x03: // Ctrl-C: give up the function or cancel the run here, else clear the input, else quit.
 		switch {
 		case u.invoking != 0:
 			u.conn.CancelInvoke(u.invoking)
@@ -662,7 +715,7 @@ func (u *ui) key(key rune) bool {
 			return false
 		}
 
-	case 0x04: // Ctrl-D: quit on an empty line, else delete under the cursor.
+	case pressed.r == 0x04: // Ctrl-D: quit on an empty line, else delete under the cursor.
 		if u.input.empty() {
 			u.mu.Unlock()
 			u.conn.Cancel()
@@ -672,136 +725,181 @@ func (u *ui) key(key rune) bool {
 
 		u.input.remove()
 
-	case 0x7f, 0x08: // Backspace.
+	case pressed.r == 0x7f, pressed.r == 0x08: // Backspace.
 		u.input.backspace()
 
-	case 0x01: // Ctrl-A, or Home: to the start of the line.
-		u.input.home()
-
-	case 0x05: // Ctrl-E, or End: to the end of the line.
-		u.input.end()
-
-	case 0x02: // Ctrl-B, or Left.
-		u.input.left()
-
-	case 0x06: // Ctrl-F, or Right.
-		u.input.right()
-
-	case 0x15: // Ctrl-U: delete to the start of the line.
+	case pressed.r == 0x15: // Ctrl-U: delete to the start of the line.
 		u.input.killStart()
 
-	case 0x0b: // Ctrl-K: delete to the end of the line.
+	case pressed.r == 0x0b: // Ctrl-K: delete to the end of the line.
 		u.input.killEnd()
 
-	case 0x17: // Ctrl-W: delete the word before the cursor.
+	case pressed.r == 0x17: // Ctrl-W: delete the word before the cursor.
 		u.input.deleteWord()
 
-	case 0x0c: // Ctrl-L: redraw.
+	case pressed.r == 0x12: // Ctrl-R: look back through what was entered.
+		u.searching, u.query, u.found, u.before = true, "", len(u.history.entries), u.input.String()
+		u.menu = nil
+
+	case pressed.r == 0x0c: // Ctrl-L: start the screen again, the conversation kept in the scrollback.
 		u.measure()
-		u.layout(u.height - 2)
-		u.midLine = false
+		u.screen.fresh()
 
-	case 0x10: // Ctrl-P, or Up: the line entered before.
-		u.recall(-1)
+	case pressed.r == 0x10: // Ctrl-P: the line entered before.
+		browsed = u.recall(-1)
 
-	case 0x0e: // Ctrl-N, or Down: the line entered after, or the one being typed.
-		u.recall(1)
+	case pressed.r == 0x0e: // Ctrl-N: the line entered after, or the one being typed.
+		browsed = u.recall(1)
 
-	default:
-		if key >= 0x20 {
-			u.input.insert(key)
-		}
+	case pressed.name == "" && pressed.r >= 0x20:
+		u.input.insert(pressed.r)
+	}
+
+	// The menu follows what is typed, and comes back once it changes. A
+	// command brought back from the history opens none, so Up and Down go
+	// on through the history.
+	switch {
+	case browsed:
+		u.dismissed = true
+	case u.input.String() != before:
+		u.dismissed = false
 	}
 
 	u.notice = ""
+	u.refreshMenu()
 	u.footer()
 	u.mu.Unlock()
 
 	return true
 }
 
-// remember adds a line that was entered to the history, unless it repeats
-// the one before, and leaves the history at its end. The caller holds the
-// lock.
-func (u *ui) remember(line string) {
-	if last := len(u.history) - 1; last < 0 || u.history[last] != line {
-		u.history = append(u.history, line)
+// enter sends what is typed: the answer to what a function asked, a
+// command, or a task, which goes to the run in progress when there is one.
+// With the menu open on a choice that is not typed yet, it takes the choice
+// first, and sends the line only when the command needs nothing more. The
+// caller holds the lock, which enter lets go of.
+func (u *ui) enter(open bool) bool {
+	// The line answers what a function asked, when it asked something.
+	if asked := u.question; asked != nil {
+		u.answer(asked)
+		u.mu.Unlock()
+
+		return true
 	}
 
-	u.recalled = len(u.history)
-	u.draft = ""
+	if open {
+		_, token := splitLast(u.input.String())
+
+		if chosen, ok := u.menu.current(); ok && chosen.value != token {
+			u.take()
+
+			if u.needsMore(u.input.String()) {
+				u.refreshMenu()
+				u.footer()
+				u.mu.Unlock()
+
+				return true
+			}
+		}
+	}
+
+	line, running := strings.TrimSpace(u.input.String()), u.here != nil
+
+	// The answer to a confirmation is not worth bringing back.
+	if line != "" && u.pending == nil {
+		u.history.add(line)
+	}
+
+	u.menu = nil
+	u.mu.Unlock()
+
+	switch {
+	case u.confirm(line):
+	case isCommand(line):
+		u.command(line)
+	case line != "" && running:
+		u.steer(line)
+	case line != "":
+		u.submit(line)
+	}
+
+	return true
 }
 
-// recall puts another line of the history in the input: an older one for a
-// step back, a newer one for a step forward, and past the newest what was
-// being typed. The caller holds the lock.
-func (u *ui) recall(step int) {
-	next := u.recalled + step
+// take puts the choice selected in the menu in place of the word being
+// typed. The caller holds the lock.
+func (u *ui) take() {
+	chosen, ok := u.menu.current()
 
-	if next < 0 || next > len(u.history) {
+	if !ok {
 		return
 	}
 
-	if u.recalled == len(u.history) {
-		u.draft = u.input.String()
-	}
-
-	u.recalled = next
-
-	if next == len(u.history) {
-		u.input.set(u.draft)
-	} else {
-		u.input.set(u.history[next])
-	}
+	head, _ := splitLast(u.input.String())
+	u.input.set(head + chosen.value + " ")
 }
 
-// readSequence consumes the rest of an escape sequence, so arrow keys and
-// the like do not end up in the input as text. Alt-B and Alt-F come as the
-// letter alone.
-func readSequence(keys *bufio.Reader) (string, error) {
-	first, _, err := keys.ReadRune()
-
-	if err != nil {
-		return "", err
-	}
-
-	if first == 'b' || first == 'f' {
-		return string(first), nil
-	}
-
-	if first != '[' && first != 'O' {
-		return "", keys.UnreadRune()
-	}
-
-	var sequence strings.Builder
-	sequence.WriteString(string(first))
-
-	for {
-		next, _, err := keys.ReadRune()
-
-		if err != nil {
-			return "", err
-		}
-
-		sequence.WriteString(string(next))
-
-		if next >= 0x40 && next <= 0x7e {
-			return sequence.String(), nil
-		}
-
-		if len(sequence.String()) > 32 {
-			return "", errors.New("escape sequence too long")
+// searchKey applies a key while Ctrl-R looks back through the history: what
+// is typed narrows it, Ctrl-R goes further back, Enter takes the entry
+// found into the input, and Escape leaves it as it was. Any other key takes
+// the entry too. The caller holds the lock.
+func (u *ui) searchKey(pressed key) {
+	look := func(from int) {
+		if entry, index := u.history.search(u.query, from); index >= 0 {
+			u.found = index
+			u.input.set(entry)
+		} else {
+			u.found = -1
 		}
 	}
+
+	switch {
+	case pressed.name == "" && pressed.r >= 0x20:
+		u.query += string(pressed.r)
+		look(len(u.history.entries))
+
+	case pressed.r == 0x7f || pressed.r == 0x08:
+		if runes := []rune(u.query); len(runes) > 0 {
+			u.query = string(runes[:len(runes)-1])
+		}
+
+		look(len(u.history.entries))
+
+	case pressed.r == 0x12:
+		if u.found > 0 {
+			look(u.found)
+		}
+
+	case pressed.name == keyEscape, pressed.r == 0x07, pressed.r == 0x03:
+		u.input.set(u.before)
+		u.searching = false
+
+	// What is taken from the history opens no menu until it is edited.
+	default:
+		u.searching, u.dismissed = false, true
+	}
+
+	u.footer()
 }
 
-// fit shortens text to width columns.
-func fit(text string, width int) string {
-	runes := []rune(text)
+// recall puts another line of the history in the input, and reports
+// whether there was one. The caller holds the lock.
+func (u *ui) recall(step int) bool {
+	line, ok := u.history.recall(step, u.input.String())
 
-	if len(runes) <= width {
-		return text
+	if ok {
+		u.input.set(line)
 	}
 
-	return string(runes[:width-1]) + "…"
+	return ok
+}
+
+// edit changes the input, for keys that do nothing else.
+func (u *ui) edit(change func(*inputLine)) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	change(&u.input)
+	u.notice = ""
+	u.footer()
 }

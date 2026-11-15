@@ -83,7 +83,7 @@ func (u *ui) work(label string, do func() (answer, error)) {
 	u.asking = true
 	u.notice = ""
 	u.input.clear()
-	u.line(styleBold, "\n"+prompt+label)
+	u.line(styleBold, "\n"+echoed(label))
 	u.mu.Unlock()
 
 	u.wait.Add(1)
@@ -208,10 +208,23 @@ func (u *ui) describe() (protocol.DescribeResult, error) {
 	}
 
 	u.mu.Lock()
-	u.described = &described
+	u.learned(described)
 	u.mu.Unlock()
 
 	return described, nil
+}
+
+// learned keeps what the provider offers, and rebuilds a menu of commands
+// opened before it was known, so the provider's are in it. The caller holds
+// the lock.
+func (u *ui) learned(described protocol.DescribeResult) {
+	u.described = &described
+
+	if u.menu != nil && u.menu.head == "" {
+		u.menu = nil
+		u.refreshMenu()
+		u.footer()
+	}
 }
 
 // groupTitles say what each group of the host's functions acts on.
@@ -276,7 +289,9 @@ func (u *ui) help() string {
 	}
 
 	fmt.Fprintf(&out, "\n%-28s %s\n", commandHelp, "Show this list")
-	out.WriteString("Tab completes a command and its arguments. Up and Down bring back what you entered before. Anything else you type is a task.")
+	out.WriteString("A slash opens a menu of the commands, and after one, of what it takes: Up and Down choose, Tab or Enter take, Escape closes it.\n")
+	out.WriteString("Enter sends; Alt-Enter, Shift-Enter, or Ctrl-J starts a new line. Up and Down go through the lines typed, and past them through what you entered before, which Ctrl-R searches.\n")
+	out.WriteString("Anything that is not a command is a task.")
 
 	return out.String()
 }
@@ -345,9 +360,11 @@ func (u *ui) host(function protocol.Function, params json.RawMessage) (answer, e
 
 	u.mu.Lock()
 
-	// What is known of the provider was for the provider that was in use.
+	// What is known of the provider was for the provider that was in use,
+	// and the new one is asked at once, for its commands.
 	if result.State.Provider != u.info.Provider {
 		u.described = nil
+		u.wait.Go(func() { _, _ = u.describe() })
 	}
 
 	u.info.Provider, u.info.Model, u.info.Dir = result.State.Provider, result.State.Model, result.State.Dir
@@ -458,7 +475,7 @@ func (u *ui) answer(asked *question) {
 
 	u.question = nil
 	u.input.clear()
-	u.line(styleBold, "\n"+prompt+shown)
+	u.line(styleBold, "\n"+echoed(shown))
 	asked.answer <- text
 }
 

@@ -41,13 +41,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
     text values, and they cannot report progress while they work, which
     `compact` would use.
 
-### Terminal UI
-
-53. **Completion shows values, not what they are.** After `/open`, Tab lists
-    session ids without their titles, because the status bar has one line.
-54. **The input is a single line.** Its history lasts as long as the
-    terminal UI.
-
 ### Concurrency
 
 The owner decided what this covers: these, in this order.

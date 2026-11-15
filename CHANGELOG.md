@@ -5,6 +5,22 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Terminal UI
+
+- It draws inline, below what the terminal showed before, instead of
+  taking the whole screen: the conversation goes into the terminal's
+  scrollback, and only the part still changing is drawn again.
+- A slash opens a menu of the commands with what each does, and then of
+  what each takes, with what describes every value, such as a session's
+  title. It narrows as you type, by value or description; Tab or Enter take
+  a choice, and Enter on a command that needs nothing more sends it.
+- The input takes several lines: Alt-Enter, Shift-Enter, or Ctrl-J starts
+  a new one, and pasted text keeps its line breaks.
+- Up and Down bring back what you asked in any session of the project, not
+  only in this start, and Ctrl-R searches it. It comes from the sessions
+  themselves, so deleting a session removes it from there too; commands
+  are remembered until the terminal UI quits.
+
 ### Sessions
 
 - A session can branch: `/branch` goes on in a new session that starts

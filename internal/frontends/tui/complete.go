@@ -11,91 +11,147 @@ import (
 // Completion works from the same descriptions the commands do. A command's
 // name is completed from the functions the host and the provider described,
 // and an argument from what its parameter says it accepts: fixed values, or
-// the function that lists them, so /open completes sessions and /use
-// completes providers without this file knowing either.
+// the function that lists them, so /open offers sessions with their titles
+// and /use offers providers without this file knowing either.
 
-// maxSuggested bounds how many candidates the status bar lists.
-const maxSuggested = 12
+// refreshMenu works out the menu for what is typed: commands while the
+// first word is, and then the values of the parameter the word being typed
+// is for. Values a function has to list are asked for in the background,
+// and the menu shows them when they come. The caller holds the lock.
+func (u *ui) refreshMenu() {
+	line := u.input.String()
 
-// complete returns the input line after a Tab, and a hint to show: the
-// candidates when there are several, or why there are none.
-func (u *ui) complete(line string) (completed, hint string) {
+	if u.dismissed || u.question != nil || u.searching || !isCommandStart(line) {
+		u.menu = nil
+		return
+	}
+
 	head, token := splitLast(line)
 
-	candidates, hint := u.candidates(head)
+	// The selection stays where Up and Down took it until the word changes.
+	if u.menu != nil && u.menu.head == head {
+		if !u.menu.loading && u.menu.token != token {
+			u.menu.filter(token)
+		}
 
-	if hint != "" {
-		return line, hint
+		return
 	}
 
-	matches := narrow(candidates, token)
+	asked := &menu{head: head}
+	u.menu = asked
 
-	switch len(matches) {
-	case 0:
-		return line, "no completion for " + token
+	if head == "" {
+		asked.choices = u.commandChoices()
+		asked.filter(token)
 
-	case 1:
-		return head + matches[0] + " ", ""
+		return
 	}
 
-	return head + commonPrefix(matches), suggest(matches)
-}
+	asked.loading = true
 
-// candidates returns what could come after head, which is everything up to
-// the word being typed.
-func (u *ui) candidates(head string) (candidates []string, hint string) {
-	words := strings.Fields(head)
+	u.wait.Go(func() {
+		choices, hint := u.offer(head)
 
-	if len(words) == 0 {
 		u.mu.Lock()
 		defer u.mu.Unlock()
 
-		return u.commandNames(), ""
-	}
-
-	position := len(words) - 1
-	name := strings.TrimPrefix(words[0], "/")
-
-	if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
-		param, found := parameter(u.info.Functions[index], position)
-
-		if !found {
-			return nil, ""
+		// The input may have moved on to another menu meanwhile.
+		if u.menu != asked {
+			return
 		}
 
-		return u.accepts(param, protocol.TargetHost)
-	}
+		_, token := splitLast(u.input.String())
 
-	if words[0] == commandHelp || words[0] == commandOptions {
+		asked.loading, asked.choices, asked.hint = false, choices, hint
+		asked.filter(token)
+		u.footer()
+	})
+}
+
+// isCommandStart reports whether line is a command being typed: a slash, a
+// word, and maybe its arguments, all on one line.
+func isCommandStart(line string) bool {
+	name, _, _ := strings.Cut(line, " ")
+
+	return !strings.Contains(line, "\n") && (name == "/" || commandName.MatchString(name))
+}
+
+// offer returns what the word after head can be, with what describes each,
+// or a hint saying why there is nothing to offer. It may ask the host or
+// the provider, so it runs without the lock.
+func (u *ui) offer(head string) (choices []choice, hint string) {
+	words := strings.Fields(head)
+	position := len(words) - 1
+
+	function, target, found := u.function(words[0])
+
+	if !found {
 		return nil, ""
 	}
 
-	// Everything else is about the provider, which has to be asked.
-	described, err := u.describe()
+	if position >= len(function.Params) {
+		return nil, ""
+	}
 
-	if err != nil {
-		return nil, err.Error()
+	return u.values(function.Params[position], target)
+}
+
+// function finds what a command names: a function of the host, or one of
+// the provider, which has to be asked what it offers.
+func (u *ui) function(command string) (protocol.Function, string, bool) {
+	name := strings.TrimPrefix(command, "/")
+
+	u.mu.Lock()
+	index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name })
+	u.mu.Unlock()
+
+	// The host's come first, as they do when a command runs.
+	if index >= 0 && command != commandOptions {
+		return u.info.Functions[index], protocol.TargetHost, true
+	}
+
+	if command == commandHelp || command == commandOptions {
+		return protocol.Function{}, "", false
+	}
+
+	// What the provider offers is asked once, and again when it changes.
+	u.mu.Lock()
+	described := u.described
+	u.mu.Unlock()
+
+	if described == nil {
+		asked, err := u.describe()
+
+		if err != nil {
+			return protocol.Function{}, "", false
+		}
+
+		described = &asked
 	}
 
 	if index := slices.IndexFunc(described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
-		if param, found := parameter(described.Offers.Functions[index], position); found {
-			return u.accepts(param, protocol.TargetProvider)
-		}
+		return described.Offers.Functions[index], protocol.TargetProvider, true
 	}
 
-	return nil, ""
+	return protocol.Function{}, "", false
 }
 
-// accepts returns the values an option takes, asking its function for them
-// when it names one. target says whose function that is. When the function
-// cannot answer, the hint says why.
-func (u *ui) accepts(option protocol.Option, target string) (values []string, hint string) {
+// values returns what an option takes, asking its function when it names
+// one; target says whose function that is. When the function cannot
+// answer, the hint says why.
+func (u *ui) values(option protocol.Option, target string) ([]choice, string) {
 	if option.Type == protocol.OptionBoolean {
-		return []string{"true", "false"}, ""
+		return []choice{{value: "true"}, {value: "false"}}, ""
 	}
 
 	if option.Values == "" {
-		return option.Enum, ""
+		choices := make([]choice, len(option.Enum))
+
+		for index, value := range option.Enum {
+			choices[index] = choice{value: value}
+		}
+
+		return choices, ""
 	}
 
 	var listed []protocol.Value
@@ -120,44 +176,75 @@ func (u *ui) accepts(option protocol.Option, target string) (values []string, hi
 		listed = result.Values
 	}
 
-	values = make([]string, len(listed))
+	choices := make([]choice, len(listed))
 
 	for index, value := range listed {
-		values[index] = value.Value
+		choices[index] = choice{value: value.Value, label: value.Label, description: value.Description}
 	}
 
-	return values, ""
+	return choices, ""
 }
 
-// commandNames returns every command known without asking anyone: the
-// front end's own, the host's, and the provider's once it has been
-// described. The caller holds the lock.
-func (u *ui) commandNames() []string {
-	names := []string{commandHelp, commandOptions}
+// commandChoices returns every command known without asking anyone, with
+// what each does: the front end's own, the host's, and the provider's once
+// it has been described. The caller holds the lock.
+func (u *ui) commandChoices() []choice {
+	choices := []choice{
+		{value: commandHelp, description: "Show every command"},
+		{value: commandOptions, description: "Show what the provider offers, and the values in force in this session"},
+	}
 
 	for _, function := range u.info.Functions {
-		names = append(names, "/"+function.Name)
+		choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
 	}
 
 	if u.described != nil {
 		for _, function := range u.described.Offers.Functions {
-			if name := "/" + function.Name; !slices.Contains(names, name) {
-				names = append(names, name)
+			name := "/" + function.Name
+
+			if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == name }) {
+				choices = append(choices, choice{value: name, description: function.Description})
 			}
 		}
 	}
 
-	slices.Sort(names)
+	slices.SortFunc(choices, func(a, b choice) int { return strings.Compare(a.value, b.value) })
 
-	return names
+	return choices
 }
 
-func parameter(function protocol.Function, position int) (protocol.Option, bool) {
-	if position < 0 || position >= len(function.Params) {
-		return protocol.Option{}, false
+// needsMore reports whether a command line still lacks a parameter its
+// function needs, so taking a choice from the menu does not send it yet.
+// It only looks at what is known already. The caller holds the lock.
+func (u *ui) needsMore(line string) bool {
+	words := strings.Fields(line)
+
+	if len(words) == 0 {
+		return false
 	}
 
-	return function.Params[position], true
+	name := strings.TrimPrefix(words[0], "/")
+	functions := u.info.Functions
+
+	if u.described != nil {
+		functions = append(slices.Clone(functions), u.described.Offers.Functions...)
+	}
+
+	index := slices.IndexFunc(functions, func(function protocol.Function) bool { return function.Name == name })
+
+	if index < 0 {
+		return false
+	}
+
+	required := 0
+
+	for _, param := range functions[index].Params {
+		if !param.Optional {
+			required++
+		}
+	}
+
+	return len(words)-1 < required
 }
 
 // splitLast separates the word being typed from what comes before it.
@@ -165,41 +252,4 @@ func splitLast(line string) (head, token string) {
 	index := strings.LastIndexByte(line, ' ')
 
 	return line[:index+1], line[index+1:]
-}
-
-func narrow(candidates []string, token string) []string {
-	var matches []string
-
-	for _, candidate := range candidates {
-		if strings.HasPrefix(candidate, token) {
-			matches = append(matches, candidate)
-		}
-	}
-
-	return matches
-}
-
-// commonPrefix returns what every candidate starts with.
-func commonPrefix(candidates []string) string {
-	prefix := candidates[0]
-
-	for _, candidate := range candidates[1:] {
-		for !strings.HasPrefix(candidate, prefix) {
-			prefix = prefix[:len(prefix)-1]
-		}
-	}
-
-	return prefix
-}
-
-// suggest lists candidates for the status bar.
-func suggest(candidates []string) string {
-	more := ""
-
-	if len(candidates) > maxSuggested {
-		more = " ..."
-		candidates = candidates[:maxSuggested]
-	}
-
-	return strings.Join(candidates, "  ") + more
 }

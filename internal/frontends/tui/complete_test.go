@@ -3,6 +3,8 @@ package tui
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LiasCode/rumbo/protocol"
@@ -21,26 +23,72 @@ func TestOnlyASlashAndAWordIsACommand(t *testing.T) {
 			t.Errorf("isCommand(%q) = %v, want %v", line, got, want)
 		}
 	}
-}
 
-func TestCompletionOfAWord(t *testing.T) {
-	commands := []string{"/help", "/sessions", "/set", "/status"}
+	// The menu opens as soon as a command starts, and not for a path or a
+	// text of several lines.
+	for line, want := range map[string]bool{"/": true, "/op": true, "/open 4c": true, "/etc/hosts x": false, "/help\nmore": false, "fix": false} {
+		if got := isCommandStart(line); got != want {
+			t.Errorf("isCommandStart(%q) = %v, want %v", line, got, want)
+		}
+	}
 
 	if head, token := splitLast("/open 4c"); head != "/open " || token != "4c" {
 		t.Fatalf("splitLast = %q, %q", head, token)
 	}
+}
 
-	if matches := narrow(commands, "/s"); !reflect.DeepEqual(matches, []string{"/sessions", "/set", "/status"}) {
-		t.Fatalf("narrow = %v", matches)
+// The menu keeps the choices whose value starts with what is typed, or
+// whose label holds it, and its selection goes round at either end.
+func TestTheMenuNarrowsAndMoves(t *testing.T) {
+	offered := &menu{choices: []choice{
+		{value: "4cf0261c", label: "fix the parser"},
+		{value: "57ffcc97", label: "write the docs"},
+		{value: "4d1e0a2b", label: "Parse the flags"},
+	}}
+
+	offered.filter("4")
+
+	if len(offered.shown) != 2 || offered.shown[1].value != "4d1e0a2b" {
+		t.Fatalf("by value: %+v", offered.shown)
 	}
 
-	// Several candidates are completed as far as they agree.
-	if prefix := commonPrefix([]string{"/sessions", "/set"}); prefix != "/se" {
-		t.Fatalf("commonPrefix = %q", prefix)
+	offered.filter("pars")
+
+	if len(offered.shown) != 2 || offered.shown[0].value != "4cf0261c" {
+		t.Fatalf("by label: %+v", offered.shown)
 	}
 
-	if prefix := commonPrefix([]string{"claude-opus-5-5", "claude-opus-5"}); prefix != "claude-opus-5" {
-		t.Fatalf("commonPrefix = %q", prefix)
+	offered.move(-1)
+
+	if chosen, _ := offered.current(); chosen.value != "4d1e0a2b" {
+		t.Fatalf("up from the first: %+v", chosen)
+	}
+
+	offered.filter("")
+	rows := offered.rows(30)
+
+	if len(rows) != 3 || !strings.Contains(rows[0], "▸") || visibleWidth(rows[1]) > 30 {
+		t.Fatalf("rows = %q", rows)
+	}
+
+	if (&menu{loading: true}).rows(30)[0] == "" || (&menu{hint: "no provider"}).rows(30) == nil {
+		t.Fatal("a menu waiting for its values, or with none, says nothing")
+	}
+}
+
+// A command taken from the menu is sent at once when its function needs
+// nothing more.
+func TestACommandNeedsWhatItsFunctionRequires(t *testing.T) {
+	u := quiet()
+	u.info.Functions = []protocol.Function{
+		{Name: "status", Params: []protocol.Option{{Name: "session", Optional: true}}},
+		{Name: "open", Params: []protocol.Option{{Name: "session"}}},
+	}
+
+	for line, want := range map[string]bool{"/status ": false, "/open ": true, "/open 4c ": false, "/unknown ": false} {
+		if got := u.needsMore(line); got != want {
+			t.Errorf("needsMore(%q) = %v, want %v", line, got, want)
+		}
 	}
 }
 
@@ -72,5 +120,73 @@ func TestArgumentsFollowTheFunctionsDescription(t *testing.T) {
 
 	if _, err := arguments(function, []string{"many", "true", "x"}); err == nil {
 		t.Fatal("a word was accepted as a number")
+	}
+}
+
+// Up and Down move the selection of an open menu, and Tab takes the one
+// they moved to.
+func TestTheArrowsChooseInTheMenu(t *testing.T) {
+	u := quiet()
+
+	typing(u, "/")
+	u.press(key{name: keyDown})
+
+	if chosen, _ := u.menu.current(); chosen.value != commandOptions {
+		t.Fatalf("after Down the menu is on %q", chosen.value)
+	}
+
+	u.press(key{name: keyUp})
+	u.press(key{name: keyUp})
+
+	if chosen, _ := u.menu.current(); chosen.value != commandOptions {
+		t.Fatalf("after Up twice the menu is on %q", chosen.value)
+	}
+
+	u.press(key{r: '\t'})
+
+	if got := u.input.String(); got != commandOptions+" " {
+		t.Fatalf("Tab took %q", got)
+	}
+}
+
+// A menu of commands opened before the provider said what it offers has the
+// provider's commands once it has.
+func TestTheMenuLearnsTheProvidersCommands(t *testing.T) {
+	u := quiet()
+	u.described = nil
+
+	typing(u, "/")
+	u.learned(protocol.DescribeResult{Offers: protocol.Description{Functions: []protocol.Function{{Name: "greet", Description: "Say hello"}}}})
+
+	if !slices.ContainsFunc(u.menu.shown, func(offered choice) bool { return offered.value == "/greet" }) {
+		t.Fatalf("the menu holds %+v", u.menu.shown)
+	}
+}
+
+// A command brought back from the history opens no menu, so Up goes on
+// further back; typing opens it again.
+func TestARecalledCommandLeavesTheArrowsToTheHistory(t *testing.T) {
+	u := quiet()
+	u.history.add("fix the parser")
+	u.history.add("/help")
+
+	u.press(key{name: keyUp})
+
+	if u.input.String() != "/help" || u.menu != nil {
+		t.Fatalf("after Up: %q, menu %v", u.input.String(), u.menu)
+	}
+
+	u.press(key{name: keyUp})
+
+	if u.input.String() != "fix the parser" {
+		t.Fatalf("after Up twice: %q", u.input.String())
+	}
+
+	u.press(key{name: keyDown})
+	typing(u, " ")
+	u.press(key{r: 0x7f})
+
+	if u.menu == nil {
+		t.Fatal("typing after a recalled command opens no menu")
 	}
 }
