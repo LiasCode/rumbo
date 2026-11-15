@@ -345,7 +345,8 @@ type options struct {
 
 // Complete implements protocol.Handler.
 func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, emit func(text string)) (protocol.CompleteResult, error) {
-	chosen := options{Effort: h.config.Effort}
+	// An option chosen for the request wins over the provider's configuration.
+	var chosen options
 
 	if len(params.Options) > 0 {
 		decoder := json.NewDecoder(bytes.NewReader(params.Options))
@@ -354,6 +355,12 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 		if err := decoder.Decode(&chosen); err != nil {
 			return protocol.CompleteResult{}, fmt.Errorf("invalid options: %w", err)
 		}
+	}
+
+	// An empty effort is none chosen: the host sends the option's default,
+	// "", with every request, which would otherwise hide the configured one.
+	if chosen.Effort == "" {
+		chosen.Effort = h.config.Effort
 	}
 
 	result, err := h.responses.Complete(ctx, params, chosen.Effort, emit)

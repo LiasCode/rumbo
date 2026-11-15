@@ -18,6 +18,11 @@ it. The commits hold the reasons.
   the server that cached its start. Before, about half of the requests of a
   long run missed the cache and were paid for, or counted against a
   ChatGPT plan, in full.
+- The `effort` in a provider's configuration (`rumbo provider config
+  <name> effort=...`) now applies in `anthropic`, `openai`, and `chatgpt`.
+  It was never sent: the empty option every request carries when nothing
+  is chosen replaced it. An effort chosen as an option, or in a session,
+  still wins over it.
 
 ## 0.3.0 (2026-11-15)
 

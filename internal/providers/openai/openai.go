@@ -411,7 +411,7 @@ type options struct {
 // chosen returns the options a request carries, over those of the
 // configuration. One the provider does not describe is an error.
 func (h *Handler) chosen(raw json.RawMessage) (options, error) {
-	chosen := options{Effort: h.config.Effort}
+	var chosen options
 
 	if len(raw) > 0 {
 		decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -420,6 +420,12 @@ func (h *Handler) chosen(raw json.RawMessage) (options, error) {
 		if err := decoder.Decode(&chosen); err != nil {
 			return chosen, fmt.Errorf("invalid options: %w", err)
 		}
+	}
+
+	// An empty effort is none chosen: the host sends the option's default,
+	// "", with every request, which would otherwise hide the configured one.
+	if chosen.Effort == "" {
+		chosen.Effort = h.config.Effort
 	}
 
 	return chosen, nil

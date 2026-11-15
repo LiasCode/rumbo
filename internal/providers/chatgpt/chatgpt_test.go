@@ -422,6 +422,41 @@ func TestRequestsUseThePlanAndRenewTheSignIn(t *testing.T) {
 	}
 }
 
+// The configured effort applies unless the request chooses one. The host
+// sends the option's default, empty, with every request: that is none
+// chosen.
+func TestTheConfiguredEffortApplies(t *testing.T) {
+	f := newFake(t)
+	h := f.handler(t)
+
+	if _, err := h.Initialize(context.Background(), protocol.InitializeParams{Config: json.RawMessage(`{"effort":"low"}`)}); err != nil {
+		t.Fatal(err)
+	}
+
+	h.login(context.Background(), &person{})
+
+	params := protocol.CompleteParams{
+		Model:    "gpt-a",
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "hello"}}}},
+	}
+
+	for index, want := range []struct{ options, sent string }{
+		{``, "low"},
+		{`{"effort":""}`, "low"},
+		{`{"effort":"high"}`, "high"},
+	} {
+		params.Options = json.RawMessage(want.options)
+
+		if _, err := h.Complete(context.Background(), params, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+
+		if reasoning, _ := f.asked[index]["reasoning"].(map[string]any); reasoning["effort"] != want.sent {
+			t.Errorf("options %s: reasoning = %v, want effort %s", want.options, f.asked[index]["reasoning"], want.sent)
+		}
+	}
+}
+
 // A usage limit is the person's to act on: it says where, and is not tried
 // again.
 func TestAUsageLimitSaysWhereToManageIt(t *testing.T) {

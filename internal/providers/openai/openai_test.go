@@ -223,6 +223,8 @@ func TestEffortIsSentAsReasoningEffort(t *testing.T) {
 	}{
 		{"low", "", "low"},
 		{"low", `{"effort":"high"}`, "high"},
+		// The host sends the option's default, empty, with every request.
+		{"low", `{"effort":""}`, "low"},
 		{"", "", nil},
 	} {
 		if sent, err := complete(want.effort, want.chosen); err != nil || sent != want.sent {

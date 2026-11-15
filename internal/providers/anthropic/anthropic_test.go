@@ -217,6 +217,17 @@ func TestDescriptionFunctionsAndOptions(t *testing.T) {
 		t.Fatalf("output_config = %s", sent)
 	}
 
+	// The host sends the option's default, empty, with every request: that
+	// is none chosen, and the configured effort applies.
+	for _, options := range []string{`{"effort":""}`, `{}`, ``} {
+		params.Options = json.RawMessage(options)
+		handler.Complete(context.Background(), params, func(string) {})
+
+		if sent, _ := json.Marshal(completion["output_config"]); string(sent) != `{"effort":"low"}` {
+			t.Fatalf("options %s: output_config = %s", options, sent)
+		}
+	}
+
 	params.Options = json.RawMessage(`{"temperature":2}`)
 
 	if _, err := handler.Complete(context.Background(), params, func(string) {}); err == nil || !strings.Contains(err.Error(), "invalid options") {

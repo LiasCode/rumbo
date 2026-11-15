@@ -363,7 +363,7 @@ func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams,
 	}
 
 	// An option chosen for the request wins over the provider's configuration.
-	chosen := options{Effort: h.config.Effort}
+	var chosen options
 
 	if len(params.Options) > 0 {
 		decoder := json.NewDecoder(bytes.NewReader(params.Options))
@@ -372,6 +372,12 @@ func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams,
 		if err := decoder.Decode(&chosen); err != nil {
 			return request, fmt.Errorf("invalid options: %w", err)
 		}
+	}
+
+	// An empty effort is none chosen: the host sends the option's default,
+	// "", with every request, which would otherwise hide the configured one.
+	if chosen.Effort == "" {
+		chosen.Effort = h.config.Effort
 	}
 
 	if chosen.Effort != "" {
