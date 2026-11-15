@@ -116,6 +116,11 @@ type Store interface {
 
 	Append(sessionID, kind string, payload any) (Entry, error)
 	Entries(sessionID string) ([]Entry, error)
+	// Recent returns the entries of the kinds given in a project's sessions,
+	// most recent first, up to limit. Each payload comes once, at the last
+	// time it was appended, so the copies a branch holds do not repeat it;
+	// its Seq is not set, as it may be in several sessions.
+	Recent(project string, kinds []string, limit int) ([]Entry, error)
 
 	Close() error
 }

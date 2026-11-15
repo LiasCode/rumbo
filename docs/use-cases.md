@@ -286,6 +286,8 @@ speaks the Agent Frontend Protocol with the host.
 - Follow several runs at once, telling their events apart by run and
   session.
 - Show what a session held before it was opened, from its history.
+- Bring back to its input what the person asked in any of the project's
+  sessions, which the host recalls.
 - Tell a run something while it works, and offer it as a new task when the
   run ended first.
 - Cancel one run, or all of them.

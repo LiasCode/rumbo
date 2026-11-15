@@ -35,8 +35,8 @@ Requests are handled in the order they arrive. What reaches a provider is
 answered when it is done, without holding up what comes after it: a `run`
 is accepted in order and answered when it ends, and `describe`, the
 provider's functions, and the host's `compact` and `provider-show` are answered
-when the provider has. A `history` and the host's other functions are
-answered at once, before the request after it. A front end that needs one of those to take effect
+when the provider has. A `history`, a `recall`, and the host's other
+functions are answered at once, before the request after it. A front end that needs one of those to take effect
 before another request waits for its answer.
 
 ## Sessions
@@ -200,6 +200,26 @@ holds nothing yet: its `session` is absent and `events` is empty.
 
 A history asked for before a `run` is answered before the run starts, so
 none of the run's events are missing from it or told twice.
+
+### `recall` (request, front end to host)
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"recall","params":{}}
+```
+
+Asks what the person asked in the project's sessions, so a front end can
+bring it back to its input. The answer holds the objectives and what was
+said to runs while they worked, most recent first, each text once, up to
+the last thousand:
+
+```json
+{"asked": ["and its tests", "fix the failing test"]}
+```
+
+It comes from the sessions themselves: what a deleted session held is gone
+from it too, and the answers to a provider's questions, which are never
+recorded, are never in it. A host without it answers that the method is
+not found, and a front end goes on without.
 
 ### `invoke` (request, front end to host)
 

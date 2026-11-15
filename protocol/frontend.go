@@ -23,6 +23,7 @@ const (
 	MethodEvent    = "event"
 	MethodDescribe = "describe"
 	MethodHistory  = "history"
+	MethodRecall   = "recall"
 )
 
 // When the host starts a front end, the protocol is on these file
@@ -214,6 +215,13 @@ type HistoryResult struct {
 	Events  []Event `json:"events"`
 }
 
+// RecallResult is what the person asked in the project's sessions, most
+// recent first and each once: the objectives, and what was said to runs
+// while they worked. A front end brings it back to its input.
+type RecallResult struct {
+	Asked []string `json:"asked"`
+}
+
 // FrontendConn is the front end's side of the protocol, for front ends
 // written in Go. Its methods may be called from several goroutines at once,
 // so several runs can be in progress, and the host can be asked things
@@ -330,6 +338,14 @@ func (c *FrontendConn) History(session string) (HistoryResult, error) {
 	var result HistoryResult
 
 	return result, c.request(MethodHistory, HistoryParams{Session: session}, &result, nil)
+}
+
+// Recall returns what the person asked in the project's sessions, most
+// recent first.
+func (c *FrontendConn) Recall() (RecallResult, error) {
+	var result RecallResult
+
+	return result, c.request(MethodRecall, struct{}{}, &result, nil)
 }
 
 // Invoke calls a function of the provider and returns its answer as JSON.

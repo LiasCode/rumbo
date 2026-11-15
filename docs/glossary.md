@@ -103,6 +103,10 @@ a tool call, token usage, a log line.
 the runs that made it, plus what the person asked and how each run ended. It
 lets a front end show a session it opens as if it had followed every run.
 
+**Recall.** What the person asked in the project's sessions, objectives and
+steers, newest first and each once, which a front end brings back to its
+input. It is read from the sessions, so it keeps nothing of its own.
+
 **Program.** A registered provider or front end: a name, the command that
 starts it, its start configuration, and for a provider the values of its
 options. Each field and option has a value: the one the user gave, or the

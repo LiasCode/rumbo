@@ -314,6 +314,30 @@ func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, e
 	return told, nil
 }
 
+// recallLimit bounds how much of what the person asked a front end is told.
+const recallLimit = 1000
+
+// recall tells a front end what the person asked in the project's
+// sessions, most recent first and each once, so it can bring it back.
+func (h *host) recall() (protocol.RecallResult, error) {
+	recalled := protocol.RecallResult{Asked: []string{}}
+	entries, err := h.database.Recent(h.root, []string{transcript.KindUser, transcript.KindSteer}, recallLimit)
+
+	if err != nil {
+		return recalled, err
+	}
+
+	for _, entry := range entries {
+		var text transcript.Text
+
+		if json.Unmarshal(entry.Payload, &text) == nil && text.Text != "" {
+			recalled.Asked = append(recalled.Asked, text.Text)
+		}
+	}
+
+	return recalled, nil
+}
+
 // known returns the place of a session of the project, by id. A session
 // this host has not worked in yet uses the provider and the options stored
 // with it, or the provider of the current one when it has none stored. The

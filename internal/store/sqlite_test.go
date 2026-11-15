@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -303,5 +304,71 @@ func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
 
 	if _, err := database.BranchSession("missing", 1); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("branching a session that does not exist: err = %v", err)
+	}
+}
+
+// Recent goes through a project's sessions from the last entry back, keeps
+// the kinds asked for, and gives a payload once, the copies a branch holds
+// included.
+func TestRecentEntriesComeOnceNewestFirst(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "test.db"))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer database.Close()
+
+	first, _ := database.CreateSession("/repo", "/repo", "first")
+	second, _ := database.CreateSession("/repo/pkg", "/repo", "second")
+	other, _ := database.CreateSession("/elsewhere", "/elsewhere", "other project")
+
+	for _, appended := range []struct {
+		session string
+		kind    string
+		text    string
+	}{
+		{first.ID, "user", "fix the parser"},
+		{first.ID, "assistant", "done"},
+		{second.ID, "user", "write the docs"},
+		{second.ID, "steer", "in English"},
+		{other.ID, "user", "not this one"},
+		{first.ID, "user", "fix the parser"},
+	} {
+		// Entries are told apart by the millisecond they were appended in.
+		time.Sleep(2 * time.Millisecond)
+		database.Append(appended.session, appended.kind, map[string]string{"text": appended.text})
+	}
+
+	database.BranchSession(second.ID, 2)
+
+	texts := func(limit int) []string {
+		entries, err := database.Recent("/repo", []string{"user", "steer"}, limit)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var found []string
+
+		for _, entry := range entries {
+			var payload map[string]string
+			json.Unmarshal(entry.Payload, &payload)
+			found = append(found, payload["text"])
+		}
+
+		return found
+	}
+
+	if got, want := texts(10), []string{"fix the parser", "in English", "write the docs"}; !slices.Equal(got, want) {
+		t.Fatalf("recent = %q, want %q", got, want)
+	}
+
+	if got := texts(1); !slices.Equal(got, []string{"fix the parser"}) {
+		t.Fatalf("recent, one = %q", got)
+	}
+
+	if none, err := database.Recent("/repo", nil, 10); err != nil || len(none) != 0 {
+		t.Fatalf("no kinds = %v, err = %v", none, err)
 	}
 }

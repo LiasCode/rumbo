@@ -40,6 +40,8 @@ type Handlers struct {
 	// History tells what a session holds. It is answered in order, so a
 	// front end that asks for it before a run gets it whole.
 	History func(params protocol.HistoryParams) (protocol.HistoryResult, error)
+	// Recall tells what the person asked in the project's sessions.
+	Recall func() (protocol.RecallResult, error)
 }
 
 // Work is an accepted run. It returns the session the run worked in.
@@ -191,6 +193,9 @@ func (c *Conn) Serve(handlers Handlers) error {
 
 		case protocol.MethodHistory:
 			c.history(frame, handlers)
+
+		case protocol.MethodRecall:
+			c.recall(frame, handlers)
 
 		case protocol.MethodDescribe, protocol.MethodInvoke:
 			if c.slow(frame, handlers) {
@@ -395,6 +400,28 @@ func (c *Conn) history(frame protocol.Frame, handlers Handlers) {
 	}
 
 	result, err := handlers.History(params)
+
+	if err != nil {
+		c.fail(frame.ID, protocol.CodeInternal, err.Error())
+		return
+	}
+
+	raw, _ := json.Marshal(result)
+	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
+}
+
+// recall answers what the person asked in the project's sessions.
+func (c *Conn) recall(frame protocol.Frame, handlers Handlers) {
+	switch {
+	case frame.ID == nil:
+		return
+
+	case handlers.Recall == nil:
+		c.fail(frame.ID, protocol.CodeMethodNotFound, "this host keeps nothing to recall")
+		return
+	}
+
+	result, err := handlers.Recall()
 
 	if err != nil {
 		c.fail(frame.ID, protocol.CodeInternal, err.Error())

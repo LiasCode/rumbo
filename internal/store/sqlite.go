@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -621,6 +622,55 @@ func (s *SQLite) Entries(sessionID string) ([]Entry, error) {
 		var createdAt int64
 
 		if err := rows.Scan(&entry.Seq, &entry.Kind, &payload, &createdAt); err != nil {
+			return nil, err
+		}
+
+		entry.Payload = json.RawMessage(payload)
+		entry.CreatedAt = time.UnixMilli(createdAt)
+		entries = append(entries, entry)
+	}
+
+	return entries, rows.Err()
+}
+
+// Recent implements Store.
+func (s *SQLite) Recent(project string, kinds []string, limit int) ([]Entry, error) {
+	if len(kinds) == 0 {
+		return nil, nil
+	}
+
+	args := []any{project}
+
+	for _, kind := range kinds {
+		args = append(args, kind)
+	}
+
+	args = append(args, limit)
+
+	rows, err := s.db.Query(
+		`SELECT entries.kind, entries.payload, MAX(entries.created_at) AS last
+		 FROM entries JOIN sessions ON sessions.id = entries.session_id
+		 WHERE sessions.project = ? AND entries.kind IN (?`+strings.Repeat(", ?", len(kinds)-1)+`)
+		 GROUP BY entries.payload
+		 ORDER BY last DESC
+		 LIMIT ?`,
+		args...,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var entries []Entry
+
+	for rows.Next() {
+		var entry Entry
+		var payload string
+		var createdAt int64
+
+		if err := rows.Scan(&entry.Kind, &payload, &createdAt); err != nil {
 			return nil, err
 		}
 

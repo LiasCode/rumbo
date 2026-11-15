@@ -15,6 +15,14 @@ it. The commits hold the reasons.
 - `/sessions`, `/status`, and `rumbo sessions` say which session a branch
   came from.
 
+### Protocols
+
+The Agent Frontend Protocol stays at version 1, and what is new in it is
+optional.
+
+- A front end can ask the host, with `recall`, what the person asked in the
+  project's sessions, newest first, to bring it back to its input.
+
 ## 0.2.0 (2026-11-15)
 
 Configuration is simpler: the system settings, and over them what each

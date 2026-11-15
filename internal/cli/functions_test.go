@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LiasCode/rumbo/internal/provider"
 	"github.com/LiasCode/rumbo/internal/store"
@@ -527,6 +529,40 @@ func TestHistoryTellsTheSessionAsked(t *testing.T) {
 
 	if _, err := h.history(protocol.HistoryParams{Session: elsewhere.ID}); err == nil || !strings.Contains(err.Error(), "belongs to /other") {
 		t.Fatalf("history of another project's session: err = %v", err)
+	}
+}
+
+// What the person asked in the project's sessions comes back newest first:
+// objectives and steers, and nothing the model said or another project
+// holds.
+func TestRecallTellsWhatThePersonAsked(t *testing.T) {
+	h := testHost(t)
+
+	if recalled, err := h.recall(); err != nil || recalled.Asked == nil || len(recalled.Asked) != 0 {
+		t.Fatalf("recall with no sessions = %#v, err = %v", recalled, err)
+	}
+
+	here, _ := h.database.CreateSession("/repo", "/repo", "here")
+	elsewhere, _ := h.database.CreateSession("/other", "/other", "elsewhere")
+
+	for _, appended := range []struct {
+		session string
+		kind    string
+		payload any
+	}{
+		{here.ID, transcript.KindUser, transcript.Text{Text: "fix the parser"}},
+		{here.ID, transcript.KindAssistant, transcript.Assistant{}},
+		{here.ID, transcript.KindSteer, transcript.Text{Text: "and its tests"}},
+		{elsewhere.ID, transcript.KindUser, transcript.Text{Text: "not here"}},
+	} {
+		time.Sleep(2 * time.Millisecond)
+		h.database.Append(appended.session, appended.kind, appended.payload)
+	}
+
+	recalled, err := h.recall()
+
+	if err != nil || !slices.Equal(recalled.Asked, []string{"and its tests", "fix the parser"}) {
+		t.Fatalf("recall = %q, err = %v", recalled.Asked, err)
 	}
 }
 

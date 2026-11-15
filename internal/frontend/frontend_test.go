@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -415,6 +416,31 @@ func TestHistoryTellsWhatTheHostHolds(t *testing.T) {
 
 	if _, err := front.History("gone"); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("history of a missing session: err = %v", err)
+	}
+}
+
+// A front end asks what the person asked before, and a host that keeps
+// nothing to recall says so.
+func TestRecallTellsWhatWasAsked(t *testing.T) {
+	host, front, _ := connect(t, "")
+
+	go host.Serve(Handlers{
+		Run: working,
+		Recall: func() (protocol.RecallResult, error) {
+			return protocol.RecallResult{Asked: []string{"later", "earlier"}}, nil
+		},
+	})
+
+	if recalled, err := front.Recall(); err != nil || !slices.Equal(recalled.Asked, []string{"later", "earlier"}) {
+		t.Fatalf("recall = %+v, err = %v", recalled, err)
+	}
+
+	other, front, _ := connect(t, "")
+
+	go other.Serve(Handlers{Run: working})
+
+	if _, err := front.Recall(); err == nil || !strings.Contains(err.Error(), "nothing to recall") {
+		t.Fatalf("recall from a host without it: err = %v", err)
 	}
 }
 
