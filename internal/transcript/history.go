@@ -16,9 +16,9 @@ const Compacted = "the conversation was summarized to free the model's context"
 // by, oldest first, so a front end can show a session it opens as if it had
 // followed every run: what the person asked, the model's text, the tools it
 // called and what they returned, the context sent, the tokens spent, the
-// retries, and how each run ended. What only the model sees, such as the
-// system prompt and the harness's instructions, is left out, as it is from
-// a run's events.
+// retries, the requests that missed the provider's cache, and how each run
+// ended. What only the model sees, such as the system prompt and the
+// harness's instructions, is left out, as it is from a run's events.
 func History(entries []store.Entry) ([]protocol.Event, error) {
 	var told history
 
@@ -38,6 +38,9 @@ type history struct {
 	// calls are the tool calls of the last response without a result yet,
 	// in order. Each is told when its result is, as a run tells it.
 	calls []protocol.Block
+	// cache is what the last request left in the provider's cache, to tell
+	// the responses that missed it as a run does.
+	cache Cache
 }
 
 func (h *history) add(entry store.Entry) error {
@@ -46,7 +49,12 @@ func (h *history) add(entry store.Entry) error {
 	}
 
 	switch entry.Kind {
-	case KindSystem, KindHarness:
+	case KindSystem:
+		// An instruction to the model, which runs do not show either. It
+		// changes the start of every request, which the cache held.
+		h.cache = Cache{}
+
+	case KindHarness:
 		// Instructions to the model, which runs do not show either.
 
 	case KindContext:
@@ -103,6 +111,8 @@ func (h *history) add(entry store.Entry) error {
 			Context: usage.Input + usage.CacheRead + usage.CacheWrite + usage.Output,
 			Window:  assistant.Window,
 		})
+		h.missed(assistant.Provider, assistant.Model, usage)
+		h.cache = cached(assistant.Provider, assistant.Model, usage)
 
 	case KindToolResult:
 		var result ToolResult
@@ -147,6 +157,10 @@ func (h *history) add(entry store.Entry) error {
 
 		h.tell(protocol.Event{Type: protocol.EventLog, Text: Compacted, Source: protocol.TargetHost})
 		h.tell(protocol.Event{Type: protocol.EventTurn, Usage: &usage})
+		h.missed(compaction.Provider, compaction.Model, usage)
+
+		// The next request starts over from the summary.
+		h.cache = Cache{}
 
 	default:
 		return fmt.Errorf("unknown kind")
@@ -163,6 +177,14 @@ func (h *history) unanswered() {
 	}
 
 	h.calls = nil
+}
+
+// missed tells a response that did not read all the cache held, as the run
+// that received it did.
+func (h *history) missed(provider, model string, usage protocol.Usage) {
+	if miss := h.cache.Miss(provider, model, usage); miss != "" {
+		h.tell(protocol.Event{Type: protocol.EventLog, Text: miss, Source: protocol.TargetHost})
+	}
 }
 
 func (h *history) tell(event protocol.Event) {

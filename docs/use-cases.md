@@ -61,6 +61,10 @@ nothing and knows no model API.
   dying, telling the model it was interrupted.
 - Retry a request that failed for a passing reason, such as a rate limit, an
   overloaded server, or a provider process that died, with growing pauses.
+- Tell the person when a request missed the provider's cache: when the
+  provider read less of it than the request before left there, under the
+  same provider and model and since the last compaction or new system
+  prompt.
 - Continue a response the output limit cut off.
 - Stop a run after a number of turns.
 - Summarize a session's conversation on request.
@@ -234,7 +238,9 @@ the Agent Provider Protocol on its stdin and stdout.
 - Read the configuration registered with it.
 - Keep what it needs to continue a conversation, such as signed reasoning,
   in opaque blocks the host returns unchanged.
-- Cache the start of requests, which the host keeps stable.
+- Cache the start of requests, which the host keeps stable, and report how
+  much of each it read from the cache and wrote to it, which is how the
+  host tells a request that missed it.
 
 ### Must not
 

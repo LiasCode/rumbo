@@ -53,6 +53,12 @@ to the model.
 
 **Turn.** One request to the provider and its response.
 
+**Cache miss.** A response whose provider read less from its cache than the
+request before left there, as the usage of both says: what the earlier one
+read from the cache and wrote to it is the start the next one repeats. Under
+another provider or model, or after a compaction or a new system prompt,
+the cache holds nothing for the request, and nothing is missed.
+
 **Provider.** A program that produces assistant messages by speaking the Agent
 Provider Protocol. It owns the connection to a model and its credentials.
 

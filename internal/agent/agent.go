@@ -31,7 +31,9 @@ type Observer interface {
 	// TurnFinished reports one model response: what it cost, how large the
 	// context is now, and how large it can get, when that is known.
 	TurnFinished(usage protocol.Usage, context, window int64)
-	// Notice reports something the loop did on its own, such as a retry.
+	// Notice reports what the user should know that the model did not say:
+	// something the loop did on its own, such as a retry, or a request that
+	// missed the provider's cache.
 	Notice(text string)
 }
 
@@ -398,6 +400,7 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 	}
 
 	a.Observer.TurnFinished(result.Usage, 0, result.ContextWindow)
+	a.missed(state, result.Usage)
 
 	summary := summaryOf(result)
 
@@ -526,8 +529,17 @@ func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.Compl
 
 	usage := result.Usage
 	a.Observer.TurnFinished(usage, usage.Input+usage.CacheRead+usage.CacheWrite+usage.Output, result.ContextWindow)
+	a.missed(state, usage)
 
 	return result, err
+}
+
+// missed tells the user when the provider did not read from its cache what
+// the request before left there, since the rest costs as new input.
+func (a *Agent) missed(state transcript.State, usage protocol.Usage) {
+	if miss := state.Cache.Miss(a.ProviderName, a.Model, usage); miss != "" {
+		a.Observer.Notice(miss)
+	}
 }
 
 // continueCut answers a response that the output limit cut short, so the

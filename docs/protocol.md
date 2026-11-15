@@ -93,6 +93,11 @@ optional, and worth sending when the provider knows it: the host uses it to
 summarize the conversation before the context fills, which matters most for
 models with small contexts. Without it the host works to a fixed limit.
 
+In `usage`, `cache_read` is how much of the request came from the
+provider's cache, `cache_write` how much of it was written there, and
+`input` the rest. The host expects the next request to read at least the
+two together, and tells the person when it reads less.
+
 `stop` is one of:
 
 | Value | Meaning |

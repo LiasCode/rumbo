@@ -40,7 +40,7 @@ func TestHistoryTellsRunsAsTheyWereSeen(t *testing.T) {
 		entry(11, KindAssistant, answer(cat)),
 		entry(12, KindNote, Note{Type: NoteCancelled}),
 		entry(13, KindHarness, Text{Text: "[harness] continue"}),
-		entry(14, KindCompaction, Compaction{Text: "summary", Usage: protocol.Usage{Input: 3, Output: 2}}),
+		entry(14, KindCompaction, Compaction{Text: "summary", Usage: protocol.Usage{Input: 3, CacheRead: 20, Output: 2}}),
 		entry(15, KindNote, Note{Type: NoteFailed, Text: "the provider is gone"}),
 	}
 
@@ -51,7 +51,7 @@ func TestHistoryTellsRunsAsTheyWereSeen(t *testing.T) {
 	}
 
 	turn := protocol.Event{Type: protocol.EventTurn, Usage: &usage, Context: 35, Window: 1000}
-	compacted := protocol.Usage{Input: 3, Output: 2}
+	compacted := protocol.Usage{Input: 3, CacheRead: 20, Output: 2}
 
 	want := []protocol.Event{
 		{Type: protocol.EventContext, Sections: []string{"environment"}},
@@ -103,5 +103,46 @@ func TestHistoryTellsACallLeftOpenAtTheEnd(t *testing.T) {
 func TestHistoryRefusesUnknownEntries(t *testing.T) {
 	if _, err := History([]store.Entry{entry(1, "mystery", Text{})}); err == nil {
 		t.Fatal("an unknown entry was told")
+	}
+}
+
+// A new system prompt changes the start of every request, so the response
+// after it has nothing in the cache to read. The cache that holds the new
+// start is missed as any other.
+func TestHistoryTellsCacheMissesAfterANewSystemPrompt(t *testing.T) {
+	answer := func(usage protocol.Usage) Assistant {
+		return Assistant{Message: protocol.Message{Role: protocol.RoleAssistant}, Provider: "p", Model: "m", Usage: usage}
+	}
+
+	entries := []store.Entry{
+		entry(1, KindSystem, System{Text: "prompt"}),
+		entry(2, KindUser, Text{Text: "go"}),
+		entry(3, KindAssistant, answer(protocol.Usage{CacheWrite: 500})),
+		entry(4, KindSystem, System{Text: "another prompt"}),
+		entry(5, KindUser, Text{Text: "go on"}),
+		entry(6, KindAssistant, answer(protocol.Usage{CacheWrite: 600})),
+		entry(7, KindUser, Text{Text: "and on"}),
+		entry(8, KindAssistant, answer(protocol.Usage{Input: 700})),
+	}
+
+	events, err := History(entries)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var told []string
+
+	for _, event := range events {
+		if event.Type == protocol.EventLog {
+			told = append(told, event.Text)
+		}
+	}
+
+	state, _ := Build(entries)
+	want := []string{"cache miss: the provider read 0 of the 600 tokens the previous request left in its cache; the other 600 counted as new input"}
+
+	if len(told) != 1 || told[0] != want[0] || state.Cache != (Cache{Provider: "p", Model: "m"}) {
+		t.Fatalf("told %q, cache %+v", told, state.Cache)
 	}
 }

@@ -125,7 +125,9 @@ Anything that should influence the model must be an entry first.
 **The prefix is stable.** The system prompt is constant, tool declarations
 are deterministic, and ambient context is sent once and then only as changed
 sections. Each request therefore extends the previous one, which is what lets
-providers cache the prefix.
+providers cache the prefix. The host checks that they do: a response that
+read less from the cache than the request before left there is a cache miss,
+and the person is told, since the rest is paid for again.
 
 **The harness adds as little as it can.** The system prompt is a few lines,
 and the only context sent unasked is the environment and the user's

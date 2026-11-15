@@ -319,7 +319,7 @@ selects the other fields:
 | `tool_started` | `name`, `args` | The agent calls a tool. |
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |
-| `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for something the host did on its own, such as retrying a request. |
+| `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for what the host has to say, such as a request it retried or one that missed the provider's cache. |
 | `objective` | `text` | The objective a run was given. Only in a [history](#history-request-front-end-to-host). |
 | `steer` | `text` | What the person told a run while it worked. Only in a history. |
 | `ended` | `status`, `text` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. Only in a history. |

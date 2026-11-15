@@ -122,6 +122,36 @@ type State struct {
 	Tokens int64
 	// Window is the size of the model's context, when a provider has said.
 	Window int64
+	// Cache is what the last request left in the provider's cache.
+	Cache Cache
+}
+
+// Cache is what a request left in its provider's cache, as the provider
+// counted it: the tokens it read from the cache and those it wrote to it.
+// The next request starts with all of them, so a provider that kept them
+// reads them all. A compaction or a new system prompt changes that start,
+// and leaves nothing to read.
+type Cache struct {
+	Provider string
+	Model    string
+	Tokens   int64
+}
+
+// Miss says how much of what the cache held the request before a response
+// did not read, or nothing when it read all of it. Another provider or
+// model has a cache of its own, which held nothing for the request.
+func (c Cache) Miss(provider, model string, usage protocol.Usage) string {
+	if provider != c.Provider || model != c.Model || usage.CacheRead >= c.Tokens {
+		return ""
+	}
+
+	return fmt.Sprintf("cache miss: the provider read %d of the %d tokens the previous request left in its cache; the other %d counted as new input", usage.CacheRead, c.Tokens, c.Tokens-usage.CacheRead)
+}
+
+// cached is what a request answered by provider and model with usage left
+// in the cache.
+func cached(provider, model string, usage protocol.Usage) Cache {
+	return Cache{Provider: provider, Model: model, Tokens: usage.CacheRead + usage.CacheWrite}
 }
 
 // Build replays entries into the current system prompt, tools, messages, and
@@ -153,8 +183,10 @@ func (b *builder) add(entry store.Entry) error {
 	switch entry.Kind {
 	case KindSystem:
 		// Opaque blocks are only valid after the exact prefix that produced
-		// them. A new system prompt changes that prefix, so they go.
+		// them. A new system prompt changes that prefix, so they go, and so
+		// does what the cache held of it.
 		b.dropOpaque()
+		b.state.Cache = Cache{}
 
 		return json.Unmarshal(entry.Payload, &b.state.System)
 
@@ -170,6 +202,7 @@ func (b *builder) add(entry store.Entry) error {
 		b.state.Messages = nil
 		b.pending = nil
 		b.state.Tokens = 0
+		b.state.Cache = Cache{}
 
 		if current := b.sections(); len(current) > 0 {
 			b.user(protocol.Block{Type: protocol.BlockText, Text: RenderContext(Context{Sections: current})})
@@ -229,6 +262,7 @@ func (b *builder) add(entry store.Entry) error {
 
 		usage := assistant.Usage
 		b.state.Tokens = usage.Input + usage.CacheRead + usage.CacheWrite + usage.Output
+		b.state.Cache = cached(assistant.Provider, assistant.Model, usage)
 
 		if assistant.Window > 0 {
 			b.state.Window = assistant.Window

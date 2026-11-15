@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,12 +22,14 @@ import (
 
 // scripted is a Provider that answers with fixed messages and keeps the
 // requests it received. failures are returned first, one per call; cut marks
-// the answers, by position, that the output limit cut short.
+// the answers, by position, that the output limit cut short, and usages
+// gives some of them a usage of their own instead of usage.
 type scripted struct {
 	answers  []protocol.Message
 	failures []error
 	cut      map[int]bool
 	usage    protocol.Usage
+	usages   map[int]protocol.Usage
 	window   int64
 	// failAt makes the request with that number, counting from zero, fail.
 	failAt   map[int]error
@@ -66,9 +69,15 @@ func (s *scripted) Complete(ctx context.Context, params protocol.CompleteParams,
 		stop = protocol.StopMaxTokens
 	}
 
+	usage, found := s.usages[s.answered]
+
+	if !found {
+		usage = s.usage
+	}
+
 	s.answered++
 
-	return protocol.CompleteResult{Message: answer, Stop: stop, Usage: s.usage, ContextWindow: s.window}, nil
+	return protocol.CompleteResult{Message: answer, Stop: stop, Usage: usage, ContextWindow: s.window}, nil
 }
 
 func (s *scripted) Close() error {
@@ -958,5 +967,74 @@ func TestEveryRequestExtendsTheOneBefore(t *testing.T) {
 
 	if got := notes(t, database, session); got != "retry done cancelled done done" {
 		t.Fatalf("notes = %q", got)
+	}
+}
+
+// A response that read less from the provider's cache than the request
+// before left there is told, and the session's history tells it again. A
+// request to another model, or after a compaction, has nothing of the
+// earlier ones to read, and misses nothing.
+func TestACacheMissIsTold(t *testing.T) {
+	model := &scripted{usages: map[int]protocol.Usage{
+		0: {CacheWrite: 1000},
+		1: {CacheRead: 1000, CacheWrite: 50},
+		// Of the 1050 tokens the cache held, 750 were not read.
+		2: {CacheRead: 300, CacheWrite: 800},
+		3: {CacheWrite: 1200},
+		// The summary is asked on the same start as the request before.
+		4: {CacheRead: 1200, CacheWrite: 30},
+		5: {CacheWrite: 400},
+	}}
+
+	worker, database, session, observer := setup(t, model)
+
+	run := func(objective string) {
+		t.Helper()
+
+		model.answers = append(model.answers, say(text("ok")))
+
+		if err := worker.Run(context.Background(), session, objective); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("first")
+	run("second")
+	run("third")
+
+	worker.Model = "other"
+	run("fourth")
+
+	model.answers = append(model.answers, say(text("<summary>Four tasks.</summary>")))
+
+	if _, err := worker.Compact(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	run("fifth")
+
+	want := []string{"cache miss: the provider read 300 of the 1050 tokens the previous request left in its cache; the other 750 counted as new input"}
+
+	if !slices.Equal(observer.notices, want) {
+		t.Fatalf("notices = %q, want %q", observer.notices, want)
+	}
+
+	entries, _ := database.Entries(session.ID)
+	events, err := transcript.History(entries)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var told []string
+
+	for _, event := range events {
+		if event.Type == protocol.EventLog && event.Text != transcript.Compacted {
+			told = append(told, event.Text)
+		}
+	}
+
+	if !slices.Equal(told, want) {
+		t.Fatalf("the history told %q, want %q", told, want)
 	}
 }

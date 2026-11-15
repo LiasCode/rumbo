@@ -5,6 +5,14 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Sessions
+
+- rumbo says when a request misses the provider's cache: when the provider
+  read less of it than the request before left in its cache, it tells you
+  how much it read, and how much counted as new input instead. A pause
+  longer than the cache keeps a conversation, a few minutes with Claude,
+  is the usual cause. Opening a session shows its earlier misses too.
+
 ## 0.4.0 (2026-11-15)
 
 A new built-in provider, `chatgpt`, uses your ChatGPT plan instead of an
