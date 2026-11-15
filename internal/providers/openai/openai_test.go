@@ -184,3 +184,53 @@ func TestConfiguredWindowAndOverflow(t *testing.T) {
 		t.Fatalf("a prompt that does not fit: err = %v, want an overflow", err)
 	}
 }
+
+func TestEffortIsSentAsReasoningEffort(t *testing.T) {
+	var received map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = nil
+		json.NewDecoder(r.Body).Decode(&received)
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+
+	defer server.Close()
+
+	complete := func(effort, chosen string) (any, error) {
+		handler := testHandler(t)
+		config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY", Effort: effort})
+
+		if _, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config}); err != nil {
+			t.Fatal(err)
+		}
+
+		params := protocol.CompleteParams{
+			Model:    "reasoner",
+			Messages: []protocol.Message{{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "hi"}}}},
+			Options:  json.RawMessage(chosen),
+		}
+
+		_, err := handler.Complete(context.Background(), params, func(string) {})
+
+		return received["reasoning_effort"], err
+	}
+
+	// The configured one applies, the one chosen for the request wins over
+	// it, and a server is sent none when nothing chooses one.
+	for _, want := range []struct {
+		effort, chosen string
+		sent           any
+	}{
+		{"low", "", "low"},
+		{"low", `{"effort":"high"}`, "high"},
+		{"", "", nil},
+	} {
+		if sent, err := complete(want.effort, want.chosen); err != nil || sent != want.sent {
+			t.Errorf("effort %q, chosen %q: sent %v, err %v; want %v", want.effort, want.chosen, sent, err, want.sent)
+		}
+	}
+
+	if _, err := complete("", `{"temperature":1}`); err == nil || !strings.Contains(err.Error(), "invalid options") {
+		t.Fatalf("an option the provider does not describe: err = %v", err)
+	}
+}

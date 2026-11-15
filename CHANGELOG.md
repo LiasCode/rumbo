@@ -44,6 +44,10 @@ a provider.
   checks it, and keeps it in `~/.config/rumbo/credentials/`, readable only
   by you; `/logout` removes it, and `/account` says which credential is in
   use. A key in the environment still comes first.
+- The built-in `openai` provider offers an `effort` option, sent as
+  `reasoning_effort` only when it is chosen: `/session-options effort=high`,
+  `-o effort=high`, or `effort` in its configuration. The values depend on
+  the model. Like `anthropic`, it now refuses options it does not describe.
 - In the terminal UI, what a provider's function answers in words shows
   without quotes.
 

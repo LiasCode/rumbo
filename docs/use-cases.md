@@ -229,9 +229,10 @@ the Agent Provider Protocol on its stdin and stdout.
 - **`openai`** reaches any server compatible with OpenAI's Chat Completions,
   at the address its configuration gives, with the key in the variable its
   configuration names (`OPENAI_API_KEY` by default), or else the key its
-  `login` stored for that address. It lists the server's models, and takes
-  the size of the context from its configuration, since a server cannot
-  say.
+  `login` stored for that address. It lists the server's models, offers an
+  `effort` option, sent as `reasoning_effort` only when it is chosen, and
+  takes the size of the context from its configuration, since a server
+  cannot say.
 - Both offer `login`, which asks for an API key, checks it with a request
   that costs nothing, and keeps it for the server in the user's
   configuration directory (`rumbo/credentials/`), readable only by the user;

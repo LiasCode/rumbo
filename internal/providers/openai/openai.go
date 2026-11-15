@@ -29,6 +29,9 @@ type Config struct {
 	// does not report it, so it is said here when it is known, which matters
 	// most for local models with small contexts.
 	ContextWindow int64 `json:"context_window"`
+	// Effort is the reasoning effort sent with every request, as the
+	// server's model names it. Empty sends none.
+	Effort string `json:"effort"`
 }
 
 // Handler implements protocol.Handler on Chat Completions.
@@ -74,10 +77,16 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 	return protocol.InitializeResult{Protocol: protocol.Version, Name: "openai", Description: description}, nil
 }
 
-// description is what this provider lets the user choose and ask. It
-// describes no options: which ones a server accepts depends on the server.
+// description is what this provider lets the user choose and ask. The
+// values effort takes depend on the model, so they are not listed: the
+// server refuses one its model does not know.
 var description = protocol.Description{
 	Model: &protocol.Option{Type: protocol.OptionString, Values: "models", Description: "Model to use"},
+	Options: []protocol.Option{{
+		Name:        "effort",
+		Type:        protocol.OptionString,
+		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Without it, the model's own default applies.",
+	}},
 	Functions: []protocol.Function{
 		{Name: "models", Description: "List the models the server offers"},
 		{Name: "login", Description: "Store an API key for this server, once it is checked to work"},
@@ -235,12 +244,15 @@ type chatTool struct {
 }
 
 type chatRequest struct {
-	Model         string        `json:"model"`
-	Messages      []chatMessage `json:"messages"`
-	Tools         []chatTool    `json:"tools,omitempty"`
-	MaxTokens     int           `json:"max_completion_tokens,omitempty"`
-	Stream        bool          `json:"stream"`
-	StreamOptions struct {
+	Model     string        `json:"model"`
+	Messages  []chatMessage `json:"messages"`
+	Tools     []chatTool    `json:"tools,omitempty"`
+	MaxTokens int           `json:"max_completion_tokens,omitempty"`
+	// ReasoningEffort is left out when none is chosen, so a server that
+	// does not know it is not sent it.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	Stream          bool   `json:"stream"`
+	StreamOptions   struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
 }
@@ -264,7 +276,16 @@ type chatChunk struct {
 
 // Complete implements protocol.Handler.
 func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, emit func(text string)) (protocol.CompleteResult, error) {
-	body, err := json.Marshal(request(params))
+	chosen, err := h.chosen(params.Options)
+
+	if err != nil {
+		return protocol.CompleteResult{}, err
+	}
+
+	out := request(params)
+	out.ReasoningEffort = chosen.Effort
+
+	body, err := json.Marshal(out)
 
 	if err != nil {
 		return protocol.CompleteResult{}, err
@@ -346,6 +367,28 @@ func (h *Handler) sendWith(ctx context.Context, method, path string, body []byte
 	}
 
 	return nil, failure
+}
+
+// options are the values a request may carry, as described above.
+type options struct {
+	Effort string `json:"effort"`
+}
+
+// chosen returns the options a request carries, over those of the
+// configuration. One the provider does not describe is an error.
+func (h *Handler) chosen(raw json.RawMessage) (options, error) {
+	chosen := options{Effort: h.config.Effort}
+
+	if len(raw) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+
+		if err := decoder.Decode(&chosen); err != nil {
+			return chosen, fmt.Errorf("invalid options: %w", err)
+		}
+	}
+
+	return chosen, nil
 }
 
 func request(params protocol.CompleteParams) chatRequest {
