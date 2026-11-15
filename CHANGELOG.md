@@ -5,6 +5,12 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.4.0 (2026-11-15)
+
+A new built-in provider, `chatgpt`, uses your ChatGPT plan instead of an
+API key. Requests to OpenAI's Responses API read much more from its
+cache, and the `effort` in a provider's configuration now applies.
+
 ### Providers
 
 - A new built-in provider, `chatgpt`, uses your ChatGPT plan instead of an
