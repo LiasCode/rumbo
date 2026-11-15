@@ -197,6 +197,14 @@ func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
 func TestBuiltinsAreRegisteredOnce(t *testing.T) {
 	database := testStore(t)
 
+	// The openai one speaks the Responses API, which OpenAI's own models
+	// need; the others need nothing.
+	for name, want := range map[string]string{"openai": `{"api":"responses"}`, "anthropic": "{}"} {
+		if program, err := database.Program(store.KindProvider, name); err != nil || string(program.Config) != want {
+			t.Fatalf("%s registered with %q, err %v; want %q", name, program.Config, err, want)
+		}
+	}
+
 	if err := database.DeleteProgram(store.KindProvider, "openai"); err != nil {
 		t.Fatal(err)
 	}

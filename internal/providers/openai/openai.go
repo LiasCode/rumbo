@@ -32,18 +32,30 @@ type Config struct {
 	// Effort is the reasoning effort sent with every request, as the
 	// server's model names it. Empty sends none.
 	Effort string `json:"effort"`
+	// API is the one spoken: chat, for Chat Completions, which most servers
+	// offer, or responses, for OpenAI's Responses API. Empty is chat.
+	API string `json:"api"`
 }
+
+// The APIs the provider speaks.
+const (
+	apiChat      = "chat"
+	apiResponses = "responses"
+)
 
 // Handler implements protocol.Handler on Chat Completions.
 type Handler struct {
 	config Config
 	// keys holds the API keys login stored, by server.
 	keys credentials.Store
+	// unreasoning holds the models that said they have no reasoning to give
+	// back, so they are not asked for it again.
+	unreasoning map[string]bool
 }
 
 // New returns a handler that is ready after Initialize.
 func New() *Handler {
-	return &Handler{keys: credentials.Default("openai")}
+	return &Handler{keys: credentials.Default("openai"), unreasoning: map[string]bool{}}
 }
 
 // server is the address of the server this provider reaches, which a stored
@@ -72,6 +84,14 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 		if err := json.Unmarshal(params.Config, &h.config); err != nil {
 			return protocol.InitializeResult{}, fmt.Errorf("invalid config: %w", err)
 		}
+	}
+
+	switch h.config.API {
+	case "":
+		h.config.API = apiChat
+	case apiChat, apiResponses:
+	default:
+		return protocol.InitializeResult{}, fmt.Errorf("invalid config: api is %s or %s, not %q", apiChat, apiResponses, h.config.API)
 	}
 
 	return protocol.InitializeResult{Protocol: protocol.Version, Name: "openai", Description: description}, nil
@@ -282,6 +302,10 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 		return protocol.CompleteResult{}, err
 	}
 
+	if h.config.API == apiResponses {
+		return h.respond(ctx, params, chosen, emit)
+	}
+
 	out := request(params)
 	out.ReasoningEffort = chosen.Effort
 
@@ -305,8 +329,6 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 	return result, err
 }
 
-// send makes one request to the server and returns its successful response,
-// whose body the caller closes. Failures worth retrying are marked transient.
 // send makes a request with the key in force.
 func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	key, err := h.key()
@@ -318,7 +340,9 @@ func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*
 	return h.sendWith(ctx, method, path, body, key)
 }
 
-// sendWith makes a request with key, or without one when it is empty.
+// sendWith makes one request to the server, with key or without one when it
+// is empty, and returns its successful response, whose body the caller
+// closes. Failures worth retrying are marked transient.
 func (h *Handler) sendWith(ctx context.Context, method, path string, body []byte, key string) (*http.Response, error) {
 	url := h.server() + path
 	httpRequest, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
@@ -516,21 +540,8 @@ func collect(body io.Reader, emit func(text string)) (protocol.CompleteResult, e
 	}
 
 	for _, call := range calls {
-		args := call.Function.Arguments
-
-		if args == "" {
-			args = "{}"
-		}
-
-		// Arguments that are not JSON travel as a JSON string, so the host
-		// can reject them and tell the model.
-		if !json.Valid([]byte(args)) {
-			quoted, _ := json.Marshal(args)
-			args = string(quoted)
-		}
-
 		result.Message.Content = append(result.Message.Content, protocol.Block{
-			Type: protocol.BlockToolCall, ID: call.ID, Name: call.Function.Name, Args: json.RawMessage(args),
+			Type: protocol.BlockToolCall, ID: call.ID, Name: call.Function.Name, Args: arguments(call.Function.Arguments),
 		})
 	}
 
@@ -539,4 +550,21 @@ func collect(body io.Reader, emit func(text string)) (protocol.CompleteResult, e
 	}
 
 	return result, nil
+}
+
+// arguments are the arguments of a tool call as the model wrote them. Ones
+// that are not JSON travel as a JSON string, so the host can reject them and
+// tell the model.
+func arguments(written string) json.RawMessage {
+	if written == "" {
+		return json.RawMessage("{}")
+	}
+
+	if !json.Valid([]byte(written)) {
+		quoted, _ := json.Marshal(written)
+
+		return quoted
+	}
+
+	return json.RawMessage(written)
 }

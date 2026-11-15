@@ -73,6 +73,11 @@ rumbo provider set local context_window=32768   # a server cannot say its contex
 rumbo -m local/qwen3-coder "fix the failing test"
 ```
 
+The `openai` provider rumbo registers speaks OpenAI's Responses API, which
+its reasoning models need to use tools with an effort. One registered by an
+earlier version speaks Chat Completions until
+`rumbo provider set openai api=responses`.
+
 The model also reads your instructions: the `AGENTS.md` or `CLAUDE.md` files
 from the project's root down to where you are, and yours in
 `~/.config/rumbo/` (`~/Library/Application Support/rumbo/` on macOS).

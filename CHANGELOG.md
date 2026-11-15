@@ -48,6 +48,12 @@ a provider.
   `reasoning_effort` only when it is chosen: `/session-options effort=high`,
   `-o effort=high`, or `effort` in its configuration. The values depend on
   the model. Like `anthropic`, it now refuses options it does not describe.
+- The built-in `openai` provider can speak OpenAI's Responses API, which
+  its reasoning models need to use tools with an effort, and the `openai`
+  rumbo registers on a new installation does. One registered before keeps
+  Chat Completions until `rumbo provider set openai api=responses`. It asks
+  the server to store nothing, and gives a model its own reasoning back,
+  encrypted.
 - In the terminal UI, what a provider's function answers in words shows
   without quotes.
 

@@ -33,9 +33,17 @@ var builtins = []struct {
 	kind       string
 	subcommand string
 	names      []string
+	// configs are what a built-in is registered with, by name, when it is
+	// more than its defaults.
+	configs map[string]json.RawMessage
 }{
-	{store.KindProvider, "provide", []string{"anthropic", "openai"}},
-	{store.KindFrontend, "attach", []string{"tui", "plain"}},
+	{store.KindProvider, "provide", []string{"anthropic", "openai"}, map[string]json.RawMessage{
+		// The provider speaks Chat Completions unless told otherwise, as most
+		// servers do; OpenAI's own reasoning models need the Responses API to
+		// use tools with an effort.
+		"openai": json.RawMessage(`{"api":"responses"}`),
+	}},
+	{store.KindFrontend, "attach", []string{"tui", "plain"}, nil},
 }
 
 // seedBuiltins registers each built-in program the first time this database
@@ -62,7 +70,7 @@ func seedBuiltins(database store.Store) error {
 			// One that is already there was put by an earlier version, or by
 			// the user, and is left as it is.
 			if _, err := database.Program(builtin.kind, name); errors.Is(err, store.ErrNotFound) {
-				program := store.Program{Name: name, Command: []string{selfPlaceholder, builtin.subcommand, name}}
+				program := store.Program{Name: name, Command: []string{selfPlaceholder, builtin.subcommand, name}, Config: builtin.configs[name]}
 
 				if err := database.PutProgram(builtin.kind, program); err != nil {
 					return err
