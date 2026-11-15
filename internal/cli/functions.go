@@ -20,8 +20,8 @@ type hostFunction struct {
 	protocol.Function
 	// duringRun says the function answers while a run works even in a host
 	// that works in one session at a time (-single): it only reads, or
-	// stores what applies from the next start. There the others wait for
-	// the run to end. In a host with several sessions, each function waits
+	// stores what the run in progress already read when it started. There
+	// the others wait for the run to end. In a host with several sessions, each function waits
 	// only for the session it changes.
 	duringRun bool
 	// slow says the function reaches a provider, so it is answered without
@@ -135,6 +135,15 @@ var hostFunctions = []hostFunction{
 			Group: protocol.GroupSession,
 		},
 		call: (*host).useProvider,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "session-options",
+			Description: "Show or change the option values chosen in this session, which it keeps",
+			Params:      []protocol.Option{{Name: "change", Type: protocol.OptionString, Description: "name=value; an empty value removes it", Optional: true}},
+			Group:       protocol.GroupSession,
+		},
+		call: (*host).sessionOptions,
 	},
 	{
 		Function: protocol.Function{
@@ -313,11 +322,13 @@ func (h *host) status(_ context.Context, params map[string]string) (protocol.Hos
 
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "provider: %s\nmodel: %s\ndirectory: %s", chosen.provider, chosen.model, dir)
+	options, err := h.describeChoice(chosen)
 
-	if len(chosen.options) > 0 {
-		fmt.Fprintf(&out, "\noptions: %s", chosen.options)
+	if err != nil {
+		return protocol.HostResult{}, err
 	}
+
+	fmt.Fprintf(&out, "provider: %s\nmodel: %s\n%s\ndirectory: %s", chosen.provider, chosen.model, options, dir)
 
 	if session == nil {
 		out.WriteString("\nsession: none yet; the next task starts one")
@@ -376,7 +387,13 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 		fmt.Fprintf(out, " of %d, %d%%", state.Window, state.Tokens*100/state.Window)
 	}
 
-	if limit := h.settings.Compaction.Limit(state.Window); limit > 0 {
+	settings, err := loadLimits(h.database, h.root)
+
+	if err != nil {
+		return err
+	}
+
+	if limit := settings.Compaction.Limit(state.Window); limit > 0 {
 		fmt.Fprintf(out, "; summarized at %d", limit)
 	}
 
@@ -542,36 +559,130 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 		return protocol.HostResult{}, fmt.Errorf("provider %q is not registered", name)
 	}
 
-	// Options given on the command line were meant for the provider rumbo
-	// was started with, so only the stored ones carry over.
-	options, err := storedOptions(h.database, h.root, name)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// A new session stores it when it is made.
-	if session := h.current.session; session != nil {
+	// The options chosen in a session are for its provider, so another one
+	// starts without them. A new session stores what it has when it is made.
+	before, session := h.current.options, h.current.session
+	var options json.RawMessage
+
+	switch {
+	case session != nil && session.Provider == name:
+		options = session.Options
+	case session == nil && h.current.provider == name:
+		options = before
+	}
+
+	if session != nil {
+		if len(session.Options) > 0 && len(options) == 0 {
+			if err := h.database.SetSessionOptions(session.ID, nil); err != nil {
+				return protocol.HostResult{}, err
+			}
+		}
+
 		if err := h.database.SetSessionModel(session.ID, name, params["model"]); err != nil {
 			return protocol.HostResult{}, err
 		}
 
-		session.Provider, session.Model = name, params["model"]
+		session.Provider, session.Model, session.Options = name, params["model"], options
 	}
 
 	h.current.choice = choice{provider: name, model: params["model"], options: options}
 	h.prune()
 
-	text := fmt.Sprintf("using %s/%s", name, params["model"])
+	text := fmt.Sprintf("this session now uses %s/%s", name, params["model"])
+
+	if len(before) > 0 && len(options) == 0 {
+		text += fmt.Sprintf("; the options chosen in it, %s, were for another provider and are dropped", before)
+	}
 
 	if h.busy[h.current] != "" {
 		text += "; the run in progress keeps the provider it started with"
 	}
 
 	return protocol.HostResult{Text: text}, nil
+}
+
+// sessionOptions shows the option values a run in the current session
+// gets, after changing one chosen in it when a change is given. The session
+// keeps what is chosen in it, as it keeps its model; a run in progress
+// keeps the options it started with.
+func (h *host) sessionOptions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	target := h.current
+	text := ""
+
+	if params["change"] != "" {
+		session := target.session
+
+		// The session keeps options for the provider it uses, not for one
+		// that -m chose for this start only.
+		if session != nil && session.Provider != "" && session.Provider != target.provider {
+			return protocol.HostResult{}, fmt.Errorf("this session uses %s, and only this start of rumbo uses %s; to keep options for %s, make it the session's provider with use first", session.Provider, target.provider, target.provider)
+		}
+
+		options, err := changeObject(target.options, []string{params["change"]})
+
+		if err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		text = "kept for the session the next task starts; it applies to its tasks\n"
+
+		if session != nil {
+			// A session from before providers were stored records the one
+			// its options are for.
+			if session.Provider == "" {
+				if err := h.database.SetSessionModel(session.ID, target.provider, target.model); err != nil {
+					return protocol.HostResult{}, err
+				}
+
+				session.Provider, session.Model = target.provider, target.model
+			}
+
+			if err := h.database.SetSessionOptions(session.ID, options); err != nil {
+				return protocol.HostResult{}, err
+			}
+
+			session.Options = options
+			text = "stored with this session; it applies to the tasks that start from now on\n"
+		}
+
+		target.options = options
+	}
+
+	described, err := h.describeChoice(target.choice)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: text + described}, nil
+}
+
+// describeChoice says which option values a run with chosen gets, and
+// which of them were chosen in the session.
+func (h *host) describeChoice(chosen choice) (string, error) {
+	options, err := h.inForce(chosen)
+
+	if err != nil {
+		return "", err
+	}
+
+	text := "options in force: none; the provider uses its own defaults"
+
+	if len(options) > 0 {
+		text = fmt.Sprintf("options in force: %s", options)
+	}
+
+	if len(chosen.options) > 0 {
+		text += fmt.Sprintf("\nchosen in the session: %s", chosen.options)
+	}
+
+	return text, nil
 }
 
 // scopes are where a front end can store a system setting or a provider's
@@ -612,8 +723,9 @@ func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostRes
 	return result, nil
 }
 
-// storeSetting stores a system setting. The host read its settings when it
-// started, so what is stored applies from the next start.
+// storeSetting stores a system setting. Runs read the settings when they
+// start, so what is stored applies to the next one, but for what rumbo
+// reads when it starts.
 func (h *host) storeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	scope, where, err := h.scope(params["scope"])
 
@@ -625,7 +737,8 @@ func (h *host) storeSetting(_ context.Context, params map[string]string) (protoc
 		return protocol.HostResult{}, err
 	}
 
-	text := fmt.Sprintf("system setting %s = %s, stored %s; it applies from the next start of rumbo", params["key"], params["value"], where)
+	spec, _ := findSetting(params["key"])
+	text := fmt.Sprintf("system setting %s = %s, stored %s; %s", params["key"], params["value"], where, spec.applies())
 
 	return protocol.HostResult{Text: text}, nil
 }
@@ -641,7 +754,10 @@ func (h *host) removeSetting(_ context.Context, params map[string]string) (proto
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: fmt.Sprintf("system setting %s is no longer stored %s", params["key"], where)}, nil
+	spec, _ := findSetting(params["key"])
+	text := fmt.Sprintf("system setting %s is no longer stored %s; %s", params["key"], where, spec.applies())
+
+	return protocol.HostResult{Text: text}, nil
 }
 
 func (h *host) registerProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
@@ -653,8 +769,8 @@ func (h *host) registerProvider(_ context.Context, params map[string]string) (pr
 }
 
 // providerOptions shows the option values a provider gets here, after
-// changing one when it is given. Sessions read them when they start using
-// the provider, so a change applies from the next start.
+// changing one when it is given. Runs read them when they start, so a
+// change applies to the next one.
 func (h *host) providerOptions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	name := params["provider"]
 	text := ""
@@ -670,7 +786,7 @@ func (h *host) providerOptions(_ context.Context, params map[string]string) (pro
 			return protocol.HostResult{}, err
 		}
 
-		text = fmt.Sprintf("stored %s; it applies from the next start of rumbo\n", where)
+		text = fmt.Sprintf("stored %s; it applies to the runs that start from now on\n", where)
 	}
 
 	described, err := describeOptions(h.database, h.root, name)
@@ -762,7 +878,13 @@ func (h *host) compactNow(ctx context.Context, params map[string]string) (protoc
 		return protocol.HostResult{}, err
 	}
 
-	before, err := h.agent(pool, chosen, target.tools, h.conn.Report(session.ID)).Compact(ctx, session)
+	worker, err := h.agent(pool, chosen, nil, target.tools, h.conn.Report(session.ID))
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	before, err := worker.Compact(ctx, session)
 
 	if err != nil {
 		return protocol.HostResult{}, err

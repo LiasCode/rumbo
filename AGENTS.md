@@ -35,7 +35,9 @@ changes one of those updates it in the same change.
   never rewrite what a user's database already holds. A change to the schema
   is a new entry at the end of `migrations` in `internal/store/sqlite.go`,
   never an edit to an earlier one.
-- **Settings are read once**, in `internal/cli/config.go`, and passed down.
+- **Settings are read in one place**, `internal/cli/config.go`: what rumbo
+  starts with when it starts, and what a run uses when the run starts. They
+  are passed down, and a run keeps what it started with.
 - **Configuration has three levels, kept apart.** A system setting is
   rumbo's own, the same for every session and provider (`settings.go`); a
   session keeps what it chose with it; a provider has its configuration and

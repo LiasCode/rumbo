@@ -144,6 +144,28 @@ func storedOptions(settings store.Store, root, provider string) (json.RawMessage
 	return options, nil
 }
 
+// changeObject lays name=value changes over the option values in options,
+// as applyChanges does. What is left is nil when no value is.
+func changeObject(options json.RawMessage, changes []string) (json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+
+	if len(options) > 0 {
+		if err := json.Unmarshal(options, &fields); err != nil {
+			return nil, fmt.Errorf("the options are not an object: %w", err)
+		}
+	}
+
+	if err := applyChanges(fields, changes); err != nil {
+		return nil, err
+	}
+
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	return json.Marshal(fields)
+}
+
 // changeOptions changes the option values stored for a provider in one
 // scope, and leaves the rest. When none are left there, nothing is stored,
 // so the next scope in line applies.
@@ -153,7 +175,6 @@ func changeOptions(database store.Store, scope, provider string, changes []strin
 	}
 
 	key := optionsPrefix + provider
-	fields := map[string]json.RawMessage{}
 
 	stored, found, err := database.Setting(scope, key)
 
@@ -161,20 +182,14 @@ func changeOptions(database store.Store, scope, provider string, changes []strin
 		return err
 	}
 
-	if found {
-		if err := json.Unmarshal([]byte(stored), &fields); err != nil {
-			return fmt.Errorf("the options stored for %s are not an object: %w", provider, err)
-		}
-	}
+	changed, err := changeObject(json.RawMessage(stored), changes)
 
-	if err := applyChanges(fields, changes); err != nil {
+	if err != nil {
 		return err
 	}
 
-	if len(fields) > 0 {
-		raw, _ := json.Marshal(fields)
-
-		return database.SetSetting(scope, key, string(raw))
+	if changed != nil {
+		return database.SetSetting(scope, key, string(changed))
 	}
 
 	if found {

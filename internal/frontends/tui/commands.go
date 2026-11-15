@@ -11,13 +11,12 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// A line that starts with a slash and a word is a command, not a task. Three
+// A line that starts with a slash and a word is a command, not a task. Two
 // commands are the front end's own. Every other one is a function the host
 // or the provider described: the front end knows none of them beforehand,
 // and gains a command whenever either of them gains a function.
 const (
 	commandOptions = "/options"
-	commandSet     = "/set"
 	commandHelp    = "/help"
 )
 
@@ -124,7 +123,7 @@ func (u *ui) execute(words []string) (answer, error) {
 	}
 
 	// The host's functions come first: they need no provider to be running.
-	if words[0] != commandOptions && words[0] != commandSet {
+	if words[0] != commandOptions {
 		if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
 			return u.call(fromHost, u.info.Functions[index], args)
 		}
@@ -136,18 +135,8 @@ func (u *ui) execute(words []string) (answer, error) {
 		return answer{source: fromProvider}, err
 	}
 
-	switch words[0] {
-	case commandOptions:
+	if words[0] == commandOptions {
 		return answer{source: fromProvider, text: u.offered(described)}, nil
-
-	case commandSet:
-		if len(args) == 0 {
-			return answer{}, fmt.Errorf("usage: %s <name> [value]; without a value the choice is dropped. See %s", commandSet, commandOptions)
-		}
-
-		text, err := u.set(described, args[0], strings.Join(args[1:], " "))
-
-		return answer{source: fromProvider, text: text}, err
 	}
 
 	if index := slices.IndexFunc(described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
@@ -276,8 +265,7 @@ func (u *ui) help() string {
 	described, err := u.describe()
 
 	fmt.Fprintf(&out, "\n%s%s  what reaches the model. What it offers changes with the provider.\n%s", styleReset, u.label(fromProvider), styleDim)
-	fmt.Fprintf(&out, "%-28s %s\n", commandOptions, "Show what it offers and what is chosen")
-	fmt.Fprintf(&out, "%-28s %s\n", commandSet+" <name> [value]", "Choose its model or one of its options for the tasks started here, until this closes")
+	fmt.Fprintf(&out, "%-28s %s\n", commandOptions, "Show what it offers, and the values in force in this session")
 
 	if err != nil {
 		fmt.Fprintf(&out, "%sIts own commands could not be listed: %s%s\n", styleRed, err, styleDim)
@@ -357,10 +345,9 @@ func (u *ui) host(function protocol.Function, params json.RawMessage) (answer, e
 
 	u.mu.Lock()
 
-	// What was chosen here, and what is known of the provider, was for the
-	// provider that was in use.
+	// What is known of the provider was for the provider that was in use.
 	if result.State.Provider != u.info.Provider {
-		u.model, u.options, u.described = "", nil, nil
+		u.described = nil
 	}
 
 	u.info.Provider, u.info.Model, u.info.Dir = result.State.Provider, result.State.Model, result.State.Dir

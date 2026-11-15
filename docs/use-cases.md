@@ -87,8 +87,10 @@ nothing and knows no model API.
 - Show a session's status: its provider and model, the size of its context,
   what it has spent and how much of its input the provider read from its
   cache, and how its last run stands.
-- Keep each session's provider and model from one start to the next, and let
-  `-m` choose others for one start.
+- Keep each session's provider and model, and the values of the provider's
+  options chosen in it, from one start to the next, and let `-m` choose
+  others for one start. A session that changes provider leaves its options
+  behind.
 - Print a session's whole record (`rumbo log`).
 - Tell a front end what a session holds, in the events its runs sent, with
   what the person asked and how each run ended, so it can show a session it
@@ -106,8 +108,10 @@ nothing and knows no model API.
 - Change the provider and the model of a session for its next runs, while a
   run in progress keeps the ones it started with.
 - Store the option values each provider gets with every request, globally
-  or for one project, apart from its configuration, and take others for one
-  start (`-o`) or one run, from the front end.
+  or for one project, apart from its configuration. A run gets those, the
+  ones chosen in its session over them, those given for one start (`-o`) to
+  the provider rumbo started with over both, and those its front end chose
+  for it over all.
 - Pass a provider's description to the front end, send the chosen options
   with every request, and relay calls to its functions, understanding none of
   them.
@@ -127,8 +131,8 @@ nothing and knows no model API.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
-  session: `status`, `sessions`, `open`, `new`, `delete`, `use`, and
-  `compact`. For the providers: `providers`, `provider-add`,
+  session: `status`, `sessions`, `open`, `new`, `delete`, `use`,
+  `session-options`, and `compact`. For the providers: `providers`, `provider-add`,
   `provider-set`, `provider-options`, `provider-show`, and `provider-rm`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
@@ -146,6 +150,9 @@ nothing and knows no model API.
   starts with, the front end, the output limit, the turn limit, and when to
   summarize. List them with where each value in force comes from
   (`rumbo system`).
+- Apply a stored system setting, or a provider's option, to the runs that
+  start after it is stored, without starting again. The model and the front
+  end apply from the next start.
 
 ### Must not
 
@@ -274,7 +281,7 @@ speaks the Agent Frontend Protocol with the host.
   shows once the model has it, and goes back to the input if the run ended
   first.
 - Its commands are the functions the host and the provider describe, and
-  its own `/options`, `/set`, and `/help`. `/help` lists the host's by what
+  its own `/options` and `/help`. `/help` lists the host's by what
   they act on: the system, the session, and the providers. Tab completes a
   command and its arguments, and the status bar shows what a command could
   become.

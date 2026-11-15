@@ -14,13 +14,19 @@ import (
 	"github.com/LiasCode/rumbo/internal/store"
 )
 
-// config is everything a run reads from settings, resolved once.
+// config is what rumbo reads from the settings when it starts: what the
+// front end and the first session are.
 type config struct {
 	Frontend string
 	Provider string
-	// Options are the provider option values in force by default.
-	Options    json.RawMessage
-	Model      string
+	Model    string
+	// Flags are the provider options the command line gave for this start.
+	Flags json.RawMessage
+}
+
+// limits are the system settings a run reads when it starts, so a change
+// applies to the runs that start after it.
+type limits struct {
 	MaxTokens  int
 	MaxTurns   int
 	Compaction agent.Compaction
@@ -79,8 +85,10 @@ func workingProject() (dir, root string, err error) {
 	return dir, project.Root(context.Background(), dir), nil
 }
 
-// loadConfig resolves the settings for a run in the project at root. A
-// missing or malformed required setting is an error; nothing is guessed.
+// loadConfig resolves the settings rumbo starts with in the project at
+// root. A missing or malformed required setting is an error; nothing is
+// guessed. Those that runs read later are checked too, so a malformed one
+// stops rumbo before a front end starts.
 func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flagOptions json.RawMessage) (config, error) {
 	loaded := config{Frontend: frontendFlag}
 
@@ -121,16 +129,36 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flag
 
 	loaded.Provider = providerName
 	loaded.Model = modelName
+	loaded.Flags = flagOptions
 
-	stored, err := storedOptions(settings, root, providerName)
+	if _, err := storedOptions(settings, root, providerName); err != nil {
+		return loaded, err
+	}
+
+	if _, err := loadLimits(settings, root); err != nil {
+		return loaded, err
+	}
+
+	return loaded, nil
+}
+
+// optionsInForce are the option values a run of provider gets in the
+// project at root: those stored for the provider, the ones chosen in the
+// session over them, and those of the command line over all.
+func optionsInForce(database store.Store, root, provider string, session, flags json.RawMessage) (json.RawMessage, error) {
+	stored, err := storedOptions(database, root, provider)
 
 	if err != nil {
-		return loaded, err
+		return nil, err
 	}
 
-	if loaded.Options, err = mergeOptions(stored, flagOptions); err != nil {
-		return loaded, err
-	}
+	return mergeOptions(stored, session, flags)
+}
+
+// loadLimits resolves the system settings for a run in the project at root.
+func loadLimits(settings store.Store, root string) (limits, error) {
+	var loaded limits
+	var err error
 
 	for key, into := range map[string]*int{keyMaxTokens: &loaded.MaxTokens, keyMaxTurns: &loaded.MaxTurns} {
 		if *into, err = effectiveCount(settings, root, key); err != nil {

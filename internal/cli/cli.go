@@ -294,6 +294,14 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, settings.Provider)
 	}
 
+	// The options chosen in the session are for its provider, so a start
+	// that chose another one with -m goes without them.
+	var kept json.RawMessage
+
+	if session != nil && session.Provider == settings.Provider {
+		kept = session.Options
+	}
+
 	tools := tool.NewSet()
 
 	created := &host{
@@ -303,7 +311,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		single:   *single,
 		tools:    tools,
 		current: &place{
-			choice:  choice{provider: settings.Provider, model: settings.Model, options: settings.Options},
+			choice:  choice{provider: settings.Provider, model: settings.Model, options: kept},
 			session: session,
 			dir:     dir,
 			tools:   tools.Separate(),
@@ -402,10 +410,16 @@ func (h *host) describe(ctx context.Context) (protocol.DescribeResult, error) {
 		return protocol.DescribeResult{}, err
 	}
 
+	options, err := h.inForce(chosen)
+
+	if err != nil {
+		return protocol.DescribeResult{}, err
+	}
+
 	return protocol.DescribeResult{
 		Provider: chosen.provider,
 		Model:    chosen.model,
-		Options:  chosen.options,
+		Options:  options,
 		Offers:   pool.Description(),
 	}, nil
 }

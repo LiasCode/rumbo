@@ -124,8 +124,21 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 
 	loaded, err := loadConfig(database, "/repo", "", "plain", nil)
 
-	if err != nil || loaded.Provider != "anthropic" || loaded.MaxTurns != 150 || loaded.Compaction != (agent.Compaction{}) || loaded.MaxTokens != 0 {
+	if err != nil || loaded.Provider != "anthropic" || loaded.Model != "big" {
 		t.Fatalf("loaded = %+v, err = %v", loaded, err)
+	}
+
+	limits, err := loadLimits(database, "/repo")
+
+	if err != nil || limits.MaxTurns != 150 || limits.Compaction != (agent.Compaction{}) || limits.MaxTokens != 0 {
+		t.Fatalf("limits = %+v, err = %v", limits, err)
+	}
+
+	// One that is malformed in the store stops rumbo before it starts.
+	database.SetSetting("/repo", "max_turns", "many")
+
+	if _, err := loadConfig(database, "/repo", "", "plain", nil); err == nil || !strings.Contains(err.Error(), "max_turns") {
+		t.Fatalf("a malformed max_turns: err = %v", err)
 	}
 }
 
@@ -150,10 +163,12 @@ func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
 		t.Fatalf("global options = %s", global)
 	}
 
-	loaded, err := loadConfig(database, "/repo", "anthropic/big", "plain", []byte(`{"depth":4}`))
+	// The session's are over the stored ones, and the command line's over
+	// both.
+	inForce, err := optionsInForce(database, "/repo", "anthropic", []byte(`{"depth":5,"web":true}`), []byte(`{"depth":4}`))
 
-	if err != nil || string(loaded.Options) != `{"depth":4,"effort":"high"}` {
-		t.Fatalf("options in force = %s, err = %v", loaded.Options, err)
+	if err != nil || string(inForce) != `{"depth":4,"effort":"high","web":true}` {
+		t.Fatalf("options in force = %s, err = %v", inForce, err)
 	}
 
 	// Removing the project's last one leaves nothing stored there, so the

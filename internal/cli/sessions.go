@@ -30,8 +30,9 @@ type place struct {
 	unlock func()
 }
 
-// choice is the provider a session uses, its model, and the provider's
-// options in force there.
+// choice is the provider a session uses, its model, and the values of the
+// provider's options chosen in it. What a run gets is worked out when it
+// starts, with the values stored for the provider under these.
 type choice struct {
 	provider string
 	model    string
@@ -144,13 +145,15 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		return id, err
 	}
 
-	// What the run does not choose keeps the value in force in the session.
-	if chosen.options, err = mergeOptions(chosen.options, params.Options); err != nil {
-		return id, err
-	}
-
 	if params.Model != "" {
 		chosen.model = params.Model
+	}
+
+	// What the run does not choose keeps the value in force in the session.
+	worker, err := h.agent(pool, chosen, params.Options, target.tools, run)
+
+	if err != nil {
+		return id, err
 	}
 
 	session, err := h.made(target, params.Objective)
@@ -160,8 +163,6 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 	}
 
 	run.Attach(session.ID)
-
-	worker := h.agent(pool, chosen, target.tools, run)
 	worker.Inbox = run
 
 	if params.Resume {
@@ -171,8 +172,27 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 	return session.ID, worker.Run(ctx, session, params.Objective)
 }
 
-// agent builds the loop for one piece of work in a session.
-func (h *host) agent(pool *provider.Pool, chosen choice, tools *tool.Set, observer agent.Observer) *agent.Agent {
+// agent builds the loop for one piece of work in a session, with the
+// settings as they stand when it starts: a change to them applies to the
+// work that starts after it. extra are option values the work chose for
+// itself, over the others.
+func (h *host) agent(pool *provider.Pool, chosen choice, extra json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
+	settings, err := loadLimits(h.database, h.root)
+
+	if err != nil {
+		return nil, err
+	}
+
+	options, err := h.inForce(chosen)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if options, err = mergeOptions(options, extra); err != nil {
+		return nil, err
+	}
+
 	return &agent.Agent{
 		Store:        h.database,
 		Provider:     pool,
@@ -181,12 +201,25 @@ func (h *host) agent(pool *provider.Pool, chosen choice, tools *tool.Set, observ
 		Collectors:   ambient.Defaults(),
 		ProviderName: chosen.provider,
 		Model:        chosen.model,
-		Options:      chosen.options,
-		MaxTokens:    h.settings.MaxTokens,
-		MaxTurns:     h.settings.MaxTurns,
-		Compaction:   h.settings.Compaction,
+		Options:      options,
+		MaxTokens:    settings.MaxTokens,
+		MaxTurns:     settings.MaxTurns,
+		Compaction:   settings.Compaction,
 		RetryWaits:   agent.DefaultRetryWaits,
+	}, nil
+}
+
+// inForce returns the option values a run with chosen gets, as the
+// settings stand now. The command line's are for the provider rumbo was
+// started with.
+func (h *host) inForce(chosen choice) (json.RawMessage, error) {
+	var flags json.RawMessage
+
+	if chosen.provider == h.settings.Provider {
+		flags = h.settings.Flags
 	}
+
+	return optionsInForce(h.database, h.root, chosen.provider, chosen.options, flags)
 }
 
 // made returns the place's session, making it first when the place has
@@ -205,12 +238,19 @@ func (h *host) made(target *place, objective string) (store.Session, error) {
 		return created, err
 	}
 
-	// The session keeps its provider from one start of rumbo to the next.
+	// The session keeps its provider, and what was chosen for it, from one
+	// start of rumbo to the next.
 	if err := h.database.SetSessionModel(created.ID, target.provider, target.model); err != nil {
 		return created, err
 	}
 
-	created.Provider, created.Model = target.provider, target.model
+	if len(target.options) > 0 {
+		if err := h.database.SetSessionOptions(created.ID, target.options); err != nil {
+			return created, err
+		}
+	}
+
+	created.Provider, created.Model, created.Options = target.provider, target.model, target.options
 	target.session = &created
 	h.places[created.ID] = target
 
@@ -271,9 +311,9 @@ func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, e
 }
 
 // known returns the place of a session of the project, by id. A session
-// this host has not worked in yet uses the provider stored with it, or
-// that of the current one when it has none stored. The caller holds the
-// lock.
+// this host has not worked in yet uses the provider and the options stored
+// with it, or the provider of the current one when it has none stored. The
+// caller holds the lock.
 func (h *host) known(id string) (*place, error) {
 	if found, ok := h.places[id]; ok {
 		return found, nil
@@ -295,13 +335,7 @@ func (h *host) known(id string) (*place, error) {
 	known.session, known.dir = &session, session.Dir
 
 	if session.Provider != "" {
-		options, err := storedOptions(h.database, h.root, session.Provider)
-
-		if err != nil {
-			return nil, err
-		}
-
-		known.choice = choice{provider: session.Provider, model: session.Model, options: options}
+		known.choice = choice{provider: session.Provider, model: session.Model, options: session.Options}
 	}
 
 	h.places[id] = known

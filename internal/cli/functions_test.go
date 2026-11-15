@@ -32,7 +32,8 @@ func testHost(t *testing.T) *host {
 }
 
 // hostOn is a host on database, as a new start of rumbo makes one: its
-// settings choose the provider first and the model small.
+// settings choose the provider first and the model small, and the command
+// line the option effort=high.
 func hostOn(t *testing.T, database store.Store) *host {
 	t.Helper()
 
@@ -42,9 +43,9 @@ func hostOn(t *testing.T, database store.Store) *host {
 		database: database,
 		root:     "/repo",
 		tools:    tools,
-		settings: config{Provider: "first", Model: "small", Options: []byte(`{"effort":"high"}`)},
+		settings: config{Provider: "first", Model: "small", Flags: []byte(`{"effort":"high"}`)},
 		current: &place{
-			choice: choice{provider: "first", model: "small", options: []byte(`{"effort":"high"}`)},
+			choice: choice{provider: "first", model: "small"},
 			dir:    "/repo",
 			tools:  tools.Separate(),
 		},
@@ -165,8 +166,8 @@ func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 	// in force for the one before.
 	used := call(t, h, "use", `{"provider":"second","model":"large"}`)
 
-	if used.State.Provider != "second" || used.State.Model != "large" || string(h.current.options) != `{"depth":2}` {
-		t.Fatalf("after use: %+v, options %s", used.State, h.current.options)
+	if options, _ := h.inForce(h.current.choice); used.State.Provider != "second" || used.State.Model != "large" || string(options) != `{"depth":2}` {
+		t.Fatalf("after use: %+v, options %s", used.State, options)
 	}
 
 	for name, params := range map[string]string{"use": `{"provider":"missing","model":"x"}`, "open": `{}`, "nope": ``} {
@@ -336,12 +337,93 @@ func TestSessionsKeepTheirProviderAcrossStarts(t *testing.T) {
 	// its own provider; one without a stored provider takes the current one.
 	later := hostOn(t, h.database)
 
-	if opened := call(t, later, "open", `{"session":"`+made.ID+`"}`); opened.State.Provider != "second" || opened.State.Model != "large" || string(later.current.options) != `{"depth":2}` {
-		t.Fatalf("after a restart: %+v, options %s", opened.State, later.current.options)
+	opened := call(t, later, "open", `{"session":"`+made.ID+`"}`)
+
+	if options, _ := later.inForce(later.current.choice); opened.State.Provider != "second" || opened.State.Model != "large" || string(options) != `{"depth":2}` {
+		t.Fatalf("after a restart: %+v, options %s", opened.State, options)
 	}
 
 	if opened := call(t, later, "open", `{"session":"`+older.ID+`"}`); opened.State.Provider != "second" {
 		t.Fatalf("a session with no stored provider: %+v", opened.State)
+	}
+}
+
+// A session keeps the options chosen in it, as it keeps its model, and goes
+// without them when it changes to another provider.
+func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
+	h := testHost(t)
+	call(t, h, "use", `{"provider":"second","model":"large"}`)
+
+	// Chosen before the session is made, they wait for it. The session's
+	// are over those stored for the provider.
+	chosen := call(t, h, "session-options", `{"change":"depth=5"}`)
+
+	if !strings.Contains(chosen.Text, "kept for the session the next task starts") || !strings.Contains(chosen.Text, `options in force: {"depth":5}`) {
+		t.Fatalf("session-options = %q", chosen.Text)
+	}
+
+	made, err := h.made(h.current, "first task")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	call(t, h, "session-options", `{"change":"web=true"}`)
+
+	if stored, _ := h.database.Session(made.ID); string(stored.Options) != `{"depth":5,"web":true}` {
+		t.Fatalf("stored options = %s", stored.Options)
+	}
+
+	h.close()
+
+	later := hostOn(t, h.database)
+	call(t, later, "open", `{"session":"`+made.ID+`"}`)
+
+	if shown := call(t, later, "session-options", ""); !strings.Contains(shown.Text, `chosen in the session: {"depth":5,"web":true}`) {
+		t.Fatalf("after a restart: %q", shown.Text)
+	}
+
+	// Another provider does not get them.
+	used := call(t, later, "use", `{"provider":"first","model":"small"}`)
+
+	if !strings.Contains(used.Text, "were for another provider and are dropped") || later.current.options != nil {
+		t.Fatalf("use = %q, options %s", used.Text, later.current.options)
+	}
+
+	if stored, _ := later.database.Session(made.ID); stored.Options != nil {
+		t.Fatalf("options left stored = %s", stored.Options)
+	}
+
+	// Options are kept for the session's own provider, not for one -m
+	// chose for one start.
+	call(t, later, "use", `{"provider":"second","model":"large"}`)
+	later.current.provider = "first"
+
+	if err := refused(t, later, "session-options", `{"change":"depth=1"}`); !strings.Contains(err, "this session uses second") {
+		t.Fatalf("session-options under -m: %v", err)
+	}
+}
+
+// What is stored applies to the next run, without starting rumbo again;
+// what rumbo reads when it starts says so.
+func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
+	h := testHost(t)
+
+	stored := call(t, h, "system-set", `{"key":"max_turns","value":"7"}`)
+	call(t, h, "provider-options", `{"provider":"first","change":"depth=3"}`)
+
+	worker, err := h.agent(nil, h.current.choice, []byte(`{"web":true}`), h.current.tools, nil)
+
+	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"depth":3,"effort":"high","web":true}` {
+		t.Fatalf("worker = %+v, err = %v", worker, err)
+	}
+
+	if !strings.Contains(stored.Text, "applies to the runs that start from now on") {
+		t.Fatalf("system-set max_turns = %q", stored.Text)
+	}
+
+	if model := call(t, h, "system-set", `{"key":"model","value":"second/large"}`); !strings.Contains(model.Text, "from the next start of rumbo") {
+		t.Fatalf("system-set model = %q", model.Text)
 	}
 }
 

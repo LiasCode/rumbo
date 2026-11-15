@@ -11,7 +11,8 @@ before the next request, as the user's words, and leaves the objective as it
 was. A steer that comes as the model finishes keeps the run going.
 
 **Session.** A conversation bound to a project directory, stored as a list of
-entries.
+entries. It keeps its provider, its model, and the values of the provider's
+options chosen in it.
 
 **Entry.** One immutable record in a session. Kinds: `system` (prompt and tool
 declarations in force), `context` (ambient sections that changed), `user` (an
@@ -56,14 +57,16 @@ passes it on without interpreting it.
 
 **Option.** A value a provider accepts with a request, beyond the model,
 such as how thorough to be. Which options exist is the provider's decision.
-The values it gets are the provider's, stored for every project or for one,
-apart from its configuration.
+The values it gets are stored for the provider, for every project or for
+one, apart from its configuration; a session can choose others, which it
+keeps.
 
 **System setting.** A setting of rumbo itself, the same whatever the session
 and the provider: the model a new session starts with, the front end, the
 output limit, the turn limit, and when to summarize. It is stored for every
-project, or for one, where it wins. What a session or a provider chooses is
-kept with the session or the provider instead.
+project, or for one, where it wins, and applies to the runs that start
+after it is stored. What a session or a provider chooses is kept with the
+session or the provider instead.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
 listing its models, or by the host, such as changing session or quitting. A

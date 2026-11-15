@@ -56,7 +56,7 @@ func (u *ui) candidates(head string) (candidates []string, hint string) {
 	position := len(words) - 1
 	name := strings.TrimPrefix(words[0], "/")
 
-	if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 && words[0] != commandSet {
+	if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
 		param, found := parameter(u.info.Functions[index], position)
 
 		if !found {
@@ -77,46 +77,9 @@ func (u *ui) candidates(head string) (candidates []string, hint string) {
 		return nil, err.Error()
 	}
 
-	if words[0] == commandSet {
-		return u.settable(described, words[1:])
-	}
-
 	if index := slices.IndexFunc(described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
 		if param, found := parameter(described.Offers.Functions[index], position); found {
 			return u.accepts(param, protocol.TargetProvider)
-		}
-	}
-
-	return nil, ""
-}
-
-// settable completes /set: first what can be set, then the values it takes.
-func (u *ui) settable(described protocol.DescribeResult, chosen []string) (candidates []string, hint string) {
-	if len(chosen) == 0 {
-		names := []string{"model"}
-
-		for _, option := range described.Offers.Options {
-			names = append(names, option.Name)
-		}
-
-		return names, ""
-	}
-
-	if len(chosen) > 1 {
-		return nil, ""
-	}
-
-	if chosen[0] == "model" {
-		if described.Offers.Model == nil {
-			return nil, ""
-		}
-
-		return u.accepts(*described.Offers.Model, protocol.TargetProvider)
-	}
-
-	for _, option := range described.Offers.Options {
-		if option.Name == chosen[0] {
-			return u.accepts(option, protocol.TargetProvider)
 		}
 	}
 
@@ -170,7 +133,7 @@ func (u *ui) accepts(option protocol.Option, target string) (values []string, hi
 // front end's own, the host's, and the provider's once it has been
 // described. The caller holds the lock.
 func (u *ui) commandNames() []string {
-	names := []string{commandHelp, commandOptions, commandSet}
+	names := []string{commandHelp, commandOptions}
 
 	for _, function := range u.info.Functions {
 		names = append(names, "/"+function.Name)

@@ -44,11 +44,14 @@ type settingSpec struct {
 	help     string
 	fallback string
 	check    func(database store.Store, value string) error
+	// atStart says rumbo reads the setting when it starts. The others are
+	// read when a run starts.
+	atStart bool
 }
 
 var settingSpecs = []settingSpec{
-	{key: keyModel, help: `provider and model, as "provider/model"`, check: checkModel},
-	{key: keyFrontend, help: "front end to start; unset uses tui in a terminal and plain otherwise", check: checkFrontend},
+	{key: keyModel, help: `provider and model a new session starts with, as "provider/model"`, check: checkModel, atStart: true},
+	{key: keyFrontend, help: "front end to start; unset uses tui in a terminal and plain otherwise", check: checkFrontend, atStart: true},
 	{key: keyMaxTokens, help: "output token limit per response; unset uses the provider's default", check: checkCount},
 	{key: keyMaxTurns, help: "model responses after which a run is stopped; 0 for no limit", fallback: "150", check: checkCount},
 	{key: keyCompactAt, help: "when the conversation is summarized: tokens, or a share of the model's context such as 80%; 0 never; unset uses 80%, at most 150000 tokens", check: checkCompactAt},
@@ -119,6 +122,15 @@ func parseCompactAt(value string) (agent.Compaction, error) {
 	}
 
 	return agent.Compaction{Tokens: tokens}, nil
+}
+
+// applies says when a change to the setting takes effect.
+func (spec settingSpec) applies() string {
+	if spec.atStart {
+		return "it applies from the next start of rumbo"
+	}
+
+	return "it applies to the runs that start from now on"
 }
 
 // findSetting returns the system setting called key, or says why there is

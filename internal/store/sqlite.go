@@ -84,11 +84,15 @@ var migrations = []string{
 	// take them from the settings.
 	`ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT '';
 	 ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`,
+
+	// 4: the provider options chosen in a session, so it keeps them as it
+	// keeps its model. Sessions from before have none chosen.
+	`ALTER TABLE sessions ADD COLUMN options TEXT NOT NULL DEFAULT '';`,
 }
 
 // sessionColumns are selected in the order scanSession reads them. Activity
 // is when the session was last used: its newest entry, or its creation.
-const sessionColumns = `id, dir, project, title, provider, model, created_at,
+const sessionColumns = `id, dir, project, title, provider, model, options, created_at,
 	COALESCE((SELECT MAX(created_at) FROM entries WHERE session_id = sessions.id), created_at) AS activity`
 
 // SQLite is the Store backed by a single SQLite file.
@@ -360,6 +364,21 @@ func (s *SQLite) SetSessionModel(id, provider, model string) error {
 	return nil
 }
 
+// SetSessionOptions implements Store.
+func (s *SQLite) SetSessionOptions(id string, options json.RawMessage) error {
+	result, err := s.db.Exec(`UPDATE sessions SET options = ? WHERE id = ?`, string(options), id)
+
+	if err != nil {
+		return err
+	}
+
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // LatestSession implements Store.
 func (s *SQLite) LatestSession(project string) (Session, error) {
 	row := s.db.QueryRow(
@@ -539,12 +558,17 @@ func scanProgram(row scanner) (Program, error) {
 
 func scanSession(row scanner) (Session, error) {
 	var session Session
+	var options string
 	var createdAt, activity int64
 
-	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &session.Provider, &session.Model, &createdAt, &activity)
+	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &session.Provider, &session.Model, &options, &createdAt, &activity)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return session, ErrNotFound
+	}
+
+	if options != "" {
+		session.Options = json.RawMessage(options)
 	}
 
 	session.CreatedAt = time.UnixMilli(createdAt)

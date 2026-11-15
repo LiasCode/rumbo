@@ -5,7 +5,6 @@ package tui
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -141,10 +140,6 @@ type ui struct {
 	// model yet.
 	telling int
 	session string
-	// model and options are what the user chose here for the runs to come;
-	// empty means the stored values.
-	model   string
-	options map[string]json.RawMessage
 	// described is what the provider said it offers, once it was asked.
 	described *protocol.DescribeResult
 	// pending is a function that asked to be confirmed and waits for a yes.
@@ -249,13 +244,7 @@ func (u *ui) footer() {
 		state = u.notice
 	}
 
-	model := u.info.Model
-
-	if u.model != "" {
-		model = u.model
-	}
-
-	status := fmt.Sprintf(" rumbo | provider %s, model %s | %s", u.info.Provider, model, state)
+	status := fmt.Sprintf(" rumbo | provider %s, model %s | %s", u.info.Provider, u.info.Model, state)
 
 	if len(u.away) > 0 {
 		status += fmt.Sprintf(" | %d working in the background", len(u.away))
@@ -402,7 +391,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 			u.show(started, event)
 		}
 
-		result, err := u.conn.Launch(u.choices(params), named, shown)
+		result, err := u.conn.Launch(params, named, shown)
 
 		u.mu.Lock()
 		defer u.mu.Unlock()

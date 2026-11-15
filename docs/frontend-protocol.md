@@ -155,9 +155,10 @@ provider it knows nothing about.
 ```
 
 - `model` and `options` are what a run in the current session uses unless
-  it says otherwise: the session's model and the provider's stored options,
-  with the command line's choices over them, until `use` changes them for
-  the session.
+  it says otherwise: the session's model, and the provider's stored options
+  with those chosen in the session over them and the command line's over
+  both. `use` changes the model for the session, and `session-options` the
+  options.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
   Any part of it may be absent.
@@ -348,7 +349,7 @@ The functions of this version, by group:
 | Function | Group | Parameters | What it does |
 |---|---|---|---|
 | `system` | system | | Shows the system settings as they apply to the project, and where each value comes from. |
-| `system-set` | system | `key`, `value`, `scope`? | Stores a system setting, for every project unless `scope` is `project`. It applies from the next start. |
+| `system-set` | system | `key`, `value`, `scope`? | Stores a system setting, for every project unless `scope` is `project`. It applies to the runs that start after it; `model` and `frontend` from the next start. |
 | `system-unset` | system | `key`, `scope`? | Removes a stored system setting. |
 | `system-keys` | system | | Lists the system settings there are. |
 | `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
@@ -357,12 +358,13 @@ The functions of this version, by group:
 | `open` | session | `session` | Makes another session of the project the current one. |
 | `new` | session | | Makes the next task start a new session. |
 | `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
-| `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. |
+| `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
+| `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
 | `providers` | provider | | Lists the registered providers. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
 | `provider-set` | provider | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
-| `provider-options` | provider | `provider`, `change`?, `scope`? | Shows the option values the provider gets with every request in this project. With a `change`, as `name=value`, first stores it for every project unless `scope` is `project`; an empty value removes it. It applies from the next start. |
+| `provider-options` | provider | `provider`, `change`?, `scope`? | Shows the option values the provider gets with every request in this project. With a `change`, as `name=value`, first stores it for every project unless `scope` is `project`; an empty value removes it. It applies to the runs that start after it. |
 | `provider-show` | provider | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
 | `provider-rm` | provider | `provider` | Removes a registered provider. Asks to be confirmed. |
 

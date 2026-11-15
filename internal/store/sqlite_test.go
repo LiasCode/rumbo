@@ -192,11 +192,32 @@ func TestSessionsKeepTheirModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if found, _ := database.Session(session.ID); found.Provider != "anthropic" || found.Model != "claude-opus-5-5" {
+	if found, _ := database.Session(session.ID); found.Provider != "anthropic" || found.Model != "claude-opus-5-5" || found.Options != nil {
 		t.Fatalf("session = %+v", found)
 	}
 
-	if err := database.SetSessionModel("missing", "anthropic", "x"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("a session that does not exist: err = %v", err)
+	if err := database.SetSessionOptions(session.ID, []byte(`{"effort":"high"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	if found, _ := database.Session(session.ID); string(found.Options) != `{"effort":"high"}` {
+		t.Fatalf("options = %s", found.Options)
+	}
+
+	if err := database.SetSessionOptions(session.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if found, _ := database.Session(session.ID); found.Options != nil {
+		t.Fatalf("options after clearing = %s", found.Options)
+	}
+
+	for _, err := range []error{
+		database.SetSessionModel("missing", "anthropic", "x"),
+		database.SetSessionOptions("missing", nil),
+	} {
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("a session that does not exist: err = %v", err)
+		}
 	}
 }

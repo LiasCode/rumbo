@@ -92,12 +92,15 @@ giving a task, such as changing session or provider, the host offers as
 described functions, so a front end has commands for them without knowing
 them, exactly as it does for a provider's.
 
-**Command line** (`internal/cli`). Parses arguments, reads settings once, and
-wires the parts. It is the only place that knows the implementations.
+**Command line** (`internal/cli`). Parses arguments, reads the settings, and
+wires the parts. It is the only place that knows the implementations. What
+rumbo starts with is read when it starts, and what a run uses when the run
+starts, so a stored change applies to the next run.
 Configuration has three levels, kept apart. The system settings are
 rumbo's own, the same whatever the session and the provider. A session
-keeps what it chose: its provider and its model. A provider has its
-configuration and the option values it gets with every request. What a
+keeps what it chose: its provider, its model, and values of the provider's
+options. A provider has its configuration and the option values it gets with
+every request, under those a session chose. What a
 system setting is, what a provider's options are, and what a registered
 program is each have one owner there (`settings.go`, `options.go`,
 `programs.go`). The commands and the host's functions, each named for the

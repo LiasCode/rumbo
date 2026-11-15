@@ -36,7 +36,8 @@ type Program struct {
 // Session is one conversation. Dir is the directory it works in; Project is
 // the root that directory belongs to, which is what sessions are listed and
 // continued by. Provider and Model are what the session uses, empty for a
-// session from before they were stored.
+// session from before they were stored. Options are the values of the
+// provider's options chosen in the session, a JSON object, or nothing.
 type Session struct {
 	ID        string
 	Dir       string
@@ -44,6 +45,7 @@ type Session struct {
 	Title     string
 	Provider  string
 	Model     string
+	Options   json.RawMessage
 	CreatedAt time.Time
 	// ActiveAt is when the session was last used.
 	ActiveAt time.Time
@@ -79,6 +81,9 @@ type Store interface {
 
 	// SetSessionModel records the provider and the model a session uses.
 	SetSessionModel(id, provider, model string) error
+	// SetSessionOptions records the provider options chosen in a session.
+	// Empty options record that none are.
+	SetSessionOptions(id string, options json.RawMessage) error
 
 	// DeleteSession removes a session and its entries for good.
 	DeleteSession(id string) error

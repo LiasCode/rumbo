@@ -24,6 +24,15 @@ a provider.
 - `/system-set` and `/system-unset` act for every project unless you add
   `project`, as `rumbo system` does without `-p`. Before, they acted for the
   project unless told `global`.
+- A session keeps the provider options chosen in it, as it keeps its model:
+  `/session-options effort=high`. Changing its provider with `/use` leaves
+  them behind. The terminal UI's `/set`, whose choices lasted until it
+  closed, is gone.
+- A system setting or a provider's option you store applies to the next
+  run, without starting rumbo again. The model and the front end still apply
+  from the next start.
+- Options given with `-o` apply in every session that uses the provider
+  rumbo was started with.
 - Front end protocol: each function of the host says what it acts on, in
   `group`.
 
