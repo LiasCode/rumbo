@@ -19,6 +19,8 @@ it. The commits hold the reasons.
   provider wrote to its cache, as `/status` does. With Claude, which writes
   nearly all of each request there, `in` showed almost nothing, and a
   cache miss did not move it.
+- When it quits, the terminal UI leaves the command that continues its
+  session, `rumbo -s <session>`, under the conversation.
 
 ## 0.4.0 (2026-11-15)
 

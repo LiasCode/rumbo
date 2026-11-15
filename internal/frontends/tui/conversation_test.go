@@ -261,3 +261,19 @@ func TestARunLeftBehindTakesNothingOfTheLiveArea(t *testing.T) {
 		t.Fatalf("shown:\n%s", shown)
 	}
 }
+
+// Quitting leaves the command that continues the session, and nothing when
+// there is no session to continue.
+func TestQuittingLeavesTheCommandThatContinuesTheSession(t *testing.T) {
+	u := quiet()
+
+	if leaving := u.leaving(); leaving != "" {
+		t.Fatalf("without a session: %q", leaving)
+	}
+
+	u.session = "4cf0261c"
+
+	if leaving := u.leaving(); !strings.Contains(leaving, "rumbo -s 4cf0261c continues this session") {
+		t.Fatalf("with a session: %q", leaving)
+	}
+}

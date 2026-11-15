@@ -110,6 +110,10 @@ func Run(r io.Reader, w io.Writer) int {
 	defer func() {
 		ui.close()
 		_ = term.Restore(input, saved)
+
+		if leaving := ui.leaving(); leaving != "" {
+			fmt.Fprintln(os.Stdout, leaving)
+		}
 	}()
 
 	ui.open()
@@ -296,6 +300,19 @@ func (u *ui) close() {
 	u.screen.clear()
 	fmt.Fprint(u.screen.out, pasteOff+focusOff)
 	u.closed = true
+}
+
+// leaving is what stays below the conversation once the terminal UI has
+// quit: the command that continues its session, or nothing when it has none.
+func (u *ui) leaving() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if u.session == "" {
+		return ""
+	}
+
+	return styleDim + "rumbo -s " + u.session + " continues this session" + styleReset
 }
 
 // notify tells the person that something they may be waiting for happened

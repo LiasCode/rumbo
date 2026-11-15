@@ -421,7 +421,9 @@ speaks the Agent Frontend Protocol with the host.
   or `default`. It says the configuration in force, with its defaults, to
   be kept with its registration, and one it cannot use stops it with what
   is wrong, before it takes the terminal.
-- It gives the terminal back as it found it, when it quits or the host ends.
+- It gives the terminal back as it found it, when it quits or the host ends,
+  and leaves under the conversation the command that continues its
+  session, `rumbo -s <session>`.
 
 **`plain`**, for pipes and scripts:
 
