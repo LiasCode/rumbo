@@ -230,7 +230,10 @@ func evaluate(task, binary, scratch string, attempt int, opts options, provider 
 	ctx, cancel := context.WithTimeout(context.Background(), opts.timeout)
 	defer cancel()
 
-	agent := exec.CommandContext(ctx, binary, "-f", "plain", "-m", opts.model, strings.TrimSpace(string(objective)))
+	// The provider is named before the first slash; a model's own name may
+	// hold more.
+	providerName, modelName, _ := strings.Cut(opts.model, "/")
+	agent := exec.CommandContext(ctx, binary, "-f", "plain", "-p", providerName, "-m", modelName, strings.TrimSpace(string(objective)))
 	agent.Dir = repo
 	agent.Env = env
 	// The interrupt goes to the whole group, because it is the front end,

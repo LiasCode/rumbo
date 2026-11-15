@@ -57,16 +57,15 @@ passes it on without interpreting it.
 
 **Option.** A value a provider accepts with a request, beyond the model,
 such as how thorough to be. Which options exist is the provider's decision.
-The values it gets are stored for the provider, for every project or for
-one, apart from its configuration; a session can choose others, which it
-keeps.
+The values it gets are stored for the provider, apart from its
+configuration; a session can choose others, which it keeps and which win
+in it.
 
-**System setting.** A setting of rumbo itself, the same whatever the session
-and the provider: the model a new session starts with, the front end, the
-output limit, the turn limit, and when to summarize. It is stored for every
-project, or for one, where it wins, and applies to the runs that start
-after it is stored. What a session or a provider chooses is kept with the
-session or the provider instead.
+**System setting.** A setting of rumbo itself, the same everywhere: the
+provider and the model a new session starts with, the front end, the turn
+limit, the output limit, and when to summarize. It applies to the runs that
+start after it is stored. What a session chooses for itself is kept with the
+session and wins there; what a provider takes is kept with the provider.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
 listing its models, or by the host, such as changing session or quitting. A

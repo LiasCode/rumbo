@@ -99,8 +99,8 @@ wires the parts. It is the only place that knows the implementations. What
 rumbo starts with is read when it starts, and what a run uses when the run
 starts, so a stored change applies to the next run.
 Configuration has three levels, kept apart. The system settings are
-rumbo's own, the same whatever the session and the provider. A session
-keeps what it chose: its provider, its model, and values of the provider's
+rumbo's own, the same everywhere. A session keeps what it chose, which wins
+over them there: its provider, its model, and values of the provider's
 options. A provider has its configuration and the option values it gets with
 every request, under those a session chose. What a
 system setting is, what a provider's options are, and what a registered
@@ -172,6 +172,7 @@ tools and providers stopped.
 calling tools. The harness does not judge the result; checking the work is
 part of the task, and the user's instructions say how.
 
-**A project is its root.** Settings and sessions belong to the top of the git
-repository, and are found from any directory inside it. A session still works
-in the directory it was started in.
+**A project is its root.** Sessions belong to the top of the git repository,
+and are found from any directory inside it. A session still works in the
+directory it was started in. Settings are not the project's: they are the
+same everywhere.

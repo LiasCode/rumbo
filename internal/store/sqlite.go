@@ -324,6 +324,31 @@ func (s *SQLite) Programs(kind string) ([]Program, error) {
 	return programs, rows.Err()
 }
 
+// Settings implements Store.
+func (s *SQLite) Settings() ([]Setting, error) {
+	rows, err := s.db.Query(`SELECT scope, key, value FROM settings ORDER BY scope, key`)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var settings []Setting
+
+	for rows.Next() {
+		var setting Setting
+
+		if err := rows.Scan(&setting.Scope, &setting.Key, &setting.Value); err != nil {
+			return nil, err
+		}
+
+		settings = append(settings, setting)
+	}
+
+	return settings, rows.Err()
+}
+
 // CreateSession implements Store.
 func (s *SQLite) CreateSession(dir, project, title string) (Session, error) {
 	raw := make([]byte, 4)

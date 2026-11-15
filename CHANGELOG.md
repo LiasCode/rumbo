@@ -10,9 +10,21 @@ it. The commits hold the reasons.
 Settings are now kept apart by what they act on: the system, a session, or
 a provider.
 
-- `rumbo config` is now `rumbo system`, for the system settings: the model
-  new sessions start with, the front end, the output limit, the turn limit,
-  and when to summarize.
+- `rumbo config` is now `rumbo system`, for the system settings:
+  `default_provider` and `default_model`, which new sessions start with,
+  `frontend`, `max_turns`, `max_tokens`, and `compact_at`. The `model`
+  setting, which held both the provider and the model, is carried over to
+  the first two once.
+- Settings are the same everywhere: there are no project settings any more.
+  Those stored for one project are no longer read, and `rumbo system list`
+  shows them.
+- `compact_at` takes a share of the model's context, such as `80%`, or `0%`
+  for never. One stored as a number of tokens stops rumbo, saying how to
+  change it.
+- `-p` chooses the provider and `-m` the model alone, which may hold a
+  slash: `rumbo -p local -m qwen3-coder`. `-m provider/model` no longer
+  works. What `-p`, `-m`, and `-o` choose is the session's, kept from one
+  start to the next, as `/use` and `/session-options` make it.
 - A provider's options are its own, no longer the `options.<provider>`
   setting: `rumbo provider options <name> effort=high`, or
   `/provider-options` in the terminal UI. Those already stored stay in
@@ -23,9 +35,6 @@ a provider.
   `/setting-keys`; `/provider-add`, `/provider-set`, `/provider-show`, and
   `/provider-rm` were `/register`, `/configure`, `/inspect`, and
   `/unregister`.
-- `/system-set` and `/system-unset` act for every project unless you add
-  `project`, as `rumbo system` does without `-p`. Before, they acted for the
-  project unless told `global`.
 - A session keeps the provider options chosen in it, as it keeps its model:
   `/session-options effort=high`. Changing its provider with `/use` leaves
   them behind. The terminal UI's `/set`, whose choices lasted until it
@@ -33,8 +42,6 @@ a provider.
 - A system setting or a provider's option you store applies to the next
   run, without starting rumbo again. The model and the front end still apply
   from the next start.
-- Options given with `-o` apply in every session that uses the provider
-  rumbo was started with.
 - Front end protocol: each function of the host says what it acts on, in
   `group`.
 

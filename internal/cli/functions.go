@@ -33,10 +33,6 @@ type hostFunction struct {
 // sessionParam lets a function act on a session other than the current one.
 var sessionParam = protocol.Option{Name: "session", Type: protocol.OptionString, Values: "sessions", Optional: true}
 
-// scopeParam lets a function store for this project only, instead of for
-// every project.
-var scopeParam = protocol.Option{Name: "scope", Type: protocol.OptionString, Enum: scopes, Optional: true}
-
 // hostFunctions are listed to the front end in this order, by what they act
 // on: the system, a session, and the providers.
 var hostFunctions = []hostFunction{
@@ -52,11 +48,10 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "system-set",
-			Description: "Store a system setting, for every project unless the scope says this project",
+			Description: "Store a system setting, which a session's own choice wins over",
 			Params: []protocol.Option{
 				{Name: "key", Type: protocol.OptionString, Values: "system-keys"},
 				{Name: "value", Type: protocol.OptionString},
-				scopeParam,
 			},
 			Group: protocol.GroupSystem,
 		},
@@ -66,10 +61,9 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "system-unset",
-			Description: "Remove a stored system setting, for every project unless the scope says this project",
+			Description: "Remove a stored system setting, so its default applies",
 			Params: []protocol.Option{
 				{Name: "key", Type: protocol.OptionString, Values: "system-keys"},
-				scopeParam,
 			},
 			Group: protocol.GroupSystem,
 		},
@@ -192,7 +186,6 @@ var hostFunctions = []hostFunction{
 			Params: []protocol.Option{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
 				{Name: "change", Type: protocol.OptionString, Description: "name=value", Optional: true},
-				scopeParam,
 			},
 			Group: protocol.GroupProvider,
 		},
@@ -387,7 +380,7 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 		fmt.Fprintf(out, " of %d, %d%%", state.Window, state.Tokens*100/state.Window)
 	}
 
-	settings, err := loadLimits(h.database, h.root)
+	settings, err := loadLimits(h.database)
 
 	if err != nil {
 		return err
@@ -563,32 +556,18 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 	defer h.mu.Unlock()
 
 	// The options chosen in a session are for its provider, so another one
-	// starts without them. A new session stores what it has when it is made.
-	before, session := h.current.options, h.current.session
-	var options json.RawMessage
+	// starts without them.
+	before := h.current.options
+	options := before
 
-	switch {
-	case session != nil && session.Provider == name:
-		options = session.Options
-	case session == nil && h.current.provider == name:
-		options = before
+	if name != h.current.provider {
+		options = nil
 	}
 
-	if session != nil {
-		if len(session.Options) > 0 && len(options) == 0 {
-			if err := h.database.SetSessionOptions(session.ID, nil); err != nil {
-				return protocol.HostResult{}, err
-			}
-		}
-
-		if err := h.database.SetSessionModel(session.ID, name, params["model"]); err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		session.Provider, session.Model, session.Options = name, params["model"], options
+	if err := h.choose(h.current, choice{provider: name, model: params["model"], options: options}); err != nil {
+		return protocol.HostResult{}, err
 	}
 
-	h.current.choice = choice{provider: name, model: params["model"], options: options}
 	h.prune()
 
 	text := fmt.Sprintf("this session now uses %s/%s", name, params["model"])
@@ -616,42 +595,24 @@ func (h *host) sessionOptions(_ context.Context, params map[string]string) (prot
 	text := ""
 
 	if params["change"] != "" {
-		session := target.session
-
-		// The session keeps options for the provider it uses, not for one
-		// that -m chose for this start only.
-		if session != nil && session.Provider != "" && session.Provider != target.provider {
-			return protocol.HostResult{}, fmt.Errorf("this session uses %s, and only this start of rumbo uses %s; to keep options for %s, make it the session's provider with use first", session.Provider, target.provider, target.provider)
-		}
-
-		options, err := changeObject(target.options, []string{params["change"]})
+		changed := target.choice
+		options, err := changeObject(changed.options, []string{params["change"]})
 
 		if err != nil {
 			return protocol.HostResult{}, err
 		}
 
-		text = "kept for the session the next task starts; it applies to its tasks\n"
+		changed.options = options
 
-		if session != nil {
-			// A session from before providers were stored records the one
-			// its options are for.
-			if session.Provider == "" {
-				if err := h.database.SetSessionModel(session.ID, target.provider, target.model); err != nil {
-					return protocol.HostResult{}, err
-				}
-
-				session.Provider, session.Model = target.provider, target.model
-			}
-
-			if err := h.database.SetSessionOptions(session.ID, options); err != nil {
-				return protocol.HostResult{}, err
-			}
-
-			session.Options = options
-			text = "stored with this session; it applies to the tasks that start from now on\n"
+		if err := h.choose(target, changed); err != nil {
+			return protocol.HostResult{}, err
 		}
 
-		target.options = options
+		text = "kept for the session the next task starts; it applies to its tasks\n"
+
+		if target.session != nil {
+			text = "stored with this session; it applies to the tasks that start from now on\n"
+		}
 	}
 
 	described, err := h.describeChoice(target.choice)
@@ -661,6 +622,29 @@ func (h *host) sessionOptions(_ context.Context, params map[string]string) (prot
 	}
 
 	return protocol.HostResult{Text: text + described}, nil
+}
+
+// choose makes chosen what a place uses, and what its session keeps. A new
+// session stores it when it is made. The caller holds the lock.
+func (h *host) choose(target *place, chosen choice) error {
+	if target.session == nil {
+		target.choice = chosen
+		return nil
+	}
+
+	if err := h.hold(target); err != nil {
+		return err
+	}
+
+	before := target.choice
+	target.choice = chosen
+
+	if err := h.keep(target); err != nil {
+		target.choice = before
+		return err
+	}
+
+	return nil
 }
 
 // describeChoice says which option values a run with chosen gets, and
@@ -685,32 +669,20 @@ func (h *host) describeChoice(chosen choice) (string, error) {
 	return text, nil
 }
 
-// scopes are where a front end can store a system setting or a provider's
-// options. Global, for every project, is what it means unless it says
-// otherwise, as on the command line.
-var scopes = []string{sourceGlobal, sourceProject}
-
-// scope turns the scope a function was given into the one the store uses,
-// and says it in words.
-func (h *host) scope(given string) (scope, where string, err error) {
-	switch given {
-	case "", sourceGlobal:
-		return store.GlobalScope, "for every project", nil
-	case sourceProject:
-		return h.root, "for this project", nil
-	}
-
-	return "", "", fmt.Errorf("the scope is %s", strings.Join(scopes, " or "))
-}
-
 func (h *host) showSettings(context.Context, map[string]string) (protocol.HostResult, error) {
-	settings, err := effectiveSettings(h.database, h.root)
+	settings, err := effectiveSettings(h.database)
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: "system settings:\n" + describeSettings(settings)}, nil
+	ignored, err := ignoredSettings(h.database)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: "system settings:\n" + describeSettings(settings, ignored)}, nil
 }
 
 func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -727,35 +699,23 @@ func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostRes
 // start, so what is stored applies to the next one, but for what rumbo
 // reads when it starts.
 func (h *host) storeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	scope, where, err := h.scope(params["scope"])
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	if err := setSetting(h.database, scope, params["key"], params["value"]); err != nil {
+	if err := setSetting(h.database, params["key"], params["value"]); err != nil {
 		return protocol.HostResult{}, err
 	}
 
 	spec, _ := findSetting(params["key"])
-	text := fmt.Sprintf("system setting %s = %s, stored %s; %s", params["key"], params["value"], where, spec.applies())
+	text := fmt.Sprintf("system setting %s = %s, stored; %s", params["key"], params["value"], spec.applies())
 
 	return protocol.HostResult{Text: text}, nil
 }
 
 func (h *host) removeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	scope, where, err := h.scope(params["scope"])
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	if err := unsetSetting(h.database, scope, params["key"]); err != nil {
+	if err := unsetSetting(h.database, params["key"]); err != nil {
 		return protocol.HostResult{}, err
 	}
 
 	spec, _ := findSetting(params["key"])
-	text := fmt.Sprintf("system setting %s is no longer stored %s; %s", params["key"], where, spec.applies())
+	text := fmt.Sprintf("system setting %s is no longer stored; %s", params["key"], spec.applies())
 
 	return protocol.HostResult{Text: text}, nil
 }
@@ -776,20 +736,14 @@ func (h *host) providerOptions(_ context.Context, params map[string]string) (pro
 	text := ""
 
 	if params["change"] != "" {
-		scope, where, err := h.scope(params["scope"])
-
-		if err != nil {
+		if err := changeOptions(h.database, name, []string{params["change"]}); err != nil {
 			return protocol.HostResult{}, err
 		}
 
-		if err := changeOptions(h.database, scope, name, []string{params["change"]}); err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		text = fmt.Sprintf("stored %s; it applies to the runs that start from now on\n", where)
+		text = "stored; it applies to the runs that start from now on, in the sessions that choose none of their own\n"
 	}
 
-	described, err := describeOptions(h.database, h.root, name)
+	described, err := describeOptions(h.database, name)
 
 	if err != nil {
 		return protocol.HostResult{}, err

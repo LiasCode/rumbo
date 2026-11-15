@@ -38,14 +38,18 @@ Usage:
   rumbo version                  print the version
 
 Flags:
-  -c            continue the latest session of the current project
-  -r            resume the unfinished run of that session, without a new objective
-  -s <session>  continue the given session
-  -m <model>    provider and model for this run, as provider/model
-  -o <n>=<v>    a provider option for this run, such as -o effort=high; may be repeated
-  -f <name>     front end for this run (default: tui in a terminal, else plain)
-  -single       work in one session at a time; by default the host works in
-                several sessions of the project at once
+  -c             continue the latest session of the current project
+  -r             resume the unfinished run of that session, without a new objective
+  -s <session>   continue the given session
+  -p <provider>  provider of the session (default: the default_provider setting)
+  -m <model>     model of the session (default: the default_model setting)
+  -o <n>=<v>     a provider option of the session, such as -o effort=high; may be
+                 repeated, and an empty value removes it
+  -f <name>      front end for this start (default: tui in a terminal, else plain)
+  -single        work in one session at a time; by default the host works in
+                 several sessions of the project at once
+
+The session keeps what -p, -m, and -o choose, over the system settings.
 `
 
 // exitCode is returned through the error path to end the process with a
@@ -229,6 +233,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 	latest := flags.Bool("c", false, "")
 	resume := flags.Bool("r", false, "")
 	sessionID := flags.String("s", "", "")
+	providerName := flags.String("p", "", "")
 	model := flags.String("m", "", "")
 	frontendName := flags.String("f", "", "")
 	single := flags.Bool("single", false, "")
@@ -269,37 +274,34 @@ func newHost(database store.Store, args []string) (*host, error) {
 	}
 
 	// A session keeps working where it started, wherever it is continued
-	// from, and with the model it uses unless -m chooses another for now.
-	chosen := *model
-
+	// from.
 	if session != nil {
 		dir, root = session.Dir, session.Project
-
-		if chosen == "" && session.Provider != "" {
-			chosen = session.Provider + "/" + session.Model
-		}
 	}
 
-	settings, err := loadConfig(database, root, chosen, *frontendName, options.object())
+	settings, err := loadConfig(database, *frontendName)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := database.Program(store.KindProvider, settings.Provider); err != nil {
-		if session != nil && session.Provider == settings.Provider && *model == "" {
-			return nil, fmt.Errorf(`session %s uses the provider %q, which is not registered; register it again, or choose another with -m`, session.ID, settings.Provider)
-		}
+	chosen, err := startChoice(settings, session, *providerName, *model, options)
 
-		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, settings.Provider)
+	if err != nil {
+		return nil, err
 	}
 
-	// The options chosen in the session are for its provider, so a start
-	// that chose another one with -m goes without them.
-	var kept json.RawMessage
+	if _, err := database.Program(store.KindProvider, chosen.provider); err != nil {
+		if session != nil && session.Provider == chosen.provider && *providerName == "" {
+			return nil, fmt.Errorf(`session %s uses the provider %q, which is not registered; register it again, or choose another with -p`, session.ID, chosen.provider)
+		}
 
-	if session != nil && session.Provider == settings.Provider {
-		kept = session.Options
+		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, chosen.provider)
+	}
+
+	// A malformed stored value stops rumbo before a front end starts.
+	if _, err := optionsInForce(database, chosen.provider, chosen.options); err != nil {
+		return nil, err
 	}
 
 	tools := tool.NewSet()
@@ -311,7 +313,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		single:   *single,
 		tools:    tools,
 		current: &place{
-			choice:  choice{provider: settings.Provider, model: settings.Model, options: kept},
+			choice:  chosen,
 			session: session,
 			dir:     dir,
 			tools:   tools.Separate(),
@@ -321,10 +323,19 @@ func newHost(database store.Store, args []string) (*host, error) {
 		pools:  map[string]*provider.Pool{},
 	}
 
+	// What the command line chose is the session's from now on, as use
+	// makes it; a session still to be made stores it when it is made.
+	if session != nil && (*providerName != "" || *model != "" || len(options) > 0) {
+		if err := created.choose(created.current, chosen); err != nil {
+			created.close()
+			return nil, err
+		}
+	}
+
 	created.info = protocol.FrontendInitializeParams{
 		Dir:       dir,
-		Provider:  settings.Provider,
-		Model:     settings.Model,
+		Provider:  chosen.provider,
+		Model:     chosen.model,
 		Objective: strings.TrimSpace(strings.Join(flags.Args(), " ")),
 		Resume:    *resume,
 		Functions: describedFunctions(),
@@ -340,6 +351,52 @@ func newHost(database store.Store, args []string) (*host, error) {
 	}
 
 	return created, nil
+}
+
+// startChoice is what the session rumbo starts in uses: its own provider,
+// model, and options, or the system's defaults for a session still to be
+// made, with what the command line chose over them.
+func startChoice(defaults config, session *store.Session, providerFlag, modelFlag string, changes optionFlags) (choice, error) {
+	chosen := choice{provider: defaults.DefaultProvider, model: defaults.DefaultModel}
+
+	// A session from before providers were stored with it takes the system's.
+	if session != nil && session.Provider != "" {
+		chosen = choice{provider: session.Provider, model: session.Model, options: session.Options}
+	}
+
+	// Options are for the provider they were chosen for, so another one
+	// starts without them, and with the default model only when it is the
+	// default provider.
+	if providerFlag != "" && providerFlag != chosen.provider {
+		chosen = choice{provider: providerFlag}
+
+		if providerFlag == defaults.DefaultProvider {
+			chosen.model = defaults.DefaultModel
+		}
+	}
+
+	if modelFlag != "" {
+		chosen.model = modelFlag
+	}
+
+	if len(changes) > 0 {
+		options, err := changeObject(chosen.options, changes)
+
+		if err != nil {
+			return chosen, err
+		}
+
+		chosen.options = options
+	}
+
+	switch {
+	case chosen.provider == "":
+		return chosen, fmt.Errorf(`no provider chosen: run "rumbo system set %s <provider>", or pass -p`, keyDefaultProvider)
+	case chosen.model == "":
+		return chosen, fmt.Errorf(`no model chosen for %s: pass -m, or run "rumbo system set %s <model>" for the default provider`, chosen.provider, keyDefaultModel)
+	}
+
+	return chosen, nil
 }
 
 // serve connects the front end on r and w and runs its objectives until it

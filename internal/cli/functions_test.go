@@ -32,8 +32,7 @@ func testHost(t *testing.T) *host {
 }
 
 // hostOn is a host on database, as a new start of rumbo makes one: its
-// settings choose the provider first and the model small, and the command
-// line the option effort=high.
+// settings choose the provider first and the model small.
 func hostOn(t *testing.T, database store.Store) *host {
 	t.Helper()
 
@@ -43,7 +42,7 @@ func hostOn(t *testing.T, database store.Store) *host {
 		database: database,
 		root:     "/repo",
 		tools:    tools,
-		settings: config{Provider: "first", Model: "small", Flags: []byte(`{"effort":"high"}`)},
+		settings: config{DefaultProvider: "first", DefaultModel: "small"},
 		current: &place{
 			choice: choice{provider: "first", model: "small"},
 			dir:    "/repo",
@@ -393,15 +392,6 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 	if stored, _ := later.database.Session(made.ID); stored.Options != nil {
 		t.Fatalf("options left stored = %s", stored.Options)
 	}
-
-	// Options are kept for the session's own provider, not for one -m
-	// chose for one start.
-	call(t, later, "use", `{"provider":"second","model":"large"}`)
-	later.current.provider = "first"
-
-	if err := refused(t, later, "session-options", `{"change":"depth=1"}`); !strings.Contains(err, "this session uses second") {
-		t.Fatalf("session-options under -m: %v", err)
-	}
 }
 
 // What is stored applies to the next run, without starting rumbo again;
@@ -414,7 +404,7 @@ func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 
 	worker, err := h.agent(nil, h.current.choice, []byte(`{"web":true}`), h.current.tools, nil)
 
-	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"depth":3,"effort":"high","web":true}` {
+	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"depth":3,"web":true}` {
 		t.Fatalf("worker = %+v, err = %v", worker, err)
 	}
 
@@ -422,7 +412,7 @@ func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 		t.Fatalf("system-set max_turns = %q", stored.Text)
 	}
 
-	if model := call(t, h, "system-set", `{"key":"model","value":"second/large"}`); !strings.Contains(model.Text, "from the next start of rumbo") {
+	if model := call(t, h, "system-set", `{"key":"default_model","value":"large"}`); !strings.Contains(model.Text, "from the next start of rumbo") {
 		t.Fatalf("system-set model = %q", model.Text)
 	}
 }
@@ -431,6 +421,9 @@ func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 // unless -m chooses another for that start.
 func TestContinuingASessionUsesItsProvider(t *testing.T) {
 	h := testHost(t)
+	setSetting(h.database, keyDefaultProvider, "first")
+	setSetting(h.database, keyDefaultModel, "small")
+
 	_, root, err := workingProject()
 
 	if err != nil {
@@ -448,16 +441,35 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 
 	continued.close()
 
-	chosen, err := newHost(h.database, []string{"-s", session.ID, "-m", "first/small"})
+	// What the command line chooses is the session's from then on.
+	chosen, err := newHost(h.database, []string{"-s", session.ID, "-m", "org/huge", "-o", "depth=4"})
 
-	if err != nil || chosen.current.provider != "first" {
-		t.Fatalf("with -m: err = %v", err)
+	if err != nil || chosen.current.provider != "second" || chosen.current.model != "org/huge" {
+		t.Fatalf("with -m: %+v, err = %v", chosen, err)
 	}
 
 	chosen.close()
 
-	if stored, _ := h.database.Session(session.ID); stored.Provider != "second" {
-		t.Fatalf("-m changed what the session keeps: %s", stored.Provider)
+	if stored, _ := h.database.Session(session.ID); stored.Provider != "second" || stored.Model != "org/huge" || string(stored.Options) != `{"depth":4}` {
+		t.Fatalf("the session keeps %s/%s %s", stored.Provider, stored.Model, stored.Options)
+	}
+
+	// Another provider starts without the options chosen for the one
+	// before, and with the default model when it is the default provider.
+	switched, err := newHost(h.database, []string{"-s", session.ID, "-p", "first"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if switched.current.model != "small" || switched.current.options != nil {
+		t.Fatalf("with -p: %+v", switched.current.choice)
+	}
+
+	switched.close()
+
+	if _, err := newHost(h.database, []string{"-p", "second"}); err == nil || !strings.Contains(err.Error(), "no model chosen for second") {
+		t.Fatalf("another provider without -m: err = %v", err)
 	}
 
 	h.database.SetSessionModel(session.ID, "gone", "x")

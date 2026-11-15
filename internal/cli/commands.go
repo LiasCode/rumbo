@@ -77,9 +77,9 @@ func programUsage(kind string) string {
 
 	if kind == store.KindProvider {
 		indent := "\n" + strings.Repeat(" ", 49)
-		options = "\n  rumbo provider options [-p] <name> [<option>=<value>...]" +
-			indent + "the option values it gets with every request, stored" +
-			indent + "globally or for this project with -p; an empty value removes one"
+		options = "\n  rumbo provider options <name> [<option>=<value>...]" +
+			indent + "the option values it gets with every request, in the sessions" +
+			indent + "that choose none of their own; an empty value removes one"
 	}
 
 	return fmt.Sprintf(
@@ -194,40 +194,19 @@ func manageProgram(database store.Store, kind string, args []string) error {
 }
 
 // providerOptions changes the option values stored for a provider, when
-// changes are given, and shows the ones it gets in the current project.
+// changes are given, and shows them.
 func providerOptions(database store.Store, args []string) error {
-	flags := flag.NewFlagSet("provider options", flag.ContinueOnError)
-	project := flags.Bool("p", false, "")
-
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-
-	rest := flags.Args()
-
-	if len(rest) == 0 {
+	if len(args) == 0 {
 		return errors.New(programUsage(store.KindProvider))
 	}
 
-	_, root, err := workingProject()
-
-	if err != nil {
-		return err
-	}
-
-	scope := store.GlobalScope
-
-	if *project {
-		scope = root
-	}
-
-	if len(rest) > 1 {
-		if err := changeOptions(database, scope, rest[0], rest[1:]); err != nil {
+	if len(args) > 1 {
+		if err := changeOptions(database, args[0], args[1:]); err != nil {
 			return err
 		}
 	}
 
-	described, err := describeOptions(database, root, rest[0])
+	described, err := describeOptions(database, args[0])
 
 	if err != nil {
 		return err
@@ -240,56 +219,36 @@ func providerOptions(database store.Store, args []string) error {
 
 func systemUsage() string {
 	return "usage:\n" +
-		"  rumbo system list                     every system setting as it applies here, and where it comes from\n" +
-		"  rumbo system get [-p] <key>           the value stored globally, or for this project with -p\n" +
-		"  rumbo system set [-p] <key> <value>\n" +
-		"  rumbo system unset [-p] <key>\n\n" +
-		"System settings are rumbo's own, the same whatever the session and the provider.\n" +
-		"-p applies to the project the current directory is part of, instead of globally.\n" +
-		"A session keeps its own provider and model; a provider's options are set with\n" +
-		"\"rumbo provider options\".\n\nsystem settings:\n" + settingsHelp()
+		"  rumbo system list                every system setting, and where its value comes from\n" +
+		"  rumbo system get <key>           the value stored\n" +
+		"  rumbo system set <key> <value>\n" +
+		"  rumbo system unset <key>\n\n" +
+		"System settings are rumbo's own, the same everywhere. What a session chooses\n" +
+		"for itself, with -p, -m, -o, use, or session-options, wins over them there.\n" +
+		"A provider's options are set with \"rumbo provider options\".\n\nsystem settings:\n" + settingsHelp()
 }
 
 func systemCommands(database store.Store, args []string) error {
-	if len(args) == 0 {
-		return errors.New(systemUsage())
-	}
-
-	_, root, err := workingProject()
-
-	if err != nil {
-		return err
-	}
-
-	if args[0] == "list" {
-		settings, err := effectiveSettings(database, root)
+	switch {
+	case len(args) == 1 && args[0] == "list":
+		settings, err := effectiveSettings(database)
 
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(describeSettings(settings))
+		ignored, err := ignoredSettings(database)
+
+		if err != nil {
+			return err
+		}
+
+		fmt.Println(describeSettings(settings, ignored))
 
 		return nil
-	}
 
-	flags := flag.NewFlagSet("system", flag.ContinueOnError)
-	project := flags.Bool("p", false, "")
-
-	if err := flags.Parse(args[1:]); err != nil {
-		return err
-	}
-
-	rest := flags.Args()
-	scope := store.GlobalScope
-
-	if *project {
-		scope = root
-	}
-
-	switch {
-	case args[0] == "get" && len(rest) == 1:
-		value, err := storedSetting(database, scope, rest[0])
+	case len(args) == 2 && args[0] == "get":
+		value, err := storedSetting(database, args[1])
 
 		if err != nil {
 			return err
@@ -299,11 +258,11 @@ func systemCommands(database store.Store, args []string) error {
 
 		return nil
 
-	case args[0] == "set" && len(rest) == 2:
-		return setSetting(database, scope, rest[0], rest[1])
+	case len(args) == 3 && args[0] == "set":
+		return setSetting(database, args[1], args[2])
 
-	case args[0] == "unset" && len(rest) == 1:
-		return unsetSetting(database, scope, rest[0])
+	case len(args) == 2 && args[0] == "unset":
+		return unsetSetting(database, args[1])
 	}
 
 	return errors.New(systemUsage())

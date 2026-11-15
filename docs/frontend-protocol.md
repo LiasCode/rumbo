@@ -156,9 +156,8 @@ provider it knows nothing about.
 
 - `model` and `options` are what a run in the current session uses unless
   it says otherwise: the session's model, and the provider's stored options
-  with those chosen in the session over them and the command line's over
-  both. `use` changes the model for the session, and `session-options` the
-  options.
+  with those chosen in the session over them. `use` changes the model for
+  the session, and `session-options` the options.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
   Any part of it may be absent.
@@ -334,8 +333,8 @@ Parameters are an object of text values. Every answer has the same shape:
 
 `group` says what a function acts on, so a front end can list them apart:
 
-- `system`: rumbo itself, the same for every session and provider. The
-  system settings are stored for every project, or for one.
+- `system`: rumbo itself, the same for every session and provider. What a
+  session chooses for itself wins over its settings there.
 - `session`: one session of the project, the current one unless another is
   named.
 - `provider`: the registered providers, how each is started, and the
@@ -349,8 +348,8 @@ The functions of this version, by group:
 | Function | Group | Parameters | What it does |
 |---|---|---|---|
 | `system` | system | | Shows the system settings as they apply to the project, and where each value comes from. |
-| `system-set` | system | `key`, `value`, `scope`? | Stores a system setting, for every project unless `scope` is `project`. It applies to the runs that start after it; `model` and `frontend` from the next start. |
-| `system-unset` | system | `key`, `scope`? | Removes a stored system setting. |
+| `system-set` | system | `key`, `value` | Stores a system setting. It applies to the runs that start after it; `default_provider`, `default_model`, and `frontend` from the next start. |
+| `system-unset` | system | `key` | Removes a stored system setting, so its default applies. |
 | `system-keys` | system | | Lists the system settings there are. |
 | `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
 | `status` | session | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
@@ -364,7 +363,7 @@ The functions of this version, by group:
 | `providers` | provider | | Lists the registered providers. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. |
 | `provider-set` | provider | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`. An empty value removes it. |
-| `provider-options` | provider | `provider`, `change`?, `scope`? | Shows the option values the provider gets with every request in this project. With a `change`, as `name=value`, first stores it for every project unless `scope` is `project`; an empty value removes it. It applies to the runs that start after it. |
+| `provider-options` | provider | `provider`, `change`? | Shows the option values stored for the provider, which a session's own win over. With a `change`, as `name=value`, first stores it; an empty value removes it. It applies to the runs that start after it. |
 | `provider-show` | provider | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
 | `provider-rm` | provider | `provider` | Removes a registered provider. Asks to be confirmed. |
 

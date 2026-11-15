@@ -7,21 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/LiasCode/rumbo/internal/agent"
 	"github.com/LiasCode/rumbo/internal/project"
 	"github.com/LiasCode/rumbo/internal/store"
 )
 
-// config is what rumbo reads from the settings when it starts: what the
-// front end and the first session are.
+// config is what rumbo reads from the system settings when it starts: the
+// front end, and the provider and model a new session starts with.
 type config struct {
-	Frontend string
-	Provider string
-	Model    string
-	// Flags are the provider options the command line gave for this start.
-	Flags json.RawMessage
+	Frontend        string
+	DefaultProvider string
+	DefaultModel    string
 }
 
 // limits are the system settings a run reads when it starts, so a change
@@ -52,7 +49,8 @@ func DatabasePath() (string, error) {
 	return filepath.Join(home, ".local", "share", "rumbo", "rumbo.db"), nil
 }
 
-// openStore opens the database and registers the built-in programs.
+// openStore opens the database, registers the built-in programs, and
+// carries over what an earlier version stored.
 func openStore() (store.Store, error) {
 	path, err := DatabasePath()
 
@@ -67,6 +65,10 @@ func openStore() (store.Store, error) {
 	}
 
 	if err := seedBuiltins(database); err != nil {
+		return nil, err
+	}
+
+	if err := upgradeSettings(database); err != nil {
 		return nil, err
 	}
 
@@ -85,15 +87,24 @@ func workingProject() (dir, root string, err error) {
 	return dir, project.Root(context.Background(), dir), nil
 }
 
-// loadConfig resolves the settings rumbo starts with in the project at
-// root. A missing or malformed required setting is an error; nothing is
-// guessed. Those that runs read later are checked too, so a malformed one
-// stops rumbo before a front end starts.
-func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flagOptions json.RawMessage) (config, error) {
+// loadConfig resolves the system settings rumbo starts with. A malformed
+// one is an error; nothing is guessed. Those that runs read later are
+// checked too, so a malformed one stops rumbo before a front end starts.
+func loadConfig(settings store.Store, frontendFlag string) (config, error) {
 	loaded := config{Frontend: frontendFlag}
 
+	for key, into := range map[string]*string{keyDefaultProvider: &loaded.DefaultProvider, keyDefaultModel: &loaded.DefaultModel} {
+		chosen, err := effectiveSetting(settings, key)
+
+		if err != nil {
+			return loaded, err
+		}
+
+		*into = chosen.Value
+	}
+
 	if loaded.Frontend == "" {
-		chosen, err := effectiveSetting(settings, root, keyFrontend)
+		chosen, err := effectiveSetting(settings, keyFrontend)
 
 		if err != nil {
 			return loaded, err
@@ -109,64 +120,37 @@ func loadConfig(settings store.Store, root, modelFlag, frontendFlag string, flag
 		}
 	}
 
-	model := modelFlag
-
-	if model == "" {
-		chosen, err := effectiveSetting(settings, root, keyModel)
-
-		if err != nil {
-			return loaded, err
-		}
-
-		model = chosen.Value
-	}
-
-	providerName, modelName, found := strings.Cut(model, "/")
-
-	if !found || providerName == "" || modelName == "" {
-		return loaded, fmt.Errorf(`no model selected: run "rumbo system set model <provider>/<model>" (for example anthropic/claude-opus-5-5) or pass -m`)
-	}
-
-	loaded.Provider = providerName
-	loaded.Model = modelName
-	loaded.Flags = flagOptions
-
-	if _, err := storedOptions(settings, root, providerName); err != nil {
-		return loaded, err
-	}
-
-	if _, err := loadLimits(settings, root); err != nil {
+	if _, err := loadLimits(settings); err != nil {
 		return loaded, err
 	}
 
 	return loaded, nil
 }
 
-// optionsInForce are the option values a run of provider gets in the
-// project at root: those stored for the provider, the ones chosen in the
-// session over them, and those of the command line over all.
-func optionsInForce(database store.Store, root, provider string, session, flags json.RawMessage) (json.RawMessage, error) {
-	stored, err := storedOptions(database, root, provider)
+// optionsInForce are the option values a run of provider gets: those stored
+// for the provider, with the ones chosen in the session over them.
+func optionsInForce(database store.Store, provider string, session json.RawMessage) (json.RawMessage, error) {
+	stored, err := storedOptions(database, provider)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return mergeOptions(stored, session, flags)
+	return mergeOptions(stored, session)
 }
 
-// loadLimits resolves the system settings for a run in the project at root.
-func loadLimits(settings store.Store, root string) (limits, error) {
+// loadLimits resolves the system settings a run reads when it starts.
+func loadLimits(settings store.Store) (limits, error) {
 	var loaded limits
 	var err error
 
 	for key, into := range map[string]*int{keyMaxTokens: &loaded.MaxTokens, keyMaxTurns: &loaded.MaxTurns} {
-		if *into, err = effectiveCount(settings, root, key); err != nil {
+		if *into, err = effectiveCount(settings, key); err != nil {
 			return loaded, err
 		}
 	}
 
-	compactAt, err := effectiveSetting(settings, root, keyCompactAt)
+	compactAt, err := effectiveSetting(settings, keyCompactAt)
 
 	if err != nil {
 		return loaded, err
@@ -181,8 +165,8 @@ func loadLimits(settings store.Store, root string) (limits, error) {
 
 // effectiveCount reads a numeric setting in force. One that is not set, and
 // has no default, is zero.
-func effectiveCount(settings store.Store, root, key string) (int, error) {
-	chosen, err := effectiveSetting(settings, root, key)
+func effectiveCount(settings store.Store, key string) (int, error) {
+	chosen, err := effectiveSetting(settings, key)
 
 	if err != nil || chosen.Source == sourceUnset {
 		return 0, err

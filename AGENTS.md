@@ -39,10 +39,11 @@ changes one of those updates it in the same change.
   starts with when it starts, and what a run uses when the run starts. They
   are passed down, and a run keeps what it started with.
 - **Configuration has three levels, kept apart.** A system setting is
-  rumbo's own, the same for every session and provider (`settings.go`); a
-  session keeps what it chose with it; a provider has its configuration and
-  its options (`programs.go`, `options.go`). Something new goes at one level,
-  and a host function names it in its `Group`.
+  rumbo's own, the same everywhere (`settings.go`); a session keeps what it
+  chose, which wins over the system's in it; a provider has its
+  configuration and its options, which a session's win over
+  (`programs.go`, `options.go`). Nothing is set per project. Something new
+  goes at one level, and a host function names it in its `Group`.
 - **Users read CHANGELOG.md.** A change they would notice adds a line to its
   `Unreleased` section, in their terms; the reason goes in the commit.
 

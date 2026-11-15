@@ -177,7 +177,7 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 // work that starts after it. extra are option values the work chose for
 // itself, over the others.
 func (h *host) agent(pool *provider.Pool, chosen choice, extra json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
-	settings, err := loadLimits(h.database, h.root)
+	settings, err := loadLimits(h.database)
 
 	if err != nil {
 		return nil, err
@@ -210,16 +210,27 @@ func (h *host) agent(pool *provider.Pool, chosen choice, extra json.RawMessage, 
 }
 
 // inForce returns the option values a run with chosen gets, as the
-// settings stand now. The command line's are for the provider rumbo was
-// started with.
+// settings stand now.
 func (h *host) inForce(chosen choice) (json.RawMessage, error) {
-	var flags json.RawMessage
+	return optionsInForce(h.database, chosen.provider, chosen.options)
+}
 
-	if chosen.provider == h.settings.Provider {
-		flags = h.settings.Flags
+// keep stores what a place chose in its session, which keeps it from one
+// start of rumbo to the next. The caller holds the session.
+func (h *host) keep(target *place) error {
+	session := target.session
+
+	if err := h.database.SetSessionModel(session.ID, target.provider, target.model); err != nil {
+		return err
 	}
 
-	return optionsInForce(h.database, h.root, chosen.provider, chosen.options, flags)
+	if err := h.database.SetSessionOptions(session.ID, target.options); err != nil {
+		return err
+	}
+
+	session.Provider, session.Model, session.Options = target.provider, target.model, target.options
+
+	return nil
 }
 
 // made returns the place's session, making it first when the place has
@@ -238,21 +249,14 @@ func (h *host) made(target *place, objective string) (store.Session, error) {
 		return created, err
 	}
 
-	// The session keeps its provider, and what was chosen for it, from one
-	// start of rumbo to the next.
-	if err := h.database.SetSessionModel(created.ID, target.provider, target.model); err != nil {
-		return created, err
-	}
-
-	if len(target.options) > 0 {
-		if err := h.database.SetSessionOptions(created.ID, target.options); err != nil {
-			return created, err
-		}
-	}
-
-	created.Provider, created.Model, created.Options = target.provider, target.model, target.options
 	target.session = &created
 	h.places[created.ID] = target
+
+	// The session keeps its provider, and what was chosen for it, from one
+	// start of rumbo to the next.
+	if err := h.keep(target); err != nil {
+		return created, err
+	}
 
 	return created, h.hold(target)
 }

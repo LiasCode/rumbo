@@ -8,7 +8,9 @@ import (
 	"github.com/LiasCode/rumbo/internal/store"
 )
 
-func TestOptionsAreLayeredFromGlobalToRun(t *testing.T) {
+// A session's options are laid over the provider's, and the command line
+// changes the session's one by one.
+func TestOptionsAreLayeredFromProviderToSession(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 
 	if err != nil {
@@ -18,12 +20,12 @@ func TestOptionsAreLayeredFromGlobalToRun(t *testing.T) {
 	defer database.Close()
 
 	database.SetSetting(store.GlobalScope, "options.anthropic", `{"effort":"low","verbose":false}`)
-	database.SetSetting("/repo", "options.anthropic", `{"effort":"medium"}`)
 	database.SetSetting(store.GlobalScope, "options.other", `{"effort":"max"}`)
 
-	stored, err := storedOptions(database, "/repo", "anthropic")
+	// One stored for a project is no longer read.
+	database.SetSetting("/repo", "options.anthropic", `{"effort":"medium"}`)
 
-	if err != nil || string(stored) != `{"effort":"medium","verbose":false}` {
+	if stored, err := storedOptions(database, "anthropic"); err != nil || string(stored) != `{"effort":"low","verbose":false}` {
 		t.Fatalf("stored = %s, err = %v", stored, err)
 	}
 
@@ -31,11 +33,16 @@ func TestOptionsAreLayeredFromGlobalToRun(t *testing.T) {
 	flags.Set("effort=high")
 	flags.Set("limit=3")
 	flags.Set("note=two words")
+	flags.Set("verbose=")
 
-	merged, err := mergeOptions(stored, flags.object(), json.RawMessage(`{"verbose":true}`))
+	session, err := changeObject(json.RawMessage(`{"verbose":true,"web":true}`), flags)
 
-	if err != nil || string(merged) != `{"effort":"high","limit":3,"note":"two words","verbose":true}` {
-		t.Fatalf("merged = %s, err = %v", merged, err)
+	if err != nil || string(session) != `{"effort":"high","limit":3,"note":"two words","web":true}` {
+		t.Fatalf("session = %s, err = %v", session, err)
+	}
+
+	if inForce, err := optionsInForce(database, "anthropic", session); err != nil || string(inForce) != `{"effort":"high","limit":3,"note":"two words","verbose":false,"web":true}` {
+		t.Fatalf("in force = %s, err = %v", inForce, err)
 	}
 
 	if none, _ := mergeOptions(nil, nil); none != nil {

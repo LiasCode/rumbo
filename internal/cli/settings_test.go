@@ -33,112 +33,139 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 	database := testStore(t)
 
 	for value, want := range map[string]agent.Compaction{
-		"":      {},
-		"0":     {Never: true},
-		"90000": {Tokens: 90000},
-		"70%":   {Percent: 70},
+		"":    {},
+		"0%":  {Never: true},
+		"70%": {Percent: 70},
 	} {
 		if got, err := parseCompactAt(value); err != nil || got != want {
 			t.Errorf("compact_at %q = %+v, %v; want %+v", value, got, err, want)
 		}
 	}
 
+	// A number of tokens, which an earlier version took, says how to write
+	// a share instead.
+	if _, err := parseCompactAt("90000"); err == nil || !strings.Contains(err.Error(), "rumbo system set compact_at 80%") {
+		t.Fatalf("compact_at in tokens: err = %v", err)
+	}
+
 	for key, value := range map[string]string{
-		"compact_at":      "150%",
-		"model":           "nope/x",
-		"max_turns":       "many",
-		"frontend":        "missing",
-		"options.x":       `"high"`,
-		"no_such_setting": "1",
+		"compact_at":       "150%",
+		"default_provider": "nope",
+		"default_model":    " ",
+		"max_turns":        "many",
+		"frontend":         "missing",
+		"no_such_setting":  "1",
 	} {
-		if err := setSetting(database, store.GlobalScope, key, value); err == nil {
+		if err := setSetting(database, key, value); err == nil {
 			t.Errorf("%s = %s was accepted", key, value)
 		}
 	}
 
-	if err := setSetting(database, store.GlobalScope, "model", "missing-slash"); err == nil || !strings.Contains(err.Error(), "provider/model") {
-		t.Fatalf("a model without a provider: err = %v", err)
-	}
-
-	// A provider's options are its own, not a system setting.
-	for _, refused := range []error{
-		setSetting(database, store.GlobalScope, "options.anthropic", `{"effort":"low"}`),
-		unsetSetting(database, store.GlobalScope, "options.anthropic"),
+	// The settings that are no longer say what took their place.
+	for key, hint := range map[string]string{
+		"model":             "default_provider and default_model",
+		"options.anthropic": "rumbo provider options anthropic",
 	} {
-		if refused == nil || !strings.Contains(refused.Error(), "rumbo provider options anthropic") {
-			t.Fatalf("options as a system setting: err = %v", refused)
+		for _, refused := range []error{setSetting(database, key, "x"), unsetSetting(database, key)} {
+			if refused == nil || !strings.Contains(refused.Error(), hint) {
+				t.Fatalf("%s: err = %v", key, refused)
+			}
 		}
 	}
 
-	setSetting(database, store.GlobalScope, "model", "anthropic/big")
-	setSetting(database, "/repo", "model", "openai/small")
+	setSetting(database, "default_provider", "anthropic")
+	setSetting(database, "default_model", "org/big-model")
 
-	// The project's value wins inside the project, and only there.
-	if inside, _ := effectiveSetting(database, "/repo", "model"); inside.Value != "openai/small" || inside.Source != sourceProject {
-		t.Fatalf("inside the project: %+v", inside)
+	// One stored for a project by an earlier version is no longer read, and
+	// is listed as such.
+	database.SetSetting("/repo", "max_turns", "40")
+
+	if turns, _ := effectiveSetting(database, "max_turns"); turns.Value != "150" || turns.Source != sourceDefault {
+		t.Fatalf("max_turns = %+v", turns)
 	}
 
-	if outside, _ := effectiveSetting(database, "/other", "model"); outside.Value != "anthropic/big" || outside.Source != sourceGlobal {
-		t.Fatalf("outside the project: %+v", outside)
-	}
-
-	listed, err := effectiveSettings(database, "/repo")
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	text := describeSettings(listed)
+	listed, _ := effectiveSettings(database)
+	ignored, _ := ignoredSettings(database)
+	text := describeSettings(listed, ignored)
 
 	for _, line := range []string{
-		"model                openai/small  (project)",
+		"default_provider     anthropic  (stored)",
+		"default_model        org/big-model  (stored)",
 		"frontend             (not set)",
 		"max_turns            150  (default)",
 		"compact_at           (not set)",
+		"no longer read",
+		"max_turns = 40  (/repo)",
 	} {
 		if !strings.Contains(text, line) {
 			t.Errorf("missing %q in:\n%s", line, text)
 		}
 	}
 
-	if strings.Contains(text, keySeeded) || strings.Contains(text, optionsPrefix) {
-		t.Fatalf("something that is not a system setting is listed as one:\n%s", text)
+	if strings.Contains(text, keySeeded) {
+		t.Fatalf("an internal key is listed as a setting:\n%s", text)
 	}
 
-	if _, err := storedSetting(database, store.GlobalScope, keySeeded); err == nil {
+	if _, err := storedSetting(database, keySeeded); err == nil {
 		t.Fatal("an internal key was read as a system setting")
 	}
 
-	// Removing the project's value brings the global one back.
-	if err := unsetSetting(database, "/repo", "model"); err != nil {
+	if err := unsetSetting(database, "default_model"); err != nil {
 		t.Fatal(err)
 	}
 
-	if again, _ := effectiveSetting(database, "/repo", "model"); again.Value != "anthropic/big" {
-		t.Fatalf("after unset: %+v", again)
-	}
-
-	if err := unsetSetting(database, "/repo", "model"); err == nil {
+	if err := unsetSetting(database, "default_model"); err == nil {
 		t.Fatal("removing a value that is not stored reported nothing")
 	}
 
-	loaded, err := loadConfig(database, "/repo", "", "plain", nil)
+	setSetting(database, "default_model", "big")
 
-	if err != nil || loaded.Provider != "anthropic" || loaded.Model != "big" {
+	loaded, err := loadConfig(database, "plain")
+
+	if err != nil || loaded.DefaultProvider != "anthropic" || loaded.DefaultModel != "big" || loaded.Frontend != "plain" {
 		t.Fatalf("loaded = %+v, err = %v", loaded, err)
 	}
 
-	limits, err := loadLimits(database, "/repo")
+	limits, err := loadLimits(database)
 
 	if err != nil || limits.MaxTurns != 150 || limits.Compaction != (agent.Compaction{}) || limits.MaxTokens != 0 {
 		t.Fatalf("limits = %+v, err = %v", limits, err)
 	}
 
 	// One that is malformed in the store stops rumbo before it starts.
-	database.SetSetting("/repo", "max_turns", "many")
+	database.SetSetting(store.GlobalScope, "compact_at", "90000")
 
-	if _, err := loadConfig(database, "/repo", "", "plain", nil); err == nil || !strings.Contains(err.Error(), "max_turns") {
-		t.Fatalf("a malformed max_turns: err = %v", err)
+	if _, err := loadConfig(database, "plain"); err == nil || !strings.Contains(err.Error(), "compact_at") {
+		t.Fatalf("a malformed compact_at: err = %v", err)
+	}
+}
+
+// The model an earlier version stored, with its provider, becomes the
+// default provider and model, once; what was stored stays.
+func TestTheOldModelSettingIsCarriedOverOnce(t *testing.T) {
+	database := testStore(t)
+	database.SetSetting(store.GlobalScope, legacyModel, "openai/org/model-x")
+
+	if err := upgradeSettings(database); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, _ := loadConfig(database, "plain")
+
+	if loaded.DefaultProvider != "openai" || loaded.DefaultModel != "org/model-x" {
+		t.Fatalf("carried over as %+v", loaded)
+	}
+
+	if old, found, _ := database.Setting(store.GlobalScope, legacyModel); !found || old != "openai/org/model-x" {
+		t.Fatalf("the old value was not left as it was: %q", old)
+	}
+
+	// Once is enough: a default removed afterwards stays removed.
+	unsetSetting(database, keyDefaultProvider)
+	upgradeSettings(database)
+
+	if _, found, _ := database.Setting(store.GlobalScope, keyDefaultProvider); found {
+		t.Fatal("the old model was carried over again")
 	}
 }
 
@@ -151,42 +178,34 @@ func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := changeOptions(database, "/repo", "anthropic", []string{"effort=high"}); err != nil {
+	if err := changeOptions(database, "anthropic", []string{"beta=", "depth=3"}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := changeOptions(database, store.GlobalScope, "anthropic", []string{"beta=", "depth=3"}); err != nil {
-		t.Fatal(err)
+	if stored, _, _ := database.Setting(store.GlobalScope, "options.anthropic"); stored != `{"depth":3,"effort":"low"}` {
+		t.Fatalf("stored options = %s", stored)
 	}
 
-	if global, _, _ := database.Setting(store.GlobalScope, "options.anthropic"); global != `{"depth":3,"effort":"low"}` {
-		t.Fatalf("global options = %s", global)
-	}
+	// The session's are over the provider's.
+	inForce, err := optionsInForce(database, "anthropic", []byte(`{"depth":5,"web":true}`))
 
-	// The session's are over the stored ones, and the command line's over
-	// both.
-	inForce, err := optionsInForce(database, "/repo", "anthropic", []byte(`{"depth":5,"web":true}`), []byte(`{"depth":4}`))
-
-	if err != nil || string(inForce) != `{"depth":4,"effort":"high","web":true}` {
+	if err != nil || string(inForce) != `{"depth":5,"effort":"low","web":true}` {
 		t.Fatalf("options in force = %s, err = %v", inForce, err)
 	}
 
-	// Removing the project's last one leaves nothing stored there, so the
-	// global value applies again.
-	if err := changeOptions(database, "/repo", "anthropic", []string{"effort="}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, found, _ := database.Setting("/repo", "options.anthropic"); found {
-		t.Fatal("an empty object was left stored")
-	}
-
-	if described, _ := describeOptions(database, "/repo", "anthropic"); described != `options of anthropic in force here: {"depth":3,"effort":"low"}` {
+	if described, _ := describeOptions(database, "anthropic"); described != `options of anthropic: {"depth":3,"effort":"low"}` {
 		t.Fatalf("described = %q", described)
 	}
 
+	// Removing the last one leaves nothing stored.
+	changeOptions(database, "anthropic", []string{"depth=", "effort="})
+
+	if _, found, _ := database.Setting(store.GlobalScope, "options.anthropic"); found {
+		t.Fatal("an empty object was left stored")
+	}
+
 	for name, changes := range map[string][]string{"missing": {"effort=high"}, "anthropic": {"novalue"}} {
-		if err := changeOptions(database, store.GlobalScope, name, changes); err == nil {
+		if err := changeOptions(database, name, changes); err == nil {
 			t.Errorf("%s %v was accepted", name, changes)
 		}
 	}
@@ -250,26 +269,23 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 	h := testHost(t)
 	seedBuiltins(h.database)
 
-	// A system setting is stored for every project unless the scope says
-	// this one.
 	stored := call(t, h, "system-set", `{"key":"max_turns","value":"90"}`)
-	call(t, h, "system-set", `{"key":"max_turns","value":"40","scope":"project"}`)
 
-	if !strings.Contains(stored.Text, "system setting max_turns = 90, stored for every project") {
+	if !strings.Contains(stored.Text, "system setting max_turns = 90, stored") {
 		t.Fatalf("system-set = %q", stored.Text)
 	}
 
-	if shown := call(t, h, "system", ""); !strings.Contains(shown.Text, "max_turns            40  (project)") {
+	if shown := call(t, h, "system", ""); !strings.Contains(shown.Text, "max_turns            90  (stored)") {
 		t.Fatalf("system = %q", shown.Text)
 	}
 
-	call(t, h, "system-unset", `{"key":"max_turns","scope":"project"}`)
+	call(t, h, "system-unset", `{"key":"max_turns"}`)
 
-	if shown := call(t, h, "system", ""); !strings.Contains(shown.Text, "max_turns            90  (global)") {
+	if shown := call(t, h, "system", ""); !strings.Contains(shown.Text, "max_turns            150  (default)") {
 		t.Fatalf("after system-unset: %q", shown.Text)
 	}
 
-	if keys := call(t, h, "system-keys", ""); len(keys.Values) != len(settingSpecs) || keys.Values[0].Value != "model" {
+	if keys := call(t, h, "system-keys", ""); len(keys.Values) != len(settingSpecs) || keys.Values[0].Value != keyDefaultProvider {
 		t.Fatalf("keys = %+v", keys.Values)
 	}
 
@@ -286,14 +302,14 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 	}
 
 	// Its options are the provider's own, apart from its configuration.
-	if shown := call(t, h, "provider-options", `{"provider":"second"}`); shown.Text != `options of second in force here: {"depth":2}` {
+	if shown := call(t, h, "provider-options", `{"provider":"second"}`); shown.Text != `options of second: {"depth":2}` {
 		t.Fatalf("provider-options = %q", shown.Text)
 	}
 
-	call(t, h, "provider-options", `{"provider":"mine","change":"effort=low","scope":"project"}`)
+	call(t, h, "provider-options", `{"provider":"mine","change":"effort=low"}`)
 
-	if value, _, _ := h.database.Setting("/repo", "options.mine"); value != `{"effort":"low"}` {
-		t.Fatalf("options stored for the project = %q", value)
+	if value, _, _ := h.database.Setting(store.GlobalScope, "options.mine"); value != `{"effort":"low"}` {
+		t.Fatalf("options stored for the provider = %q", value)
 	}
 
 	call(t, h, "provider-rm", `{"provider":"mine"}`)
@@ -302,7 +318,7 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 		"provider-rm":      `{"provider":"first"}`,
 		"provider-options": `{"provider":"missing"}`,
 		"system-set":       `{"key":"max_turns","value":"x"}`,
-		"system-unset":     `{"key":"max_turns","scope":"everywhere"}`,
+		"system-unset":     `{"key":"compact_at"}`,
 	} {
 		if _, err := h.invokeHost(context.Background(), name, []byte(params)); err == nil {
 			t.Errorf("%s %s should fail", name, params)

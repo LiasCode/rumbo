@@ -15,8 +15,10 @@ import (
 
 // optionsPrefix starts the stored key that holds the option values sent to
 // one provider: "options.anthropic", for example. Its value is a JSON
-// object, kept globally or for one project like a system setting. The host
-// stores and forwards it; only the provider knows what it means.
+// object. The host stores and forwards it; only the provider knows what it
+// means.
+//
+// A session's own values are laid over these, and win in it.
 const optionsPrefix = "options."
 
 // optionFlags collects the -o name=value flags of the command line.
@@ -34,24 +36,6 @@ func (o *optionFlags) Set(value string) error {
 	*o = append(*o, value)
 
 	return nil
-}
-
-// object turns the flags into a JSON object.
-func (o optionFlags) object() json.RawMessage {
-	if len(o) == 0 {
-		return nil
-	}
-
-	fields := map[string]json.RawMessage{}
-
-	for _, flag := range o {
-		name, value, _ := strings.Cut(flag, "=")
-		fields[name] = fieldValue(value)
-	}
-
-	raw, _ := json.Marshal(fields)
-
-	return raw
 }
 
 // fieldValue reads the value of a name=value change. A value that is valid
@@ -117,25 +101,15 @@ func mergeOptions(layers ...json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(merged)
 }
 
-// storedOptions returns the provider's option values from the settings: the
-// global ones with the project's laid over them.
-func storedOptions(settings store.Store, root, provider string) (json.RawMessage, error) {
-	key := optionsPrefix + provider
-	var layers []json.RawMessage
+// storedOptions returns the option values stored for the provider.
+func storedOptions(settings store.Store, provider string) (json.RawMessage, error) {
+	value, _, err := settings.Setting(store.GlobalScope, optionsPrefix+provider)
 
-	for _, scope := range []string{store.GlobalScope, root} {
-		value, found, err := settings.Setting(scope, key)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if found {
-			layers = append(layers, json.RawMessage(value))
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	options, err := mergeOptions(layers...)
+	options, err := mergeOptions(json.RawMessage(value))
 
 	if err != nil {
 		return nil, fmt.Errorf("the options stored for %s: %w", provider, err)
@@ -166,17 +140,16 @@ func changeObject(options json.RawMessage, changes []string) (json.RawMessage, e
 	return json.Marshal(fields)
 }
 
-// changeOptions changes the option values stored for a provider in one
-// scope, and leaves the rest. When none are left there, nothing is stored,
-// so the next scope in line applies.
-func changeOptions(database store.Store, scope, provider string, changes []string) error {
+// changeOptions changes the option values stored for a provider, and
+// leaves the rest. When none are left, nothing is stored.
+func changeOptions(database store.Store, provider string, changes []string) error {
 	if _, err := database.Program(store.KindProvider, provider); err != nil {
 		return fmt.Errorf("provider %q is not registered", provider)
 	}
 
 	key := optionsPrefix + provider
 
-	stored, found, err := database.Setting(scope, key)
+	stored, found, err := database.Setting(store.GlobalScope, key)
 
 	if err != nil {
 		return err
@@ -189,23 +162,23 @@ func changeOptions(database store.Store, scope, provider string, changes []strin
 	}
 
 	if changed != nil {
-		return database.SetSetting(scope, key, string(changed))
+		return database.SetSetting(store.GlobalScope, key, string(changed))
 	}
 
 	if found {
-		return database.DeleteSetting(scope, key)
+		return database.DeleteSetting(store.GlobalScope, key)
 	}
 
 	return nil
 }
 
-// describeOptions says which option values a provider gets in a project.
-func describeOptions(database store.Store, root, provider string) (string, error) {
+// describeOptions says which option values are stored for a provider.
+func describeOptions(database store.Store, provider string) (string, error) {
 	if _, err := database.Program(store.KindProvider, provider); err != nil {
 		return "", fmt.Errorf("provider %q is not registered", provider)
 	}
 
-	options, err := storedOptions(database, root, provider)
+	options, err := storedOptions(database, provider)
 
 	if err != nil {
 		return "", err
@@ -215,5 +188,5 @@ func describeOptions(database store.Store, root, provider string) (string, error
 		return fmt.Sprintf("no options are stored for %s; it uses its own defaults", provider), nil
 	}
 
-	return fmt.Sprintf("options of %s in force here: %s", provider, options), nil
+	return fmt.Sprintf("options of %s: %s", provider, options), nil
 }

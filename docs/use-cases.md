@@ -88,8 +88,9 @@ nothing and knows no model API.
   what it has spent and how much of its input the provider read from its
   cache, and how its last run stands.
 - Keep each session's provider and model, and the values of the provider's
-  options chosen in it, from one start to the next, and let `-m` choose
-  others for one start. A session that changes provider leaves its options
+  options chosen in it, from one start to the next, over the system
+  settings. `-p`, `-m`, and `-o` choose them for the session, as `use` and
+  `session-options` do. A session that changes provider leaves its options
   behind.
 - Print a session's whole record (`rumbo log`).
 - Tell a front end what a session holds, in the events its runs sent, with
@@ -107,11 +108,9 @@ nothing and knows no model API.
   and replace one that died.
 - Change the provider and the model of a session for its next runs, while a
   run in progress keeps the ones it started with.
-- Store the option values each provider gets with every request, globally
-  or for one project, apart from its configuration. A run gets those, the
-  ones chosen in its session over them, those given for one start (`-o`) to
-  the provider rumbo started with over both, and those its front end chose
-  for it over all.
+- Store the option values each provider gets with every request, apart
+  from its configuration. A run gets those, the ones chosen in its session
+  over them, and those its front end chose for it over both.
 - Pass a provider's description to the front end, send the chosen options
   with every request, and relay calls to its functions, understanding none of
   them.
@@ -145,14 +144,15 @@ nothing and knows no model API.
 
 **System settings**
 
-- Store the system settings, rumbo's own and the same whatever the session
-  and the provider, globally or for one project: the model a new session
-  starts with, the front end, the output limit, the turn limit, and when to
+- Store the system settings, rumbo's own and the same everywhere: the
+  provider and the model a new session starts with, the front end, the turn
+  limit, the output limit, and the share of the model's context at which to
   summarize. List them with where each value in force comes from
-  (`rumbo system`).
+  (`rumbo system`), and the values an earlier version stored for one
+  project, which are no longer read.
 - Apply a stored system setting, or a provider's option, to the runs that
-  start after it is stored, without starting again. The model and the front
-  end apply from the next start.
+  start after it is stored, without starting again. The default provider
+  and model, and the front end, apply from the next start.
 
 ### Must not
 

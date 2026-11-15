@@ -55,7 +55,8 @@ Windows is not supported.
 
 ```sh
 export ANTHROPIC_API_KEY=...                      # or /login in the terminal UI, or `ant auth login`
-rumbo system set model anthropic/claude-opus-5-5  # the model new sessions start with
+rumbo system set default_provider anthropic       # what new sessions start with
+rumbo system set default_model claude-opus-5-5
 
 rumbo "add a --json flag to the export command"  # one task, in this directory's project
 rumbo                                            # the terminal UI; /help lists its commands
@@ -70,7 +71,7 @@ works through the built-in `openai` provider:
 ```sh
 rumbo provider add -config '{"base_url":"http://localhost:11434/v1"}' local '{self}' provide openai
 rumbo provider set local context_window=32768   # a server cannot say its context size
-rumbo -m local/qwen3-coder "fix the failing test"
+rumbo -p local -m qwen3-coder "fix the failing test"   # the session keeps them
 ```
 
 The `openai` provider rumbo registers speaks OpenAI's Responses API, which
@@ -90,7 +91,7 @@ from the project's root down to where you are, and yours in
 
   ```sh
   rumbo provider add mine /path/to/my-provider
-  rumbo -m mine/some-model "..."
+  rumbo -p mine -m some-model "..."
   ```
 
 - **A front end** is started by rumbo with the protocol on file descriptors

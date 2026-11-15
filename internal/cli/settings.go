@@ -13,18 +13,23 @@ import (
 // This file owns what a system setting is: which ones exist, what they
 // default to, what values they take, and how the value in force is found.
 // System settings are rumbo's own, the same whatever the session and the
-// provider; what a session or a provider chooses is kept with it. The
-// command line and the host's functions both go through this file, so a
-// setting behaves the same whoever changes it.
+// provider, and what a session chooses for itself is kept with it and wins
+// there. The command line and the host's functions both go through this
+// file, so a setting behaves the same whoever changes it.
 
-// System setting keys. A project value overrides the global one.
+// System setting keys.
 const (
-	keyModel     = "model"
-	keyFrontend  = "frontend"
-	keyMaxTokens = "max_tokens"
-	keyMaxTurns  = "max_turns"
-	keyCompactAt = "compact_at"
+	keyDefaultProvider = "default_provider"
+	keyDefaultModel    = "default_model"
+	keyFrontend        = "frontend"
+	keyMaxTurns        = "max_turns"
+	keyMaxTokens       = "max_tokens"
+	keyCompactAt       = "compact_at"
 )
+
+// legacyModel is the setting that held both the provider and the model, as
+// "provider/model", before they were two.
+const legacyModel = "model"
 
 // internalPrefix starts the keys rumbo keeps for itself. They are not
 // settings a user reads or writes.
@@ -32,8 +37,7 @@ const internalPrefix = "_"
 
 // Where a value in force comes from.
 const (
-	sourceProject = "project"
-	sourceGlobal  = "global"
+	sourceStored  = "stored"
 	sourceDefault = "default"
 	sourceUnset   = "not set"
 )
@@ -50,22 +54,27 @@ type settingSpec struct {
 }
 
 var settingSpecs = []settingSpec{
-	{key: keyModel, help: `provider and model a new session starts with, as "provider/model"`, check: checkModel, atStart: true},
+	{key: keyDefaultProvider, help: "provider a new session starts with", check: checkProvider, atStart: true},
+	{key: keyDefaultModel, help: "model a new session starts with, of the default provider", check: checkModel, atStart: true},
 	{key: keyFrontend, help: "front end to start; unset uses tui in a terminal and plain otherwise", check: checkFrontend, atStart: true},
-	{key: keyMaxTokens, help: "output token limit per response; unset uses the provider's default", check: checkCount},
 	{key: keyMaxTurns, help: "model responses after which a run is stopped; 0 for no limit", fallback: "150", check: checkCount},
-	{key: keyCompactAt, help: "when the conversation is summarized: tokens, or a share of the model's context such as 80%; 0 never; unset uses 80%, at most 150000 tokens", check: checkCompactAt},
+	{key: keyMaxTokens, help: "output token limit per response; unset uses the provider's default", check: checkCount},
+	{key: keyCompactAt, help: "share of the model's context at which the conversation is summarized, such as 80%; 0% never; unset uses 80%, at most 150000 tokens", check: checkCompactAt},
 }
 
-func checkModel(database store.Store, value string) error {
-	provider, model, found := strings.Cut(value, "/")
-
-	if !found || provider == "" || model == "" {
-		return errors.New(`a model is written "provider/model", for example anthropic/claude-opus-5-5`)
+func checkProvider(database store.Store, value string) error {
+	if _, err := database.Program(store.KindProvider, value); err != nil {
+		return fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, value)
 	}
 
-	if _, err := database.Program(store.KindProvider, provider); err != nil {
-		return fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, provider)
+	return nil
+}
+
+// checkModel only asks for a name: what models there are is the provider's
+// to say, and a name may hold a slash, as many servers' names do.
+func checkModel(_ store.Store, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("it takes the name of a model")
 	}
 
 	return nil
@@ -93,35 +102,26 @@ func checkCompactAt(_ store.Store, value string) error {
 	return err
 }
 
-// parseCompactAt reads the compact_at setting: a number of tokens, a share
-// of the model's context written with a percent sign, or zero for never. An
-// empty value is the default.
+// parseCompactAt reads the compact_at setting: a share of the model's
+// context, written with a percent sign, where 0% is never. An empty value is
+// the default.
 func parseCompactAt(value string) (agent.Compaction, error) {
 	if value == "" {
 		return agent.Compaction{}, nil
 	}
 
-	if share, found := strings.CutSuffix(value, "%"); found {
-		percent, err := strconv.Atoi(share)
+	share, found := strings.CutSuffix(value, "%")
+	percent, err := strconv.Atoi(share)
 
-		if err != nil || percent < 1 || percent > 100 {
-			return agent.Compaction{}, fmt.Errorf("a share of the context is between 1%% and 100%%, not %q", value)
-		}
-
-		return agent.Compaction{Percent: percent}, nil
+	if !found || err != nil || percent < 0 || percent > 100 {
+		return agent.Compaction{}, fmt.Errorf(`it takes a share of the model's context between 0%% and 100%%, such as 80%%, or 0%% for never, not %q; set it with "rumbo system set compact_at 80%%"`, value)
 	}
 
-	tokens, err := strconv.ParseInt(value, 10, 64)
-
-	if err != nil || tokens < 0 {
-		return agent.Compaction{}, fmt.Errorf("it takes a number of tokens, a share such as 80%%, or 0 for never, not %q", value)
-	}
-
-	if tokens == 0 {
+	if percent == 0 {
 		return agent.Compaction{Never: true}, nil
 	}
 
-	return agent.Compaction{Tokens: tokens}, nil
+	return agent.Compaction{Percent: percent}, nil
 }
 
 // applies says when a change to the setting takes effect.
@@ -140,6 +140,10 @@ func findSetting(key string) (settingSpec, error) {
 		if spec.key == key {
 			return spec, nil
 		}
+	}
+
+	if key == legacyModel {
+		return settingSpec{}, fmt.Errorf("%s is now two settings: %s and %s", legacyModel, keyDefaultProvider, keyDefaultModel)
 	}
 
 	if provider, found := strings.CutPrefix(key, optionsPrefix); found && provider != "" {
@@ -164,38 +168,38 @@ func checkSetting(database store.Store, key, value string) error {
 	return nil
 }
 
-// setSetting stores a value after checking it. An empty scope is global.
-func setSetting(database store.Store, scope, key, value string) error {
+// setSetting stores a value after checking it.
+func setSetting(database store.Store, key, value string) error {
 	if err := checkSetting(database, key, value); err != nil {
 		return err
 	}
 
-	return database.SetSetting(scope, key, value)
+	return database.SetSetting(store.GlobalScope, key, value)
 }
 
-// storedSetting returns the value stored for a system setting in one scope.
-func storedSetting(database store.Store, scope, key string) (string, error) {
+// storedSetting returns the value stored for a system setting.
+func storedSetting(database store.Store, key string) (string, error) {
 	if _, err := findSetting(key); err != nil {
 		return "", err
 	}
 
-	value, found, err := database.Setting(scope, key)
+	value, found, err := database.Setting(store.GlobalScope, key)
 
 	if err == nil && !found {
-		err = fmt.Errorf("%s is not set there", key)
+		err = fmt.Errorf("%s is not set", key)
 	}
 
 	return value, err
 }
 
-// unsetSetting removes a stored value, so the next one in line applies.
-func unsetSetting(database store.Store, scope, key string) error {
+// unsetSetting removes a stored value, so the default applies.
+func unsetSetting(database store.Store, key string) error {
 	if _, err := findSetting(key); err != nil {
 		return err
 	}
 
-	if err := database.DeleteSetting(scope, key); errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("%s is not set there", key)
+	if err := database.DeleteSetting(store.GlobalScope, key); errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("%s is not set", key)
 	} else if err != nil {
 		return err
 	}
@@ -214,27 +218,24 @@ func settingsHelp() string {
 	return strings.Join(lines, "\n")
 }
 
-// effective is the value of a setting in force for a project, and where it
-// comes from.
+// effective is the value of a setting in force, and where it comes from.
 type effective struct {
 	Key    string
 	Value  string
 	Source string
 }
 
-// effectiveSetting finds the value in force: the project's, else the global
-// one, else the default.
-func effectiveSetting(database store.Store, root, key string) (effective, error) {
-	for _, place := range []struct{ scope, source string }{{root, sourceProject}, {store.GlobalScope, sourceGlobal}} {
-		value, found, err := database.Setting(place.scope, key)
+// effectiveSetting finds the value in force: the stored one, else the
+// default.
+func effectiveSetting(database store.Store, key string) (effective, error) {
+	value, found, err := database.Setting(store.GlobalScope, key)
 
-		if err != nil {
-			return effective{}, err
-		}
+	if err != nil {
+		return effective{}, err
+	}
 
-		if found {
-			return effective{Key: key, Value: value, Source: place.source}, nil
-		}
+	if found {
+		return effective{Key: key, Value: value, Source: sourceStored}, nil
 	}
 
 	for _, spec := range settingSpecs {
@@ -246,13 +247,12 @@ func effectiveSetting(database store.Store, root, key string) (effective, error)
 	return effective{Key: key, Source: sourceUnset}, nil
 }
 
-// effectiveSettings returns every system setting as it applies to a
-// project.
-func effectiveSettings(database store.Store, root string) ([]effective, error) {
+// effectiveSettings returns every system setting as it applies.
+func effectiveSettings(database store.Store) ([]effective, error) {
 	settings := make([]effective, len(settingSpecs))
 
 	for index, spec := range settingSpecs {
-		setting, err := effectiveSetting(database, root, spec.key)
+		setting, err := effectiveSetting(database, spec.key)
 
 		if err != nil {
 			return nil, err
@@ -264,18 +264,84 @@ func effectiveSettings(database store.Store, root string) ([]effective, error) {
 	return settings, nil
 }
 
-// describeSettings renders settings for a person.
-func describeSettings(settings []effective) string {
-	lines := make([]string, len(settings))
+// ignoredSettings are the values stored for one project, which rumbo kept
+// before its settings became the same everywhere. They are left where they
+// are and no longer read.
+func ignoredSettings(database store.Store) ([]store.Setting, error) {
+	stored, err := database.Settings()
 
-	for index, setting := range settings {
+	if err != nil {
+		return nil, err
+	}
+
+	var ignored []store.Setting
+
+	for _, setting := range stored {
+		if setting.Scope != store.GlobalScope && !strings.HasPrefix(setting.Key, internalPrefix) {
+			ignored = append(ignored, setting)
+		}
+	}
+
+	return ignored, nil
+}
+
+// describeSettings renders settings for a person, and the values stored for
+// one project that are no longer read, so they do not go unnoticed.
+func describeSettings(settings []effective, ignored []store.Setting) string {
+	lines := make([]string, 0, len(settings)+len(ignored)+1)
+
+	for _, setting := range settings {
 		if setting.Source == sourceUnset {
-			lines[index] = fmt.Sprintf("%-20s (not set)", setting.Key)
+			lines = append(lines, fmt.Sprintf("%-20s (not set)", setting.Key))
 			continue
 		}
 
-		lines[index] = fmt.Sprintf("%-20s %s  (%s)", setting.Key, setting.Value, setting.Source)
+		lines = append(lines, fmt.Sprintf("%-20s %s  (%s)", setting.Key, setting.Value, setting.Source))
+	}
+
+	if len(ignored) > 0 {
+		lines = append(lines, "stored for one project, and no longer read; settings are the same everywhere now:")
+	}
+
+	for _, setting := range ignored {
+		lines = append(lines, fmt.Sprintf("  %s = %s  (%s)", setting.Key, setting.Value, setting.Scope))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// keyUpgraded records that the settings stored by an earlier version were
+// carried over to the ones that replace them.
+const keyUpgraded = internalPrefix + "settings_upgraded"
+
+// upgradeSettings carries the settings an earlier version stored over to
+// the ones that replace them, once: the model, which held the provider too,
+// becomes the default provider and model. What was stored stays as it was,
+// unread.
+func upgradeSettings(database store.Store) error {
+	if _, done, err := database.Setting(store.GlobalScope, keyUpgraded); err != nil || done {
+		return err
+	}
+
+	model, found, err := database.Setting(store.GlobalScope, legacyModel)
+
+	if err != nil {
+		return err
+	}
+
+	_, chosen, err := database.Setting(store.GlobalScope, keyDefaultProvider)
+
+	if err != nil {
+		return err
+	}
+
+	if provider, name, split := strings.Cut(model, "/"); found && split && !chosen {
+		for key, value := range map[string]string{keyDefaultProvider: provider, keyDefaultModel: name} {
+			if err := database.SetSetting(store.GlobalScope, key, value); err != nil {
+				return err
+			}
+		}
+	}
+
+	return database.SetSetting(store.GlobalScope, keyUpgraded, "1")
 }

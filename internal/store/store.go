@@ -60,11 +60,20 @@ type Entry struct {
 	CreatedAt time.Time
 }
 
+// Setting is one stored value, in the scope it was stored for.
+type Setting struct {
+	Scope string
+	Key   string
+	Value string
+}
+
 // Store is the persistence contract the rest of rumbo depends on.
 type Store interface {
 	Setting(scope, key string) (string, bool, error)
 	SetSetting(scope, key, value string) error
 	DeleteSetting(scope, key string) error
+	// Settings returns every stored value, in every scope.
+	Settings() ([]Setting, error)
 
 	Program(kind, name string) (Program, error)
 	PutProgram(kind string, program Program) error
