@@ -164,7 +164,7 @@ func TestAHistoryIsToldAsARunIs(t *testing.T) {
 func TestTheStatusBarKeepsWhatMattersMost(t *testing.T) {
 	u := quiet()
 	u.info.Provider, u.info.Model, u.session = "anthropic", "claude-opus-5-5", "4cf0261c"
-	u.usage.Turn(protocol.Event{Usage: &protocol.Usage{Input: 6000, CacheRead: 4500, Output: 425}, Context: 84000, Window: 200000})
+	u.usage.Turn(protocol.Event{Usage: &protocol.Usage{Input: 4500, CacheWrite: 1500, CacheRead: 4500, Output: 425}, Context: 84000, Window: 200000})
 
 	now := time.Now()
 

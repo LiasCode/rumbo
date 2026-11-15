@@ -13,6 +13,13 @@ it. The commits hold the reasons.
   longer than the cache keeps a conversation, a few minutes with Claude,
   is the usual cause. Opening a session shows its earlier misses too.
 
+### Front ends
+
+- The input tokens the terminal UI and `plain` count now include those the
+  provider wrote to its cache, as `/status` does. With Claude, which writes
+  nearly all of each request there, `in` showed almost nothing, and a
+  cache miss did not move it.
+
 ## 0.4.0 (2026-11-15)
 
 A new built-in provider, `chatgpt`, uses your ChatGPT plan instead of an

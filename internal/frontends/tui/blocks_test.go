@@ -79,13 +79,14 @@ func TestAFinishedCallShowsWhatTellsMost(t *testing.T) {
 }
 
 // The end of a run says how it ended, how long it took when that is known,
-// its turns, and its tokens.
+// its turns, and its tokens. What the provider wrote to its cache was new
+// input too.
 func TestARunEndsWithWhatItTook(t *testing.T) {
 	run := tally{started: time.Now().Add(-75 * time.Second)}
 	run.add(&protocol.Usage{Input: 12345, CacheRead: 10000, Output: 999})
-	run.add(&protocol.Usage{Input: 100, Output: 1})
+	run.add(&protocol.Usage{Input: 100, CacheWrite: 2000, Output: 1})
 
-	if got := plain(run.summary(defaultTheme, protocol.RunDone, "", time.Now())); got != "✓ done  1m15s · 2 turns · 12.4k in, 10k cached, 1k out" {
+	if got := plain(run.summary(defaultTheme, protocol.RunDone, "", time.Now())); got != "✓ done  1m15s · 2 turns · 14.4k in, 10k cached, 1k out" {
 		t.Fatalf("done = %q", got)
 	}
 

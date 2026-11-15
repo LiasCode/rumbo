@@ -96,5 +96,14 @@ func (u *Usage) Add(usage *protocol.Usage) {
 }
 
 func (u *Usage) String() string {
-	return fmt.Sprintf("%d in, %d cached, %d out", u.total.Input, u.total.CacheRead, u.total.Output)
+	return fmt.Sprintf("%d in, %d cached, %d out", Input(u.total), u.total.CacheRead, u.total.Output)
+}
+
+// Input is what a provider took as new input: all of a request it did not
+// read from its cache, whether it wrote that to the cache or not. A
+// provider that caches the end of every request, as Claude's does, reports
+// nearly all of it as written, and none of it would show otherwise. The
+// host's status counts it the same way.
+func Input(usage protocol.Usage) int64 {
+	return usage.Input + usage.CacheWrite
 }

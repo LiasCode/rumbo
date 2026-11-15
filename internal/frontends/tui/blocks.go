@@ -318,7 +318,7 @@ func (t *tally) took(now time.Time) string {
 	}
 
 	if t.turns > 0 {
-		parts = append(parts, fmt.Sprintf("%s in, %s cached, %s out", tokens(t.spent.Input), tokens(t.spent.CacheRead), tokens(t.spent.Output)))
+		parts = append(parts, fmt.Sprintf("%s in, %s cached, %s out", tokens(render.Input(t.spent)), tokens(t.spent.CacheRead), tokens(t.spent.Output)))
 	}
 
 	return strings.Join(parts, " · ")

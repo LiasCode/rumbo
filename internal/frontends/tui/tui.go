@@ -443,8 +443,8 @@ func (u *ui) status(width int, now time.Time) string {
 	total := u.usage.Total()
 	spent := ""
 
-	if total.Input+total.Output > 0 {
-		spent = fmt.Sprintf("%s in, %s cached, %s out", tokens(total.Input), tokens(total.CacheRead), tokens(total.Output))
+	if render.Input(total)+total.Output > 0 {
+		spent = fmt.Sprintf("%s in, %s cached, %s out", tokens(render.Input(total)), tokens(total.CacheRead), tokens(total.Output))
 	}
 
 	for _, parts := range [][2][]string{
