@@ -48,14 +48,19 @@ type Handler struct {
 	config Config
 	// keys holds the API keys login stored, by server.
 	keys credentials.Store
-	// unreasoning holds the models that said they have no reasoning to give
-	// back, so they are not asked for it again.
-	unreasoning map[string]bool
+	// responses speaks the Responses API, with the key in force.
+	responses *Responses
 }
 
 // New returns a handler that is ready after Initialize.
 func New() *Handler {
-	return &Handler{keys: credentials.Default("openai"), unreasoning: map[string]bool{}}
+	h := &Handler{keys: credentials.Default("openai")}
+
+	h.responses = &Responses{Post: func(ctx context.Context, body []byte) (*http.Response, error) {
+		return h.send(ctx, http.MethodPost, "/responses", body)
+	}}
+
+	return h
 }
 
 // server is the address of the server this provider reaches, which a stored

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/LiasCode/rumbo/protocol"
 )
@@ -18,6 +19,27 @@ import (
 // whole conversation and nothing is stored on the server, as the protocol
 // asks of a provider. The reasoning a model wrote travels back to it as an
 // opaque block, encrypted.
+
+// Responses completes a conversation with the Responses API. It is shared
+// by the providers that speak it, which give what differs between them: how
+// a request reaches the server with its credentials, what a failure the
+// stream reports means, and whether the server takes a limit on the output.
+type Responses struct {
+	// Post sends a request to the responses endpoint and returns the
+	// successful response, whose body streams the answer.
+	Post func(ctx context.Context, body []byte) (*http.Response, error)
+	// Failure is what a failure the stream reports means. Without one, it
+	// means what StreamFailure says.
+	Failure func(code, message string) error
+	// Unlimited leaves out the limit on the output, for a server that
+	// refuses one.
+	Unlimited bool
+
+	mu sync.Mutex
+	// unreasoning holds the models that said they have no reasoning to give
+	// back, so they are not asked for it again.
+	unreasoning map[string]bool
+}
 
 // keptReasoning is the type of the opaque data that holds a reasoning item.
 // It differs from the types other providers keep, so they skip it.
@@ -75,22 +97,46 @@ type inputItem struct {
 
 // respond completes params with the Responses API.
 func (h *Handler) respond(ctx context.Context, params protocol.CompleteParams, chosen options, emit func(text string)) (protocol.CompleteResult, error) {
-	out := responsesFor(params, chosen)
-	encrypted := !h.unreasoning[params.Model]
+	result, err := h.responses.Complete(ctx, params, chosen.Effort, emit)
+	result.ContextWindow = h.config.ContextWindow
+
+	return result, err
+}
+
+// Complete completes params, with the reasoning effort given, or the
+// model's own when it is empty.
+func (r *Responses) Complete(ctx context.Context, params protocol.CompleteParams, effort string, emit func(text string)) (protocol.CompleteResult, error) {
+	out := responsesFor(params, effort)
+
+	if r.Unlimited {
+		out.MaxOutputTokens = 0
+	}
+
+	r.mu.Lock()
+	encrypted := !r.unreasoning[params.Model]
+	r.mu.Unlock()
 
 	if encrypted {
 		out.Include = []string{encryptedReasoning}
 	}
 
-	response, err := h.post(ctx, "/responses", out)
+	response, err := r.post(ctx, out)
 
 	// A model that does not reason has no encrypted reasoning to give and
 	// refuses the request that asks for it. It is asked again without, and
 	// not asked for it again.
 	if err != nil && encrypted && strings.Contains(strings.ToLower(err.Error()), "encrypted content is not supported") {
-		h.unreasoning[params.Model] = true
+		r.mu.Lock()
+
+		if r.unreasoning == nil {
+			r.unreasoning = map[string]bool{}
+		}
+
+		r.unreasoning[params.Model] = true
+		r.mu.Unlock()
+
 		out.Include = nil
-		response, err = h.post(ctx, "/responses", out)
+		response, err = r.post(ctx, out)
 	}
 
 	if err != nil {
@@ -99,25 +145,28 @@ func (h *Handler) respond(ctx context.Context, params protocol.CompleteParams, c
 
 	defer response.Body.Close()
 
-	result, err := collectResponse(response.Body, params.Model, emit)
-	result.ContextWindow = h.config.ContextWindow
+	failure := r.Failure
 
-	return result, err
+	if failure == nil {
+		failure = StreamFailure
+	}
+
+	return collectResponse(response.Body, params.Model, emit, failure)
 }
 
-// post sends body as JSON with the key in force.
-func (h *Handler) post(ctx context.Context, path string, body any) (*http.Response, error) {
+// post sends a request as JSON.
+func (r *Responses) post(ctx context.Context, body responsesRequest) (*http.Response, error) {
 	raw, err := json.Marshal(body)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return h.send(ctx, http.MethodPost, path, raw)
+	return r.Post(ctx, raw)
 }
 
 // responsesFor converts params into a request of the Responses API.
-func responsesFor(params protocol.CompleteParams, chosen options) responsesRequest {
+func responsesFor(params protocol.CompleteParams, effort string) responsesRequest {
 	out := responsesRequest{
 		Model:           params.Model,
 		Instructions:    params.System,
@@ -126,8 +175,8 @@ func responsesFor(params protocol.CompleteParams, chosen options) responsesReque
 		Stream:          true,
 	}
 
-	if chosen.Effort != "" {
-		out.Reasoning = &responsesReasoning{Effort: chosen.Effort}
+	if effort != "" {
+		out.Reasoning = &responsesReasoning{Effort: effort}
 	}
 
 	for _, def := range params.Tools {
@@ -231,7 +280,7 @@ type outputItem struct {
 // collectResponse reads a streamed response. The visible text is emitted as
 // it comes; the message is built from the response the stream ends with,
 // which holds every item whole.
-func collectResponse(body io.Reader, model string, emit func(text string)) (protocol.CompleteResult, error) {
+func collectResponse(body io.Reader, model string, emit func(text string), failure func(code, message string) error) (protocol.CompleteResult, error) {
 	result := protocol.CompleteResult{Message: protocol.Message{Role: protocol.RoleAssistant}, Stop: protocol.StopEnd}
 
 	var final *responseObject
@@ -259,13 +308,13 @@ func collectResponse(body io.Reader, model string, emit func(text string)) (prot
 
 			case "response.failed":
 				if event.Response != nil && event.Response.Error != nil {
-					return result, streamFailure(event.Response.Error.Code, event.Response.Error.Message)
+					return result, failure(event.Response.Error.Code, event.Response.Error.Message)
 				}
 
 				return result, errors.New("the response failed")
 
 			case "error":
-				return result, streamFailure(event.Code, event.Message)
+				return result, failure(event.Code, event.Message)
 			}
 		}
 
@@ -336,9 +385,9 @@ func collectResponse(body io.Reader, model string, emit func(text string)) (prot
 	return result, nil
 }
 
-// streamFailure is a failure the server reported in the stream, marked so
+// StreamFailure is a failure the server reported in the stream, marked so
 // the host knows what to do with it.
-func streamFailure(code, message string) error {
+func StreamFailure(code, message string) error {
 	failure := fmt.Errorf("%s: %s", code, message)
 
 	switch code {
