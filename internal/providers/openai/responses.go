@@ -3,6 +3,8 @@ package openai
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,8 +68,13 @@ type responsesRequest struct {
 	// Reasoning is left out when no effort is chosen.
 	Reasoning *responsesReasoning `json:"reasoning,omitempty"`
 	Store     bool                `json:"store"`
-	Include   []string            `json:"include,omitempty"`
-	Stream    bool                `json:"stream"`
+	// PromptCacheKey sends every request of a conversation to the servers
+	// that hold its cached prefix. Without it the server picks one by the
+	// first tokens alone, and requests a few seconds apart can miss the
+	// cache the previous one filled.
+	PromptCacheKey string   `json:"prompt_cache_key,omitempty"`
+	Include        []string `json:"include,omitempty"`
+	Stream         bool     `json:"stream"`
 }
 
 type responsesReasoning struct {
@@ -172,6 +179,7 @@ func responsesFor(params protocol.CompleteParams, effort string) responsesReques
 		Instructions:    params.System,
 		Input:           []any{},
 		MaxOutputTokens: params.MaxTokens,
+		PromptCacheKey:  cacheKey(params),
 		Stream:          true,
 	}
 
@@ -188,6 +196,28 @@ func responsesFor(params protocol.CompleteParams, effort string) responsesReques
 	}
 
 	return out
+}
+
+// cacheKey names the conversation params belong to, for the server's cache.
+// It is made of what starts the conversation, the instructions, the tools,
+// and the first message, which every later request of it repeats unchanged:
+// the history only grows by appending. A compaction starts the conversation
+// over, and with it the key, as it does the prefix the cache holds. The
+// same start makes the same key, so a branch keeps its parent's cache.
+func cacheKey(params protocol.CompleteParams) string {
+	if len(params.Messages) == 0 {
+		return ""
+	}
+
+	start, _ := json.Marshal(struct {
+		System string             `json:"system"`
+		Tools  []protocol.ToolDef `json:"tools"`
+		First  protocol.Message   `json:"first"`
+	}{params.System, params.Tools, params.Messages[0]})
+
+	sum := sha256.Sum256(start)
+
+	return hex.EncodeToString(sum[:16])
 }
 
 // inputItems converts one protocol message into items of the input, in the

@@ -120,6 +120,13 @@ func TestResponsesCarryTheWholeConversation(t *testing.T) {
 		"stream": true
 	}`), &want)
 
+	// The cache key is checked on its own, below.
+	if key, _ := received["prompt_cache_key"].(string); len(key) != 32 {
+		t.Fatalf("prompt_cache_key = %v", received["prompt_cache_key"])
+	}
+
+	delete(received, "prompt_cache_key")
+
 	if !reflect.DeepEqual(received, want) {
 		sent, _ := json.MarshalIndent(received, "", "  ")
 		t.Fatalf("request:\n%s", sent)
@@ -143,6 +150,56 @@ func TestResponsesCarryTheWholeConversation(t *testing.T) {
 
 	if text, call := result.Message.Content[1], result.Message.Content[2]; text.Text != "Looking." || call.ID != "call_2" || call.Name != "bash" || string(call.Args) != `{"command":"ls"}` {
 		t.Fatalf("message = %+v", result.Message.Content)
+	}
+}
+
+// Every request of a conversation names it with the same cache key, so the
+// server sends it where its prefix is cached; another conversation, or the
+// same one started over by a compaction, has another.
+func TestAConversationKeepsItsCacheKey(t *testing.T) {
+	var keys []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Key string `json:"prompt_cache_key"`
+		}
+
+		json.NewDecoder(r.Body).Decode(&body)
+		keys = append(keys, body.Key)
+
+		stream(w, `{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}}`)
+	}))
+
+	defer server.Close()
+
+	handler := responsesHandler(t, server.URL)
+	tools := []protocol.ToolDef{{Name: "bash", Description: "Run a command", Schema: json.RawMessage(`{"type":"object"}`)}}
+	user := func(text string) protocol.Message {
+		return protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: text}}}
+	}
+	call := protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockToolCall, ID: "c1", Name: "bash", Args: json.RawMessage(`{}`)}}}
+	result := protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockToolResult, ID: "c1", Text: "done"}}}
+
+	conversations := [][]protocol.Message{
+		{user("context and task")},
+		{user("context and task"), call, result},
+		{user("context and task"), call, result, call, result},
+		{user("another task")},
+		{user("context and summary")},
+	}
+
+	for _, messages := range conversations {
+		if _, err := handler.Complete(context.Background(), protocol.CompleteParams{Model: "m", System: "be brief", Tools: tools, Messages: messages}, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if keys[0] == "" || keys[1] != keys[0] || keys[2] != keys[0] {
+		t.Fatalf("one conversation had keys %q", keys[:3])
+	}
+
+	if keys[3] == keys[0] || keys[4] == keys[0] || keys[4] == keys[3] {
+		t.Fatalf("different conversations share a key: %q", keys)
 	}
 }
 

@@ -13,6 +13,11 @@ it. The commits hold the reasons.
   plan; `/account` and a usage limit say where to manage it. rumbo
   registers it at its next start, and `rumbo provider rm chatgpt` removes
   it for good.
+- `chatgpt`, and `openai` with `api` set to `responses`, read much more of
+  each request from OpenAI's cache: every request of a session now asks for
+  the server that cached its start. Before, about half of the requests of a
+  long run missed the cache and were paid for, or counted against a
+  ChatGPT plan, in full.
 
 ## 0.3.0 (2026-11-15)
 
