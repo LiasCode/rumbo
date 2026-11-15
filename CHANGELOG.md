@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.1.0 (2026-11-15)
+
 The first release.
 
 ### Host
