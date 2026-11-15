@@ -37,7 +37,7 @@ func TestCompleteStreamsTextAndToolCalls(t *testing.T) {
 
 	defer server.Close()
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY"})
 
 	if _, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config}); err != nil {
@@ -95,7 +95,7 @@ func TestTemporaryFailuresAreMarkedTransient(t *testing.T) {
 		http.Error(w, "slow down", status)
 	}))
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY"})
 	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
 
@@ -133,7 +133,7 @@ func TestModelsFunctionListsWhatTheServerOffers(t *testing.T) {
 
 	defer server.Close()
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY"})
 	described, _ := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
 
@@ -141,7 +141,7 @@ func TestModelsFunctionListsWhatTheServerOffers(t *testing.T) {
 		t.Fatalf("described = %+v", described)
 	}
 
-	result, err := handler.Invoke(context.Background(), "models", nil)
+	result, err := handler.InvokeDialog(context.Background(), "models", nil, nil)
 
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestConfiguredWindowAndOverflow(t *testing.T) {
 
 	defer server.Close()
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL, APIKeyEnv: "RUMBO_TEST_NO_KEY", ContextWindow: 8192})
 	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
 

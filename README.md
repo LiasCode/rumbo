@@ -34,7 +34,10 @@ you, without asking and without a sandbox. What the model reads, such as a
 project's `AGENTS.md`, its files, or command output, can steer it, so work
 on code you do not trust inside a container or a virtual machine. Sessions
 keep what the model saw, secrets in command output included, in
-`~/.local/share/rumbo/rumbo.db`. rumbo itself contacts no server: only your
+`~/.local/share/rumbo/rumbo.db`. An API key you give a built-in provider's
+`/login` is kept in `~/.config/rumbo/credentials/`
+(`~/Library/Application Support/rumbo/credentials/` on macOS), readable only
+by you, and so by the model too. rumbo itself contacts no server: only your
 providers and the model's commands reach the network.
 
 ## Install
@@ -51,7 +54,7 @@ Windows is not supported.
 ## Start
 
 ```sh
-export ANTHROPIC_API_KEY=...                      # or the profile from `ant auth login`
+export ANTHROPIC_API_KEY=...                      # or /login in the terminal UI, or `ant auth login`
 rumbo system set model anthropic/claude-opus-5-5  # the model new sessions start with
 
 rumbo "add a --json flag to the export command"  # one task, in this directory's project

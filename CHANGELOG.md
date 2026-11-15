@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Settings
+
 Settings are now kept apart by what they act on: the system, a session, or
 a provider.
 
@@ -35,6 +37,15 @@ a provider.
   rumbo was started with.
 - Front end protocol: each function of the host says what it acts on, in
   `group`.
+
+### Providers
+
+- The built-in providers sign in with an API key: `/login` asks for it,
+  checks it, and keeps it in `~/.config/rumbo/credentials/`, readable only
+  by you; `/logout` removes it, and `/account` says which credential is in
+  use. A key in the environment still comes first.
+- In the terminal UI, what a provider's function answers in words shows
+  without quotes.
 
 ## 0.1.0 (2026-11-15)
 

@@ -47,11 +47,13 @@ Each session uses the provider chosen for it, and keeps it from one start of
 rumbo to the next. The built-in providers
 (`internal/providers`) are served by the same binary through `rumbo provide
 <name>` and get no shortcut: they cross the same protocol as a provider a
-user writes. Credentials belong to the provider; the
-host never sees them. A provider also describes itself: the options it
-accepts and the functions it can be asked, such as listing its models. The
-host stores the chosen values, sends them with every request, and relays
-function calls, and what a function says to the person and asks of them
+user writes. Credentials belong to the provider, which keeps them where it
+chooses; the host keeps none, and relays one a person types at a
+provider's question without recording it. A provider also describes
+itself: the options it accepts and the functions it can be asked, such as
+listing its models. The host stores the chosen values, sends them with
+every request, and relays function calls, and what a function says to the
+person and asks of them
 while it works, without knowing what any of them mean.
 
 **Tools** (`internal/tool`). What the model can do: read, write, and edit

@@ -8,17 +8,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/LiasCode/rumbo/internal/providers/credentials"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// Config is what the provider accepts on initialize. The API key itself is
-// never stored: APIKeyEnv names the environment variable that holds it.
+// Config is what the provider accepts on initialize. The API key is never
+// part of it: it comes from the environment variable APIKeyEnv names, or else
+// from the key login stored, in the provider's own file.
 type Config struct {
 	BaseURL   string `json:"base_url"`
 	APIKeyEnv string `json:"api_key_env"`
@@ -31,11 +34,31 @@ type Config struct {
 // Handler implements protocol.Handler on Chat Completions.
 type Handler struct {
 	config Config
+	// keys holds the API keys login stored, by server.
+	keys credentials.Store
 }
 
 // New returns a handler that is ready after Initialize.
 func New() *Handler {
-	return &Handler{}
+	return &Handler{keys: credentials.Default("openai")}
+}
+
+// server is the address of the server this provider reaches, which a stored
+// key belongs to.
+func (h *Handler) server() string {
+	return strings.TrimRight(h.config.BaseURL, "/")
+}
+
+// key returns the API key for the next request: the environment's, else the
+// one login stored. It is read for every request, so a login made in another
+// process of this provider applies at once. A server that needs none gets
+// none.
+func (h *Handler) key() (string, error) {
+	if key := os.Getenv(h.config.APIKeyEnv); key != "" {
+		return key, nil
+	}
+
+	return h.keys.APIKey(h.server())
 }
 
 // Initialize implements protocol.Handler.
@@ -55,22 +78,115 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 // describes no options: which ones a server accepts depends on the server.
 var description = protocol.Description{
 	Model: &protocol.Option{Type: protocol.OptionString, Values: "models", Description: "Model to use"},
-	Functions: []protocol.Function{{
-		Name:        "models",
-		Description: "List the models the server offers",
-	}},
+	Functions: []protocol.Function{
+		{Name: "models", Description: "List the models the server offers"},
+		{Name: "login", Description: "Store an API key for this server, once it is checked to work"},
+		{
+			Name:        "logout",
+			Description: "Remove the API key login stored",
+			Confirm:     "This removes the API key that login stored for this server. A key in the environment is not touched.",
+		},
+		{Name: "account", Description: "Say which key this provider uses, and where it comes from"},
+	},
 }
 
-// Invoke implements protocol.Invoker.
-func (h *Handler) Invoke(ctx context.Context, name string, _ json.RawMessage) (any, error) {
-	if name != "models" {
-		return nil, fmt.Errorf("unknown function %q", name)
+// InvokeDialog implements protocol.DialogInvoker.
+func (h *Handler) InvokeDialog(ctx context.Context, name string, _ json.RawMessage, dialog protocol.Dialog) (any, error) {
+	switch name {
+	case "models":
+		return h.models(ctx)
+	case "login":
+		return h.login(ctx, dialog)
+	case "logout":
+		return h.logout()
+	case "account":
+		return h.account()
 	}
+
+	return nil, fmt.Errorf("unknown function %q", name)
+}
+
+// login asks for an API key, checks it by listing the server's models, and
+// stores it for this server.
+func (h *Handler) login(ctx context.Context, dialog protocol.Dialog) (string, error) {
+	answer, err := dialog.Ask(ctx, "API key for "+h.server()+":", true)
+
+	if err != nil {
+		return "", err
+	}
+
+	key := strings.TrimSpace(answer)
+
+	if key == "" {
+		return "", errors.New("no key was given; nothing changed")
+	}
+
+	dialog.Say("checking the key")
+
+	response, err := h.sendWith(ctx, http.MethodGet, "/models", nil, key)
+
+	if err != nil {
+		return "", fmt.Errorf("the key was not stored: %w", err)
+	}
+
+	response.Body.Close()
+
+	if err := h.keys.SetAPIKey(h.server(), key); err != nil {
+		return "", err
+	}
+
+	text := fmt.Sprintf("logged in to %s; the key is kept in %s, which only you can read", h.server(), h.keys.Path)
+
+	if os.Getenv(h.config.APIKeyEnv) != "" {
+		text += fmt.Sprintf(". %s is set in the environment and still comes first", h.config.APIKeyEnv)
+	}
+
+	return text, nil
+}
+
+// logout forgets the key stored for this server.
+func (h *Handler) logout() (string, error) {
+	removed, err := h.keys.Remove(h.server())
+
+	if err != nil {
+		return "", err
+	}
+
+	if !removed {
+		return "no key is stored for " + h.server(), nil
+	}
+
+	return "the key stored for " + h.server() + " is removed", nil
+}
+
+// account says where the key of the next request comes from, without
+// showing it.
+func (h *Handler) account() (string, error) {
+	stored, err := h.keys.APIKey(h.server())
+
+	if err != nil {
+		return "", err
+	}
+
+	switch inEnvironment := os.Getenv(h.config.APIKeyEnv) != ""; {
+	case inEnvironment && stored != "":
+		return fmt.Sprintf("%s: using %s from the environment, which comes before the key login stored", h.server(), h.config.APIKeyEnv), nil
+	case inEnvironment:
+		return fmt.Sprintf("%s: using %s from the environment", h.server(), h.config.APIKeyEnv), nil
+	case stored != "":
+		return fmt.Sprintf("%s: using the key login stored, in %s", h.server(), h.keys.Path), nil
+	}
+
+	return fmt.Sprintf("%s: no key in %s or stored by login; requests go without one, which many local servers accept", h.server(), h.config.APIKeyEnv), nil
+}
+
+func (h *Handler) models(ctx context.Context) (protocol.ValuesResult, error) {
+	var result protocol.ValuesResult
 
 	response, err := h.send(ctx, http.MethodGet, "/models", nil)
 
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 
 	defer response.Body.Close()
@@ -82,10 +198,8 @@ func (h *Handler) Invoke(ctx context.Context, name string, _ json.RawMessage) (a
 	}
 
 	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil {
-		return nil, fmt.Errorf("invalid model list: %w", err)
+		return result, fmt.Errorf("invalid model list: %w", err)
 	}
-
-	var result protocol.ValuesResult
 
 	for _, model := range listed.Data {
 		result.Values = append(result.Values, protocol.Value{Value: model.ID})
@@ -172,8 +286,20 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 
 // send makes one request to the server and returns its successful response,
 // whose body the caller closes. Failures worth retrying are marked transient.
+// send makes a request with the key in force.
 func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
-	url := strings.TrimRight(h.config.BaseURL, "/") + path
+	key, err := h.key()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return h.sendWith(ctx, method, path, body, key)
+}
+
+// sendWith makes a request with key, or without one when it is empty.
+func (h *Handler) sendWith(ctx context.Context, method, path string, body []byte, key string) (*http.Response, error) {
+	url := h.server() + path
 	httpRequest, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 
 	if err != nil {
@@ -182,7 +308,7 @@ func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*
 
 	httpRequest.Header.Set("Content-Type", "application/json")
 
-	if key := os.Getenv(h.config.APIKeyEnv); key != "" {
+	if key != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+key)
 	}
 

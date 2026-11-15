@@ -386,6 +386,13 @@ func (u *ui) provider(function protocol.Function, params json.RawMessage) (answe
 		return answer{source: fromProvider, text: list(listed.Values)}, nil
 	}
 
+	// A function that answers in words is shown as words, not as JSON.
+	var text string
+
+	if json.Unmarshal(raw, &text) == nil {
+		return answer{source: fromProvider, text: text}, nil
+	}
+
 	return answer{source: fromProvider, text: string(raw)}, nil
 }
 

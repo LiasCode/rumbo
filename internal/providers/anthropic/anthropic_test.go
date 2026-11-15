@@ -54,7 +54,7 @@ func TestCompleteRoundTripsThinkingAndToolCalls(t *testing.T) {
 
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL, Effort: "high"})
 
 	if _, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config}); err != nil {
@@ -137,7 +137,7 @@ func TestTemporaryFailuresAreMarkedTransient(t *testing.T) {
 
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL})
 	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
 
@@ -186,7 +186,7 @@ func TestDescriptionFunctionsAndOptions(t *testing.T) {
 
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL, Effort: "low"})
 	described, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
 
@@ -194,7 +194,7 @@ func TestDescriptionFunctionsAndOptions(t *testing.T) {
 		t.Fatalf("described = %+v, err = %v", described, err)
 	}
 
-	result, err := handler.Invoke(context.Background(), "models", nil)
+	result, err := handler.InvokeDialog(context.Background(), "models", nil, nil)
 
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestContextWindowAndOverflow(t *testing.T) {
 
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 
-	handler := New()
+	handler := testHandler(t)
 	config, _ := json.Marshal(Config{BaseURL: server.URL})
 	handler.Initialize(context.Background(), protocol.InitializeParams{Config: config})
 

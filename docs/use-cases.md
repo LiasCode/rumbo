@@ -189,7 +189,9 @@ the Agent Provider Protocol on its stdin and stdout.
 - Answer `shutdown` and exit.
 - Write only protocol messages to stdout. Diagnostics go to stderr, which
   reaches the user.
-- Hold its own credentials. They never pass through the host.
+- Hold its own credentials, and keep them where it chooses. The host keeps
+  none: one a person types at the provider's question it relays without
+  recording.
 - Ignore opaque blocks it does not recognize, which is what lets a session
   change provider.
 
@@ -220,14 +222,21 @@ the Agent Provider Protocol on its stdin and stdout.
 ### Built in
 
 - **`anthropic`** reaches the Claude API with `ANTHROPIC_API_KEY`,
-  `ANTHROPIC_AUTH_TOKEN`, or the profile from `ant auth login`. It lists the
-  models the account can use, offers an `effort` option, keeps the model's
-  thinking in opaque blocks, and reports the size of the model's context.
+  `ANTHROPIC_AUTH_TOKEN`, the key its `login` stored, or the profile from
+  `ant auth login`, in that order. It lists the models the account can use,
+  offers an `effort` option, keeps the model's thinking in opaque blocks,
+  and reports the size of the model's context.
 - **`openai`** reaches any server compatible with OpenAI's Chat Completions,
   at the address its configuration gives, with the key in the variable its
-  configuration names (`OPENAI_API_KEY` by default). It lists the server's
-  models, and takes the size of the context from its configuration, since a
-  server cannot say.
+  configuration names (`OPENAI_API_KEY` by default), or else the key its
+  `login` stored for that address. It lists the server's models, and takes
+  the size of the context from its configuration, since a server cannot
+  say.
+- Both offer `login`, which asks for an API key, checks it with a request
+  that costs nothing, and keeps it for the server in the user's
+  configuration directory (`rumbo/credentials/`), readable only by the user;
+  `logout`, which removes it; and `account`, which says which credential is
+  in use and where it comes from, without showing it.
 
 ## Front end
 

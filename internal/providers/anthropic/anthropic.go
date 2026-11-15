@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
 
+	"github.com/LiasCode/rumbo/internal/providers/credentials"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -24,8 +26,9 @@ import (
 const defaultMaxTokens = 64_000
 
 // Config is what the provider accepts on initialize. Credentials are not
-// part of it: the SDK reads them from the environment (ANTHROPIC_API_KEY,
-// ANTHROPIC_AUTH_TOKEN) or from the profile created by "ant auth login".
+// part of it: they come from the environment (ANTHROPIC_API_KEY,
+// ANTHROPIC_AUTH_TOKEN), then from the key login stored, and last from the
+// profile created by "ant auth login".
 type Config struct {
 	BaseURL string `json:"base_url"`
 	// Effort is one of low, medium, high, xhigh, max. Empty uses the model's
@@ -39,11 +42,61 @@ type Handler struct {
 	config Config
 	// windows holds the context size of each model asked about.
 	windows map[string]int64
+	// keys holds the API keys login stored, by server.
+	keys credentials.Store
+	// environment names the variable the credential comes from, read when
+	// the client is made, as the SDK reads it; empty when none gives one.
+	environment string
 }
 
 // New returns a handler that is ready after Initialize.
 func New() *Handler {
-	return &Handler{windows: map[string]int64{}}
+	return &Handler{windows: map[string]int64{}, keys: credentials.Default("anthropic")}
+}
+
+// defaultServer is where the API is when nothing says otherwise.
+const defaultServer = "https://api.anthropic.com"
+
+// server is the address of the API this provider reaches, which a stored key
+// belongs to.
+func (h *Handler) server() string {
+	for _, address := range []string{h.config.BaseURL, os.Getenv("ANTHROPIC_BASE_URL")} {
+		if address != "" {
+			return strings.TrimRight(address, "/")
+		}
+	}
+
+	return defaultServer
+}
+
+// fromEnvironment names the variable that gives the credential, which comes
+// before a stored key, or is empty when none does.
+func fromEnvironment() string {
+	for _, name := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} {
+		if os.Getenv(name) != "" {
+			return name
+		}
+	}
+
+	return ""
+}
+
+// credential gives a request the key login stored, when the environment
+// gives none. Without either, the SDK's own chain applies, such as the
+// profile from "ant auth login". It is read for every request, so a login
+// made in another process of this provider applies at once.
+func (h *Handler) credential() ([]option.RequestOption, error) {
+	if h.environment != "" {
+		return nil, nil
+	}
+
+	key, err := h.keys.APIKey(h.server())
+
+	if err != nil || key == "" {
+		return nil, err
+	}
+
+	return []option.RequestOption{option.WithAPIKey(key)}, nil
 }
 
 // Initialize implements protocol.Handler.
@@ -61,6 +114,7 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 	}
 
 	h.client = sdk.NewClient(options...)
+	h.environment = fromEnvironment()
 
 	return protocol.InitializeResult{Protocol: protocol.Version, Name: "anthropic", Description: description}, nil
 }
@@ -74,10 +128,16 @@ var description = protocol.Description{
 		Enum:        []string{"low", "medium", "high", "xhigh", "max"},
 		Description: "How much the model thinks and how thorough it is. Without it, the model's own default applies.",
 	}},
-	Functions: []protocol.Function{{
-		Name:        "models",
-		Description: "List the models this account can use",
-	}},
+	Functions: []protocol.Function{
+		{Name: "models", Description: "List the models this account can use"},
+		{Name: "login", Description: "Store an API key for this provider, once it is checked to work"},
+		{
+			Name:        "logout",
+			Description: "Remove the API key login stored",
+			Confirm:     "This removes the API key that login stored for this provider. A key in the environment, and the profile from ant auth login, are not touched.",
+		},
+		{Name: "account", Description: "Say which credential this provider uses, and where it comes from"},
+	},
 }
 
 // options are the values a request may carry, as described above.
@@ -85,15 +145,32 @@ type options struct {
 	Effort string `json:"effort"`
 }
 
-// Invoke implements protocol.Invoker.
-func (h *Handler) Invoke(ctx context.Context, name string, _ json.RawMessage) (any, error) {
-	if name != "models" {
-		return nil, fmt.Errorf("unknown function %q", name)
+// InvokeDialog implements protocol.DialogInvoker.
+func (h *Handler) InvokeDialog(ctx context.Context, name string, _ json.RawMessage, dialog protocol.Dialog) (any, error) {
+	switch name {
+	case "models":
+		return h.models(ctx)
+	case "login":
+		return h.login(ctx, dialog)
+	case "logout":
+		return h.logout()
+	case "account":
+		return h.account()
 	}
 
+	return nil, fmt.Errorf("unknown function %q", name)
+}
+
+func (h *Handler) models(ctx context.Context) (protocol.ValuesResult, error) {
 	var result protocol.ValuesResult
 
-	pages := h.client.Models.ListAutoPaging(ctx, sdk.ModelListParams{})
+	using, err := h.credential()
+
+	if err != nil {
+		return result, err
+	}
+
+	pages := h.client.Models.ListAutoPaging(ctx, sdk.ModelListParams{}, using...)
 
 	for pages.Next() {
 		model := pages.Current()
@@ -101,6 +178,76 @@ func (h *Handler) Invoke(ctx context.Context, name string, _ json.RawMessage) (a
 	}
 
 	return result, pages.Err()
+}
+
+// login asks for an API key, checks it with a request that costs nothing,
+// and stores it for this provider's server.
+func (h *Handler) login(ctx context.Context, dialog protocol.Dialog) (string, error) {
+	answer, err := dialog.Ask(ctx, "API key for "+h.server()+":", true)
+
+	if err != nil {
+		return "", err
+	}
+
+	key := strings.TrimSpace(answer)
+
+	if key == "" {
+		return "", errors.New("no key was given; nothing changed")
+	}
+
+	dialog.Say("checking the key")
+
+	if _, err := h.client.Models.List(ctx, sdk.ModelListParams{Limit: sdk.Int(1)}, option.WithAPIKey(key)); err != nil {
+		return "", fmt.Errorf("the key was not stored: %w", err)
+	}
+
+	if err := h.keys.SetAPIKey(h.server(), key); err != nil {
+		return "", err
+	}
+
+	text := fmt.Sprintf("logged in to %s; the key is kept in %s, which only you can read", h.server(), h.keys.Path)
+
+	if h.environment != "" {
+		text += fmt.Sprintf(". %s is set in the environment and still comes first", h.environment)
+	}
+
+	return text, nil
+}
+
+// logout forgets the key stored for this provider's server.
+func (h *Handler) logout() (string, error) {
+	removed, err := h.keys.Remove(h.server())
+
+	if err != nil {
+		return "", err
+	}
+
+	if !removed {
+		return "no key is stored for " + h.server(), nil
+	}
+
+	return "the key stored for " + h.server() + " is removed", nil
+}
+
+// account says where the credential of the next request comes from,
+// without showing it.
+func (h *Handler) account() (string, error) {
+	stored, err := h.keys.APIKey(h.server())
+
+	if err != nil {
+		return "", err
+	}
+
+	switch name := h.environment; {
+	case name != "" && stored != "":
+		return fmt.Sprintf("%s: using %s from the environment, which comes before the key login stored", h.server(), name), nil
+	case name != "":
+		return fmt.Sprintf("%s: using %s from the environment", h.server(), name), nil
+	case stored != "":
+		return fmt.Sprintf("%s: using the key login stored, in %s", h.server(), h.keys.Path), nil
+	}
+
+	return fmt.Sprintf(`%s: no key in the environment or stored by login; the profile from "ant auth login" is used, if there is one`, h.server()), nil
 }
 
 // Complete implements protocol.Handler.
@@ -111,7 +258,13 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 		return protocol.CompleteResult{}, err
 	}
 
-	stream := h.client.Messages.NewStreaming(ctx, request)
+	using, err := h.credential()
+
+	if err != nil {
+		return protocol.CompleteResult{}, err
+	}
+
+	stream := h.client.Messages.NewStreaming(ctx, request, using...)
 	message := sdk.Message{}
 
 	for stream.Next() {
@@ -133,7 +286,7 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 	}
 
 	completed := result(message)
-	completed.ContextWindow = h.window(ctx, params.Model)
+	completed.ContextWindow = h.window(ctx, params.Model, using)
 
 	return completed, nil
 }
@@ -141,14 +294,14 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 // window returns how many tokens the model's context holds, as the API says.
 // It is asked once per model. Zero means it could not be found out, which
 // only makes the host fall back to a fixed limit.
-func (h *Handler) window(ctx context.Context, model string) int64 {
+func (h *Handler) window(ctx context.Context, model string, using []option.RequestOption) int64 {
 	if size, known := h.windows[model]; known {
 		return size
 	}
 
 	var size int64
 
-	if info, err := h.client.Models.Get(ctx, model, sdk.ModelGetParams{}); err == nil {
+	if info, err := h.client.Models.Get(ctx, model, sdk.ModelGetParams{}, using...); err == nil {
 		size = info.MaxInputTokens
 	}
 
