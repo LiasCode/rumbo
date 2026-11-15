@@ -45,7 +45,7 @@ func TestAFinishedCallShowsWhatTellsMost(t *testing.T) {
 	started := time.Now().Add(-2500 * time.Millisecond)
 	command := &running{name: "bash", args: json.RawMessage(`{"command":"go test ./..."}`), started: started}
 
-	rows := command.finished("FAIL x\nok y\n[exit status 1]", true, time.Now(), 80)
+	rows := command.finished(defaultTheme, "FAIL x\nok y\n[exit status 1]", true, time.Now(), 80)
 
 	if head := plain(rows[0]); head != "✗ bash go test ./...  exit status 1  2.5s" {
 		t.Fatalf("head = %q", head)
@@ -57,23 +57,23 @@ func TestAFinishedCallShowsWhatTellsMost(t *testing.T) {
 
 	long := strings.Repeat("line\n", 20)
 
-	if rows := command.finished(long, false, time.Now(), 80); len(rows) != 1+shownLines+1 || !strings.Contains(rows[len(rows)-1], "14 more lines") {
+	if rows := command.finished(defaultTheme, long, false, time.Now(), 80); len(rows) != 1+shownLines+1 || !strings.Contains(rows[len(rows)-1], "14 more lines") {
 		t.Fatalf("a long output: %q", rows)
 	}
 
-	if rows := command.finished("[no output]", false, time.Now(), 80); len(rows) != 1 || !strings.HasPrefix(plain(rows[0]), "✓ bash") {
+	if rows := command.finished(defaultTheme, "[no output]", false, time.Now(), 80); len(rows) != 1 || !strings.HasPrefix(plain(rows[0]), "✓ bash") {
 		t.Fatalf("no output: %q", rows)
 	}
 
 	edit := &running{name: "edit", args: json.RawMessage(`{"path":"a.go","old":"x := 1\ny := 2","new":"x := 1\ny := 3"}`)}
-	rows = edit.finished("edited a.go (1 replacement(s))", false, time.Now(), 80)
+	rows = edit.finished(defaultTheme, "edited a.go (1 replacement(s))", false, time.Now(), 80)
 
 	if len(rows) != 3 || plain(rows[0]) != "✓ edit a.go" || plain(rows[1]) != "    - y := 2" || plain(rows[2]) != "    + y := 3" {
 		t.Fatalf("edit: %q", rows)
 	}
 
 	// A call told by a history has no time.
-	if rows := edit.finished("old was not found in a.go", true, time.Now(), 80); plain(rows[0]) != "✗ edit a.go" || plain(rows[1]) != "    old was not found in a.go" {
+	if rows := edit.finished(defaultTheme, "old was not found in a.go", true, time.Now(), 80); plain(rows[0]) != "✗ edit a.go" || plain(rows[1]) != "    old was not found in a.go" {
 		t.Fatalf("a failed edit: %q", rows)
 	}
 }
@@ -85,13 +85,13 @@ func TestARunEndsWithWhatItTook(t *testing.T) {
 	run.add(&protocol.Usage{Input: 12345, CacheRead: 10000, Output: 999})
 	run.add(&protocol.Usage{Input: 100, Output: 1})
 
-	if got := plain(run.summary(protocol.RunDone, "", time.Now())); got != "✓ done  1m15s · 2 turns · 12.4k in, 10k cached, 1k out" {
+	if got := plain(run.summary(defaultTheme, protocol.RunDone, "", time.Now())); got != "✓ done  1m15s · 2 turns · 12.4k in, 10k cached, 1k out" {
 		t.Fatalf("done = %q", got)
 	}
 
 	told := tally{}
 
-	if got := plain(told.summary(protocol.RunFailed, "the provider went away", time.Now())); got != "✗ the provider went away" {
+	if got := plain(told.summary(defaultTheme, protocol.RunFailed, "the provider went away", time.Now())); got != "✗ the provider went away" {
 		t.Fatalf("failed = %q", got)
 	}
 

@@ -15,6 +15,8 @@ func quiet() *ui {
 		screen:    screen{out: &bytes.Buffer{}, width: 80, height: 24},
 		history:   &history{},
 		described: &protocol.DescribeResult{},
+		theme:     defaultTheme,
+		markdown:  markdown{theme: defaultTheme},
 	}
 }
 

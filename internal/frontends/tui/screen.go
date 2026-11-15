@@ -164,6 +164,21 @@ func visibleWidth(text string) int {
 	return columns
 }
 
+// stripped is text without its escape sequences: what it shows.
+func stripped(text string) string {
+	var out strings.Builder
+
+	scan(text, func(r rune, escaped bool) bool {
+		if !escaped {
+			out.WriteRune(r)
+		}
+
+		return true
+	})
+
+	return out.String()
+}
+
 // cut shortens text to width columns, keeping its escape sequences, and
 // marks what it took away with an ellipsis.
 func cut(text string, width int) string {

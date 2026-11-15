@@ -48,8 +48,8 @@ func title(name string, args json.RawMessage) string {
 }
 
 // working is the live line of a call in progress.
-func (r *running) working(now time.Time) string {
-	line := styleCyan + spin(now) + styleColorOff + " " + title(r.name, r.args)
+func (r *running) working(t theme, now time.Time) string {
+	line := t.progress + spin(now) + styleColorOff + " " + title(r.name, r.args)
 
 	if !r.started.IsZero() {
 		line += styleDim + "  " + elapsed(now.Sub(r.started)) + styleWeightOff
@@ -63,12 +63,12 @@ func (r *running) working(now time.Time) string {
 var exitStatus = regexp.MustCompile(`\n?\[([^\[\]\n]+)\]$`)
 
 // finished shows a call once it is done, in rows of at most width columns.
-func (r *running) finished(result string, failed bool, now time.Time, width int) []string {
-	mark, status := styleGreen+markDone, ""
+func (r *running) finished(t theme, result string, failed bool, now time.Time, width int) []string {
+	mark, status := t.success+markDone, ""
 	body := strings.TrimRight(result, "\n")
 
 	if failed {
-		mark = styleRed + markFailed
+		mark = t.failure + markFailed
 
 		// What a command printed comes first, and why it failed last.
 		if found := exitStatus.FindStringSubmatchIndex(body); found != nil && r.name == "bash" {
@@ -79,7 +79,7 @@ func (r *running) finished(result string, failed bool, now time.Time, width int)
 	head := mark + styleColorOff + " " + title(r.name, r.args)
 
 	if status != "" {
-		head += "  " + styleRed + status + styleColorOff
+		head += "  " + t.failure + status + styleColorOff
 	}
 
 	if !r.started.IsZero() && now.Sub(r.started) >= time.Second {
@@ -92,9 +92,9 @@ func (r *running) finished(result string, failed bool, now time.Time, width int)
 	case failed && r.name == "bash":
 		rows = append(rows, excerpt(body, width, false, styleDim)...)
 	case failed:
-		rows = append(rows, excerpt(body, width, true, styleRed)...)
+		rows = append(rows, excerpt(body, width, true, t.failure)...)
 	case r.name == "edit":
-		rows = append(rows, change(r.args, width)...)
+		rows = append(rows, change(t, r.args, width)...)
 	case r.name == "bash" && body != "[no output]":
 		rows = append(rows, excerpt(body, width, true, styleDim)...)
 	}
@@ -143,7 +143,7 @@ func excerpt(text string, width int, first bool, style string) []string {
 
 // change shows what an edit replaced, as the lines it took away and the
 // ones it put in, with those that stayed between them.
-func change(args json.RawMessage, width int) []string {
+func change(t theme, args json.RawMessage, width int) []string {
 	var edit struct {
 		Old string `json:"old"`
 		New string `json:"new"`
@@ -160,9 +160,9 @@ func change(args json.RawMessage, width int) []string {
 
 		switch step.op {
 		case '-':
-			style = styleRed + "- "
+			style = t.failure + "- "
 		case '+':
-			style = styleGreen + "+ "
+			style = t.success + "+ "
 		}
 
 		rows = append(rows, cut("    "+style+strings.ReplaceAll(step.text, "\t", "    "), width))
@@ -279,7 +279,30 @@ func (t *tally) add(usage *protocol.Usage) {
 }
 
 // summary says how a run ended, and what it took.
-func (t *tally) summary(status, reason string, now time.Time) string {
+func (t *tally) summary(colors theme, status, reason string, now time.Time) string {
+	took := t.took(now)
+
+	if took != "" {
+		took = "  " + styleDim + took + styleReset
+	}
+
+	switch status {
+	case protocol.RunDone:
+		return colors.success + markDone + styleColorOff + styleDim + " done" + styleWeightOff + took
+	case protocol.RunCancelled:
+		return colors.warning + markFailed + " cancelled" + styleColorOff + took
+	}
+
+	if reason == "" {
+		reason = status
+	}
+
+	return colors.failure + markFailed + " " + reason + styleColorOff + took
+}
+
+// took says what a run took: its time, when it is known, its turns, and
+// its tokens.
+func (t *tally) took(now time.Time) string {
 	var parts []string
 
 	if !t.started.IsZero() {
@@ -298,24 +321,7 @@ func (t *tally) summary(status, reason string, now time.Time) string {
 		parts = append(parts, fmt.Sprintf("%s in, %s cached, %s out", tokens(t.spent.Input), tokens(t.spent.CacheRead), tokens(t.spent.Output)))
 	}
 
-	took := ""
-
-	if len(parts) > 0 {
-		took = "  " + styleDim + strings.Join(parts, " · ") + styleReset
-	}
-
-	switch status {
-	case protocol.RunDone:
-		return styleGreen + markDone + styleColorOff + styleDim + " done" + styleWeightOff + took
-	case protocol.RunCancelled:
-		return styleYellow + markFailed + " cancelled" + styleColorOff + took
-	}
-
-	if reason == "" {
-		reason = status
-	}
-
-	return styleRed + markFailed + " " + reason + styleColorOff + took
+	return strings.Join(parts, " · ")
 }
 
 // elapsed says a time to the tenth of a second while it is short, and to

@@ -335,8 +335,17 @@ speaks the Agent Frontend Protocol with the host.
   shows once the model has it, and goes back to the input if the run ended
   first.
 - Its commands are the functions the host and the provider describe, and
-  its own `/options` and `/help`. `/help` lists the host's by what
-  they act on: the system, the session, and the providers.
+  its own, which come before one of theirs of the same name: `/options`,
+  `/help`, `/copy`, and `/export`. `/help` lists the host's by what they
+  act on: the system, the session, and the providers.
+- `/copy` puts the model's last answer in the clipboard, and `/copy code`
+  only its last code block, with OSC 52, so it also works over ssh, in the
+  terminals that take it; in tmux, with `set-clipboard on`.
+- `/export` writes the current session as Markdown, from its history: what
+  was asked, what the model wrote, each tool call with the change it made
+  or the start of what it returned, and how each run ended. It writes to
+  the path given, from the session's directory, or to `rumbo-<session>.md`
+  there, and never over a file that exists.
 - A slash opens a menu of the commands, with what each does, and after a
   command, of what its next parameter takes, with what the host or the
   provider says of each value: a session's title, the text of a message to
@@ -381,6 +390,14 @@ speaks the Agent Frontend Protocol with the host.
   something, while the terminal is not in front, it rings the terminal's
   bell and sends a desktop notification, in the terminals that report
   their focus and take OSC 9; in tmux, with `focus-events` on.
+- Its start configuration chooses its colors: `theme` is `auto`, which
+  shows them unless `NO_COLOR` is set, `color`, or `plain`, which shows
+  none; and `color_host`, `color_provider`, `color_code`, `color_success`,
+  `color_failure`, `color_warning`, and `color_progress` each take a name,
+  such as `cyan` or `bright-blue`, a number of the 256 colors, `#rrggbb`,
+  or `default`. It says the configuration in force, with its defaults, to
+  be kept with its registration, and one it cannot use stops it with what
+  is wrong, before it takes the terminal.
 - It gives the terminal back as it found it, when it quits or the host ends.
 
 **`plain`**, for pipes and scripts:

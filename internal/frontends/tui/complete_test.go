@@ -129,22 +129,25 @@ func TestTheArrowsChooseInTheMenu(t *testing.T) {
 	u := quiet()
 
 	typing(u, "/")
+	shown := u.menu.shown
 	u.press(key{name: keyDown})
 
-	if chosen, _ := u.menu.current(); chosen.value != commandOptions {
-		t.Fatalf("after Down the menu is on %q", chosen.value)
+	if chosen, _ := u.menu.current(); chosen.value != shown[1].value {
+		t.Fatalf("after Down the menu is on %q, not %q", chosen.value, shown[1].value)
 	}
 
 	u.press(key{name: keyUp})
 	u.press(key{name: keyUp})
 
-	if chosen, _ := u.menu.current(); chosen.value != commandOptions {
-		t.Fatalf("after Up twice the menu is on %q", chosen.value)
+	last := shown[len(shown)-1].value
+
+	if chosen, _ := u.menu.current(); chosen.value != last {
+		t.Fatalf("after Up twice the menu is on %q, not %q", chosen.value, last)
 	}
 
 	u.press(key{r: '\t'})
 
-	if got := u.input.String(); got != commandOptions+" " {
+	if got := u.input.String(); got != last+" " {
 		t.Fatalf("Tab took %q", got)
 	}
 }

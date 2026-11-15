@@ -7,17 +7,7 @@ import (
 
 // plain is what a styled text shows, without its escape sequences.
 func plain(text string) string {
-	var out strings.Builder
-
-	scan(text, func(r rune, escaped bool) bool {
-		if !escaped {
-			out.WriteRune(r)
-		}
-
-		return true
-	})
-
-	return out.String()
+	return stripped(text)
 }
 
 func TestSpansInALineAreStyled(t *testing.T) {
@@ -26,27 +16,27 @@ func TestSpansInALineAreStyled(t *testing.T) {
 		want  string
 		shown string
 	}{
-		{"run `go test`", "run " + styleCode + "go test" + styleColorOff, "run go test"},
+		{"run `go test`", "run " + defaultTheme.code + "go test" + styleColorOff, "run go test"},
 		{"a **bold** word", "a " + styleBold + "bold" + styleWeightOff + " word", "a bold word"},
 		{"an *italic* and _another_", "an " + styleItalic + "italic" + styleItalicOff + " and " + styleItalic + "another" + styleItalicOff, "an italic and another"},
-		{"**`code` in bold**", styleBold + styleCode + "code" + styleColorOff + " in bold" + styleWeightOff, "code in bold"},
+		{"**`code` in bold**", styleBold + defaultTheme.code + "code" + styleColorOff + " in bold" + styleWeightOff, "code in bold"},
 		{"see [the docs](https://x.dev)", "see " + styleUnderline + "the docs" + styleUnderlineOff + styleDim + " (https://x.dev)" + styleWeightOff, "see the docs (https://x.dev)"},
 
 		// Marks nothing closes, or that are part of a word or of code, stay.
 		{"snake_case_name", "snake_case_name", "snake_case_name"},
 		{"2 * 3 * 4", "2 * 3 * 4", "2 * 3 * 4"},
 		{"half **open", "half **open", "half **open"},
-		{"`a *b*`", styleCode + "a *b*" + styleColorOff, "a *b*"},
+		{"`a *b*`", defaultTheme.code + "a *b*" + styleColorOff, "a *b*"},
 		{`\*not italic\*`, "*not italic*", "*not italic*"},
 	} {
-		if got := inline(test.text); got != test.want || plain(got) != test.shown {
+		if got := defaultTheme.inline(test.text); got != test.want || plain(got) != test.shown {
 			t.Errorf("inline(%q) = %q, want %q", test.text, got, test.want)
 		}
 	}
 }
 
 func TestBlocksAreShownAsWhatTheyAre(t *testing.T) {
-	var m markdown
+	m := markdown{theme: defaultTheme}
 
 	for _, test := range []struct {
 		text  string
@@ -73,7 +63,7 @@ func TestBlocksAreShownAsWhatTheyAre(t *testing.T) {
 // Inside a code block nothing is styled but the code itself, and the block
 // ends at a fence like the one that opened it.
 func TestACodeBlockKeepsItsText(t *testing.T) {
-	var m markdown
+	m := markdown{theme: defaultTheme}
 
 	lines := []string{"```go", "x := a * b * c", "# not a heading", "~~~", "```", "**after**"}
 
@@ -91,8 +81,20 @@ func TestACodeBlockKeepsItsText(t *testing.T) {
 		}
 	}
 
-	if !strings.HasPrefix(shown[1], styleCode) || !strings.HasPrefix(shown[5], styleBold) {
+	if !strings.HasPrefix(shown[1], defaultTheme.code) || !strings.HasPrefix(shown[5], styleBold) {
 		t.Fatalf("styles: %q", shown)
+	}
+
+	// A longer fence holds a shorter one, which does not close it.
+	nested := markdown{theme: defaultTheme}
+	var rows []string
+
+	for _, text := range []string{"````", "```", "**inside**", "```", "````", "**outside**"} {
+		rows = append(rows, nested.line(text, 40)...)
+	}
+
+	if plain(rows[2]) != "**inside**" || plain(rows[5]) != "outside" {
+		t.Fatalf("nested fences: %q", rows)
 	}
 
 	// A fence still being written opens nothing.
@@ -106,7 +108,7 @@ func TestACodeBlockKeepsItsText(t *testing.T) {
 // A table is held back until it ends, and then shown with its columns
 // lined up.
 func TestATableIsLinedUp(t *testing.T) {
-	var m markdown
+	m := markdown{theme: defaultTheme}
 
 	for _, text := range []string{"| name | size |", "|---|--:|", "| a | 1 |", "| **longer** | 22 |"} {
 		if shown := m.line(text, 40); shown != nil {

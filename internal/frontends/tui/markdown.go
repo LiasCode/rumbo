@@ -13,7 +13,6 @@ const (
 	styleItalic    = escape + "[3m"
 	styleUnderline = escape + "[4m"
 	styleGreen     = escape + "[32m"
-	styleCode      = styleYellow
 
 	// styleWeightOff ends bold and dim alike.
 	styleWeightOff    = escape + "[22m"
@@ -27,8 +26,9 @@ const (
 // italics, and links. It works a line at a time, as the text arrives, and
 // what it shows can still be copied: code keeps its text as it was.
 type markdown struct {
+	theme theme
 	// fence is the mark that opened the code block the lines are in, if
-	// they are in one.
+	// they are in one. A mark of the same kind, as long or longer, closes it.
 	fence string
 	// table holds the rows of a table until it ends, so its columns line up.
 	table [][]string
@@ -54,7 +54,7 @@ func (m *markdown) line(text string, width int) []string {
 	}
 
 	if len(m.table) > 0 {
-		shown = renderTable(m.table)
+		shown = m.theme.table(m.table)
 		m.table = nil
 	}
 
@@ -64,23 +64,23 @@ func (m *markdown) line(text string, width int) []string {
 // peek shows the line still being written, without taking it.
 func (m *markdown) peek(text string, width int) []string {
 	if m.fence == "" && isTableRow(text) {
-		return renderTable(append(m.table, cellsOfRow(text)))
+		return m.theme.table(append(m.table, cellsOfRow(text)))
 	}
 
-	shown := renderTable(m.table)
+	shown := m.theme.table(m.table)
 
 	return append(shown, m.render(text, width, false))
 }
 
 // held is what is kept back to be shown later: a table not ended yet.
 func (m *markdown) held() []string {
-	return renderTable(m.table)
+	return m.theme.table(m.table)
 }
 
 // end shows what was kept back, as a text ends, and starts again outside
 // any block.
 func (m *markdown) end() []string {
-	shown := renderTable(m.table)
+	shown := m.theme.table(m.table)
 	m.table, m.fence = nil, ""
 
 	return shown
@@ -94,7 +94,7 @@ func (m *markdown) render(text string, width int, whole bool) string {
 
 		switch {
 		case m.fence == "" && whole:
-			m.fence = mark[:3]
+			m.fence = mark
 		case m.fence != "" && strings.HasPrefix(mark, m.fence) && strings.TrimSpace(text) == mark && whole:
 			m.fence = ""
 		}
@@ -103,7 +103,7 @@ func (m *markdown) render(text string, width int, whole bool) string {
 	}
 
 	if m.fence != "" {
-		return styleCode + text + styleReset
+		return m.theme.code + text + styleReset
 	}
 
 	if found := headingLine.FindStringSubmatch(text); found != nil {
@@ -113,7 +113,7 @@ func (m *markdown) render(text string, width int, whole bool) string {
 			style += styleUnderline
 		}
 
-		return style + inline(found[2]) + styleReset
+		return style + m.theme.inline(found[2]) + styleReset
 	}
 
 	if ruleLine.MatchString(text) {
@@ -121,14 +121,14 @@ func (m *markdown) render(text string, width int, whole bool) string {
 	}
 
 	if found := bulletLine.FindStringSubmatch(text); found != nil {
-		return found[1] + "• " + inline(found[2])
+		return found[1] + "• " + m.theme.inline(found[2])
 	}
 
 	if found := quoteLine.FindStringSubmatch(text); found != nil {
-		return styleDim + "│ " + styleReset + styleItalic + inline(found[1]) + styleReset
+		return styleDim + "│ " + styleReset + styleItalic + m.theme.inline(found[1]) + styleReset
 	}
 
-	return inline(text)
+	return m.theme.inline(text)
 }
 
 // isTableRow reports whether a line is a row of a table: it starts with a
@@ -152,9 +152,9 @@ func cellsOfRow(text string) []string {
 	return cells
 }
 
-// renderTable lines up the columns of a table, with its header in bold and
-// the row under the header drawn as a rule.
-func renderTable(rows [][]string) []string {
+// table lines up the columns of a table, with its header in bold and the
+// row under the header drawn as a rule.
+func (t theme) table(rows [][]string) []string {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -164,7 +164,7 @@ func renderTable(rows [][]string) []string {
 
 	for index, row := range rows {
 		for column, text := range row {
-			cell := inline(text)
+			cell := t.inline(text)
 
 			if isRule(row) {
 				cell = ""
@@ -231,7 +231,7 @@ const escapable = "\\`*_{}[]()#+-.!|>~"
 
 // inline styles the spans of one line: code, bold, italics, and links. A
 // mark that nothing closes stays as it is.
-func inline(text string) string {
+func (t theme) inline(text string) string {
 	var out strings.Builder
 
 	for index := 0; index < len(text); {
@@ -248,7 +248,7 @@ func inline(text string) string {
 			ticks := len(rest) - len(strings.TrimLeft(rest, "`"))
 
 			if end := strings.Index(rest[ticks:], rest[:ticks]); end >= 0 {
-				out.WriteString(styleCode + rest[ticks:ticks+end] + styleColorOff)
+				out.WriteString(t.code + rest[ticks:ticks+end] + styleColorOff)
 				index += 2*ticks + end
 
 				continue
@@ -261,7 +261,7 @@ func inline(text string) string {
 
 		case strings.HasPrefix(rest, "**"):
 			if end := closing(rest[2:], "**"); end >= 0 {
-				out.WriteString(styleBold + inline(rest[2:2+end]) + styleWeightOff)
+				out.WriteString(styleBold + t.inline(rest[2:2+end]) + styleWeightOff)
 				index += 4 + end
 
 				continue
@@ -272,7 +272,7 @@ func inline(text string) string {
 
 			// An underscore inside a word, as in snake_case, is part of it.
 			if end >= 0 && (rest[0] == '*' || (!wordBefore(text, index) && !wordAfter(text, index+2+end))) {
-				out.WriteString(styleItalic + inline(rest[1:1+end]) + styleItalicOff)
+				out.WriteString(styleItalic + t.inline(rest[1:1+end]) + styleItalicOff)
 				index += 2 + end
 
 				continue
@@ -280,7 +280,7 @@ func inline(text string) string {
 
 		case rest[0] == '[':
 			if label, target, size, ok := link(rest); ok {
-				out.WriteString(styleUnderline + inline(label) + styleUnderlineOff)
+				out.WriteString(styleUnderline + t.inline(label) + styleUnderlineOff)
 
 				if target != label {
 					out.WriteString(styleDim + " (" + target + ")" + styleWeightOff)

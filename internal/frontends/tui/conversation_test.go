@@ -185,11 +185,11 @@ func TestTheStatusBarKeepsWhatMattersMost(t *testing.T) {
 		}
 	}
 
-	if meter := plain(contextMeter(190000, 200000)); meter != "▰▰▰▰▰▰▰▰▰▱ 95% of 200k" || !strings.Contains(contextMeter(190000, 200000), styleRed) {
+	if meter := plain(contextMeter(defaultTheme, 190000, 200000)); meter != "▰▰▰▰▰▰▰▰▰▱ 95% of 200k" || !strings.Contains(contextMeter(defaultTheme, 190000, 200000), styleRed) {
 		t.Fatalf("a full context: %q", meter)
 	}
 
-	if meter := contextMeter(2200, 0); meter != "context 2.2k" {
+	if meter := contextMeter(defaultTheme, 2200, 0); meter != "context 2.2k" {
 		t.Fatalf("a context of no known size: %q", meter)
 	}
 }

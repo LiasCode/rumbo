@@ -12,14 +12,34 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// A line that starts with a slash and a word is a command, not a task. Two
-// commands are the front end's own. Every other one is a function the host
-// or the provider described: the front end knows none of them beforehand,
-// and gains a command whenever either of them gains a function.
+// A line that starts with a slash and a word is a command, not a task. A
+// few commands are the front end's own. Every other one is a function the
+// host or the provider described: the front end knows none of them
+// beforehand, and gains a command whenever either of them gains a function.
 const (
 	commandOptions = "/options"
 	commandHelp    = "/help"
+	commandCopy    = "/copy"
+	commandExport  = "/export"
 )
+
+// ownCommands are the front end's own, described as functions are, so they
+// are completed and listed the same way. They come before a function of the
+// host or the provider of the same name.
+var ownCommands = []protocol.Function{
+	{Name: "help", Description: "Show every command"},
+	{Name: "options", Description: "Show what the provider offers, and the values in force in this session"},
+	{
+		Name:        "copy",
+		Description: "Put the model's last answer in the clipboard, or only its last code block",
+		Params:      []protocol.Option{{Name: "what", Type: protocol.OptionString, Enum: []string{"code"}, Optional: true, Description: "code: only its last code block"}},
+	},
+	{
+		Name:        "export",
+		Description: "Write this session as Markdown to a file, which it does not overwrite",
+		Params:      []protocol.Option{{Name: "path", Type: protocol.OptionString, Optional: true, Description: "without it, rumbo-<session>.md in the session's directory"}},
+	},
+}
 
 // Where a command acts and where an answer comes from. The host is rumbo
 // itself and is the same with any provider; the provider is whatever reaches
@@ -54,9 +74,9 @@ func isCommand(line string) bool {
 func (u *ui) label(source string) string {
 	switch source {
 	case fromHost:
-		return styleCyan + "[host]" + styleReset
+		return u.theme.host + "[host]" + styleReset
 	case fromProvider:
-		return styleMagenta + "[provider " + u.info.Provider + "]" + styleReset
+		return u.theme.provider + "[provider " + u.info.Provider + "]" + styleReset
 	}
 
 	return ""
@@ -105,9 +125,9 @@ func (u *ui) work(label string, do func() (answer, error)) {
 
 		switch {
 		case err != nil && mark != "":
-			u.line("", mark+" "+styleRed+err.Error())
+			u.line("", mark+" "+u.theme.failure+err.Error())
 		case err != nil:
-			u.line(styleRed, err.Error())
+			u.line(u.theme.failure, err.Error())
 		case mark != "":
 			u.line("", mark+"\n"+styleDim+reply.text)
 		default:
@@ -125,8 +145,13 @@ func (u *ui) work(label string, do func() (answer, error)) {
 func (u *ui) execute(words []string) (answer, error) {
 	name, args := strings.TrimPrefix(words[0], "/"), words[1:]
 
-	if words[0] == commandHelp {
+	switch words[0] {
+	case commandHelp:
 		return answer{text: u.help()}, nil
+	case commandCopy:
+		return u.copyAnswer(args)
+	case commandExport:
+		return u.export(args)
 	}
 
 	// The host's functions come first: they need no provider to be running.
@@ -288,14 +313,22 @@ func (u *ui) help() string {
 	fmt.Fprintf(&out, "%-28s %s\n", commandOptions, "Show what it offers, and the values in force in this session")
 
 	if err != nil {
-		fmt.Fprintf(&out, "%sIts own commands could not be listed: %s%s\n", styleRed, err, styleDim)
+		fmt.Fprintf(&out, "%sIts own commands could not be listed: %s%s\n", u.theme.failure, err, styleDim)
 	} else {
 		for _, function := range described.Offers.Functions {
 			fmt.Fprintf(&out, "%s\n", usage(function))
 		}
 	}
 
-	fmt.Fprintf(&out, "\n%-28s %s\n", commandHelp, "Show this list")
+	fmt.Fprintf(&out, "\n%sthe terminal UI's own\n%s", styleReset, styleDim)
+
+	for _, function := range ownCommands {
+		if "/"+function.Name != commandOptions {
+			fmt.Fprintf(&out, "%s\n", usage(function))
+		}
+	}
+
+	out.WriteString("\n")
 	out.WriteString("A slash opens a menu of the commands, and after one, of what it takes: Up and Down choose, Tab or Enter take, Escape closes it. Enter on a command that still needs something opens what it takes next.\n")
 	out.WriteString("Enter sends; Alt-Enter, Shift-Enter, or Ctrl-J starts a new line. Up and Down go through the lines typed, and past them through what you entered before, which Ctrl-R searches.\n")
 	out.WriteString("Anything that is not a command is a task.")

@@ -41,6 +41,13 @@ it. The commits hold the reasons.
   session. A run that ends, or a provider that asks something, while the
   terminal is not in front rings the bell and sends a desktop notification
   (OSC 9), in terminals that report their focus.
+- `/copy` puts the model's last answer in the clipboard, and `/copy code`
+  its last code block, through the terminal (OSC 52), so it works over ssh.
+- `/export [path]` writes the session as Markdown, to `rumbo-<session>.md`
+  in its directory unless a path is given, and never over a file.
+- Its colors can be chosen in its configuration: `rumbo frontend config tui
+  theme=plain` shows none, `color_code=#d7875f` changes one, and `NO_COLOR`
+  is followed under the default theme, `auto`.
 
 ### Sessions
 

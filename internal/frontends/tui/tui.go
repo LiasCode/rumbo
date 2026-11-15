@@ -7,6 +7,8 @@ package tui
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,10 +60,27 @@ func Run(r io.Reader, w io.Writer) int {
 		return 1
 	}
 
-	conn, info, err := protocol.DialFrontend(r, w, "tui")
+	// The configuration in force is told to the host whether it is right or
+	// not, so it can be seen and changed where it is registered.
+	var config Config
+	var wrong error
+
+	conn, info, err := protocol.DialFrontendConfigured(r, w, "tui", func(given json.RawMessage) json.RawMessage {
+		config, wrong = configured(given)
+		inForce, _ := json.Marshal(config)
+
+		return inForce
+	})
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rumbo:", err)
+		return 1
+	}
+
+	colors, err := themeOf(config, os.Getenv("NO_COLOR"))
+
+	if err = errors.Join(wrong, err); err != nil {
+		fmt.Fprintf(os.Stderr, "rumbo: the terminal UI's configuration: %v\nrumbo frontend config tui <field>=<value> changes it\n", err)
 		return 1
 	}
 
@@ -73,11 +92,13 @@ func Run(r io.Reader, w io.Writer) int {
 	}
 
 	ui := &ui{
-		conn:    conn,
-		info:    info,
-		screen:  screen{out: os.Stdout},
-		session: info.Session,
-		history: &history{},
+		conn:     conn,
+		info:     info,
+		screen:   screen{out: os.Stdout},
+		session:  info.Session,
+		history:  &history{},
+		theme:    colors,
+		markdown: markdown{theme: colors},
 	}
 
 	// What was asked before comes back from the host, which keeps it with
@@ -172,8 +193,14 @@ type ui struct {
 	partial  string
 	markdown markdown
 	// tool is the call in progress, which the live area shows until it is
-	// done.
-	tool *running
+	// done, and theme the colors everything is shown in.
+	tool  *running
+	theme theme
+	// reply is the model's last answer, what it wrote since the last thing
+	// that was not text, which /copy takes; replying is true while it goes
+	// on.
+	reply    string
+	replying bool
 	// last is the kind of what went into the scrollback last, and blank is
 	// true when that ended with an empty line.
 	last  int
@@ -367,7 +394,7 @@ func (u *ui) paint(done string) {
 	rows = append(rows, written[max(len(written)-u.maxInputRows(), 0):]...)
 
 	if u.tool != nil {
-		rows = append(rows, cut(u.tool.working(now), width-1))
+		rows = append(rows, cut(u.tool.working(u.theme, now), width-1))
 	}
 
 	if u.menu != nil {
@@ -408,11 +435,11 @@ func (u *ui) status(width int, now time.Time) string {
 	}
 
 	if len(u.away) > 0 {
-		away = styleYellow + fmt.Sprintf("%d in the background", len(u.away)) + styleColorOff
+		away = u.theme.warning + fmt.Sprintf("%d in the background", len(u.away)) + styleColorOff
 	}
 
 	context, window := u.usage.Fill()
-	meter := contextMeter(context, window)
+	meter := contextMeter(u.theme, context, window)
 	total := u.usage.Total()
 	spent := ""
 
@@ -445,17 +472,17 @@ func (u *ui) status(width int, now time.Time) string {
 func (u *ui) state(now time.Time) string {
 	switch {
 	case u.notice != "":
-		return styleYellow + u.notice + styleColorOff
+		return u.theme.warning + u.notice + styleColorOff
 	case u.searching && u.found < 0 && u.query != "":
 		return fmt.Sprintf("search: %s  %s(nothing holds it)%s", u.query, styleDim, styleWeightOff)
 	case u.searching:
 		return fmt.Sprintf("search: %s  %s(Ctrl-R older, Enter takes it, Escape leaves)%s", u.query, styleDim, styleWeightOff)
 	case u.question != nil && u.question.secret:
-		return styleYellow + "type the answer, which is not shown; Enter sends it, Ctrl-C gives up" + styleColorOff
+		return u.theme.warning + "type the answer, which is not shown; Enter sends it, Ctrl-C gives up" + styleColorOff
 	case u.question != nil:
-		return styleYellow + "type the answer; Enter sends it, Ctrl-C gives up" + styleColorOff
+		return u.theme.warning + "type the answer; Enter sends it, Ctrl-C gives up" + styleColorOff
 	case u.here != nil:
-		working := styleCyan + spin(now) + styleColorOff + " working " + elapsed(now.Sub(u.here.tally.started))
+		working := u.theme.progress + spin(now) + styleColorOff + " working " + elapsed(now.Sub(u.here.tally.started))
 
 		if u.telling > 0 {
 			working += fmt.Sprintf("; %d message(s) wait for its next turn", u.telling)
@@ -485,7 +512,7 @@ func together(parts []string) string {
 // contextMeter shows how full the model's context is: a bar and a share
 // when its size is known, colored as it fills, and a count of tokens when
 // it is not.
-func contextMeter(context, window int64) string {
+func contextMeter(t theme, context, window int64) string {
 	switch {
 	case context == 0:
 		return ""
@@ -500,9 +527,9 @@ func contextMeter(context, window int64) string {
 
 	switch {
 	case share >= 80:
-		color = styleRed
+		color = t.failure
 	case share >= 50:
-		color = styleYellow
+		color = t.warning
 	}
 
 	bar := color + strings.Repeat("▰", filled) + styleColorOff + styleDim + strings.Repeat("▱", 10-filled) + styleWeightOff
@@ -642,8 +669,17 @@ func (u *ui) show(from *job, event protocol.Event) {
 // session's history, which also tells what each objective was and how
 // each run ended. The caller holds the lock.
 func (u *ui) tell(from *job, event protocol.Event) {
+	if event.Type != protocol.EventText && event.Type != protocol.EventTurn {
+		u.replying = false
+	}
+
 	switch event.Type {
 	case protocol.EventText:
+		if !u.replying {
+			u.reply, u.replying = "", true
+		}
+
+		u.reply += event.Text
 		u.write(event.Text)
 
 	case protocol.EventContext:
@@ -667,7 +703,7 @@ func (u *ui) tell(from *job, event protocol.Event) {
 			u.tool = &running{name: event.Name}
 		}
 
-		done := u.tool.finished(event.Result, event.Failed, time.Now(), u.screen.width)
+		done := u.tool.finished(u.theme, event.Result, event.Failed, time.Now(), u.screen.width)
 		u.tool = nil
 		u.rows(blockWork, done)
 
@@ -687,7 +723,7 @@ func (u *ui) tell(from *job, event protocol.Event) {
 
 	case protocol.EventEnded:
 		u.settle()
-		u.rows(blockEnd, []string{from.tally.summary(event.Status, event.Text, time.Now())})
+		u.rows(blockEnd, []string{from.tally.summary(u.theme, event.Status, event.Text, time.Now())})
 
 	case protocol.EventLog:
 		// A log line is the provider's own output or something the host
@@ -698,7 +734,7 @@ func (u *ui) tell(from *job, event protocol.Event) {
 			source = fromProvider
 		}
 
-		u.line("", u.label(source)+" "+styleYellow+event.Text)
+		u.line("", u.label(source)+" "+u.theme.warning+event.Text)
 	}
 }
 
@@ -826,13 +862,13 @@ func (u *ui) end(done *job, result protocol.RunResult, err error) {
 	if done != u.here {
 		u.away = slices.DeleteFunc(u.away, func(other *job) bool { return other == done })
 
-		ended := done.tally.summary(result.Status, result.Error, time.Now())
+		ended := done.tally.summary(u.theme, result.Status, result.Error, time.Now())
 
 		if err != nil {
-			ended = styleRed + err.Error() + styleColorOff
+			ended = u.theme.failure + err.Error() + styleColorOff
 		}
 
-		u.rows(blockOther, []string{styleYellow + "◆" + styleColorOff + " session " + done.session + ", in the background: " + ended + styleDim + "  /open " + done.session + " shows it"})
+		u.rows(blockOther, []string{u.theme.warning + "◆" + styleColorOff + " session " + done.session + ", in the background: " + ended + styleDim + "  /open " + done.session + " shows it"})
 		u.footer()
 
 		return
@@ -844,9 +880,9 @@ func (u *ui) end(done *job, result protocol.RunResult, err error) {
 	u.flush()
 
 	if err != nil {
-		u.line(styleRed, err.Error())
+		u.line(u.theme.failure, err.Error())
 	} else {
-		u.rows(blockEnd, []string{done.tally.summary(result.Status, result.Error, time.Now())})
+		u.rows(blockEnd, []string{done.tally.summary(u.theme, result.Status, result.Error, time.Now())})
 	}
 
 	if result.Session != "" {
@@ -923,10 +959,10 @@ func (u *ui) steer(text string) {
 		case err == nil:
 			u.line(styleBold, "\n"+echoed(text))
 		case u.input.empty():
-			u.line(styleRed, err.Error())
+			u.line(u.theme.failure, err.Error())
 			u.input.set(text)
 		default:
-			u.line(styleRed, err.Error()+": "+text)
+			u.line(u.theme.failure, err.Error()+": "+text)
 		}
 
 		u.footer()

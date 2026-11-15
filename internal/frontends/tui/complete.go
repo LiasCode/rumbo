@@ -116,17 +116,17 @@ func (u *ui) offer(head string) (choices []choice, hint string) {
 func (u *ui) function(command string) (protocol.Function, string, bool) {
 	name := strings.TrimPrefix(command, "/")
 
+	if index := slices.IndexFunc(ownCommands, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
+		return ownCommands[index], fromHere, true
+	}
+
 	u.mu.Lock()
 	index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name })
 	u.mu.Unlock()
 
-	// The host's come first, as they do when a command runs.
-	if index >= 0 && command != commandOptions {
+	// The host's come next, as they do when a command runs.
+	if index >= 0 {
 		return u.info.Functions[index], protocol.TargetHost, true
-	}
-
-	if command == commandHelp || command == commandOptions {
-		return protocol.Function{}, "", false
 	}
 
 	// What the provider offers is asked once, and again when it changes.
@@ -242,13 +242,16 @@ func (u *ui) passed(name, target string, given map[string]string) json.RawMessag
 // what each does: the front end's own, the host's, and the provider's once
 // it has been described. The caller holds the lock.
 func (u *ui) commandChoices() []choice {
-	choices := []choice{
-		{value: commandHelp, description: "Show every command"},
-		{value: commandOptions, description: "Show what the provider offers, and the values in force in this session"},
+	var choices []choice
+
+	for _, function := range ownCommands {
+		choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
 	}
 
 	for _, function := range u.info.Functions {
-		choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
+		if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == "/"+function.Name }) {
+			choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
+		}
 	}
 
 	if u.described != nil {
@@ -277,7 +280,7 @@ func (u *ui) needsMore(line string) bool {
 	}
 
 	name := strings.TrimPrefix(words[0], "/")
-	functions := u.info.Functions
+	functions := append(slices.Clone(ownCommands), u.info.Functions...)
 
 	if u.described != nil {
 		functions = append(slices.Clone(functions), u.described.Offers.Functions...)
