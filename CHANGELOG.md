@@ -48,6 +48,12 @@ optional.
 
 - A front end can ask the host, with `recall`, what the person asked in the
   project's sessions, newest first, to bring it back to its input.
+- A function that lists a parameter's values is called with what was given
+  for the parameters before it that it takes, so the values of one can
+  depend on another.
+- The host lists a provider's models, `provider-models`, and the values its
+  options take, `option-values`, asking it; `use`, `session-options`, and
+  `provider-options` list their values with them.
 
 ## 0.2.0 (2026-11-15)
 

@@ -233,7 +233,9 @@ a picker from any provider:
 {"values": [{"value": "big-1", "label": "Big 1", "description": "Slow and careful"}]}
 ```
 
-Only `value` is required.
+Only `value` is required. A front end calls it with what was given for the
+parameters before the option, those the function takes as its own, so the
+values of one parameter can depend on another.
 
 ## Content blocks
 

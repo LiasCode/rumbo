@@ -113,6 +113,10 @@ nothing and knows no model API.
   program says it.
 - Start a provider and show what it offers, which is also the test that it
   works.
+- List the models a provider offers and the values its options take,
+  asking it, so a front end can offer them as choices: the models after
+  the provider `use` names, and the `name=value` changes of
+  `session-options` and `provider-options`, with those in force marked.
 - Keep as many processes of a provider as the requests running at once need,
   and replace one that died.
 - Change the provider and the model of a session for its next runs, while a
@@ -140,9 +144,10 @@ nothing and knows no model API.
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
   session: `status`, `sessions`, `open`, `new`, `branch`,
-  `branch-points`, `delete`, `use`, `session-options`, and `compact`. For the providers: `providers`, `provider-add`,
-  `provider-config`, `provider-options`, `provider-show`, and
-  `provider-rm`.
+  `branch-points`, `delete`, `use`, `session-options`, and `compact`. For
+  the providers: `providers`, `provider-models`, `option-values`,
+  `provider-add`, `provider-config`, `provider-options`, `provider-show`,
+  and `provider-rm`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
@@ -293,7 +298,9 @@ speaks the Agent Frontend Protocol with the host.
 - Cancel one run, or all of them.
 - Ask what the provider offers and call its functions, call the host's
   functions, and build commands, pickers, and completion from their
-  descriptions without knowing them beforehand.
+  descriptions without knowing them beforehand. A function that lists a
+  parameter's values is given what was typed for the parameters before it
+  that it takes.
 - Show what a provider's function says while it works, ask the person what
   it asks, and give the function up.
 - Take what it is attached to, its directory, session, provider, and model,

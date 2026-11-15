@@ -233,6 +233,11 @@ reading either. A function that
 an option names in `values` answers with `{"values": [{"value", "label",
 "description"}]}`; any other answers with JSON of its own.
 
+A front end that lists the values of a parameter calls the function its
+`values` names with what was given for the parameters before it, those the
+function takes, so what it lists can depend on them: after the `provider`
+of `use`, the models of that provider.
+
 With `"target": "host"` the call goes to a function of the host instead; see
 [Functions of the host](#functions-of-the-host).
 
@@ -389,6 +394,8 @@ The functions of this version, by group:
 | `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
 | `providers` | provider | | Lists the registered providers. |
+| `provider-models` | provider | `provider`? | Lists the models a provider offers, asking it; without a `provider`, the current session's, with the one it uses marked. The `model` of `use` lists its values with it. |
+| `option-values` | provider | `provider`? | Lists the values the options of a provider take, as `name=value` changes, each option's empty one first, asking it; without a `provider`, the current session's, with the values in force in it marked, and with one, those stored for it. The `change` of `session-options` and `provider-options` lists its values with it. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, and kept with the defaults it says; one that does not start is not registered. |
 | `provider-config` | provider | `provider`, `change` | Changes one field of a provider's start configuration, as `field=value`. An empty value removes it, and the provider's default comes back the next time it starts. |
 | `provider-options` | provider | `provider`, `change`? | Shows the option values stored for the provider, which a session's own win over. With a `change`, as `name=value`, first stores it; an empty value removes it. It applies to the runs that start after it. |
@@ -407,8 +414,8 @@ run in progress keeps the one it started with.
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
 `system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
-`sessions`, `branch-points`, `providers`, `provider-add`,
-`provider-options`, and `provider-rm`.
+`sessions`, `branch-points`, `providers`, `provider-models`,
+`option-values`, `provider-add`, `provider-options`, and `provider-rm`.
 
 ## What the host guarantees
 

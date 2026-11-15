@@ -35,6 +35,14 @@ type hostFunction struct {
 // sessionParam lets a function act on a session other than the current one.
 var sessionParam = protocol.Option{Name: "session", Type: protocol.OptionString, Values: "sessions", Optional: true}
 
+// chosenProvider lets a function ask a provider other than the current
+// session's. A front end that lists a parameter's values with such a
+// function passes the provider given before it, as use does.
+var chosenProvider = protocol.Option{
+	Name: "provider", Type: protocol.OptionString, Values: "providers", Optional: true,
+	Description: "without it, the current session's",
+}
+
 // hostFunctions are listed to the front end in this order, by what they act
 // on: the system, a session, and the providers.
 var hostFunctions = []hostFunction{
@@ -143,7 +151,7 @@ var hostFunctions = []hostFunction{
 			Description: "Change the provider and the model of this session for the tasks that follow",
 			Params: []protocol.Option{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
-				{Name: "model", Type: protocol.OptionString, Description: "A model of that provider"},
+				{Name: "model", Type: protocol.OptionString, Values: "provider-models", Description: "A model of that provider"},
 			},
 			Group: protocol.GroupSession,
 		},
@@ -153,7 +161,7 @@ var hostFunctions = []hostFunction{
 		Function: protocol.Function{
 			Name:        "session-options",
 			Description: "Show or change the option values chosen in this session, which it keeps",
-			Params:      []protocol.Option{{Name: "change", Type: protocol.OptionString, Description: "name=value; an empty value removes it", Optional: true}},
+			Params:      []protocol.Option{{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "name=value; an empty value removes it", Optional: true}},
 			Group:       protocol.GroupSession,
 		},
 		call: (*host).sessionOptions,
@@ -172,6 +180,28 @@ var hostFunctions = []hostFunction{
 		Function:  protocol.Function{Name: "providers", Description: "List the registered providers", Group: protocol.GroupProvider},
 		duringRun: true,
 		call:      (*host).listProviders,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-models",
+			Description: "List the models a provider offers, asking it",
+			Params:      []protocol.Option{chosenProvider},
+			Group:       protocol.GroupProvider,
+		},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).providerModels,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "option-values",
+			Description: "List the values the options of a provider take, as name=value, asking it",
+			Params:      []protocol.Option{chosenProvider},
+			Group:       protocol.GroupProvider,
+		},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).optionValues,
 	},
 	{
 		Function: protocol.Function{
@@ -205,7 +235,7 @@ var hostFunctions = []hostFunction{
 			Description: "Show or change the option values a provider gets with every request",
 			Params: []protocol.Option{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
-				{Name: "change", Type: protocol.OptionString, Description: "name=value", Optional: true},
+				{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "name=value", Optional: true},
 			},
 			Group: protocol.GroupProvider,
 		},
