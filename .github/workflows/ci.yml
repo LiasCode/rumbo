@@ -1,9 +1,13 @@
-# The checks every change runs, as AGENTS.md lists them, on Linux and macOS.
+# The checks every change runs, as AGENTS.md lists them, on Linux and macOS:
+# what is pushed to main, and pull requests into it. A release tag has its
+# own workflow, which runs them again.
 name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   check:
