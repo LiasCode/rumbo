@@ -12,6 +12,11 @@ it. The commits hold the reasons.
   how much it read, and how much counted as new input instead. A pause
   longer than the cache keeps a conversation, a few minutes with Claude,
   is the usual cause. Opening a session shows its earlier misses too.
+- A conversation is summarized at 80% of the model's context however large
+  it is, and `rumbo system list` shows `compact_at` as `80%`. It used to be
+  summarized at 150,000 tokens at most, which was 15% of a context of a
+  million tokens, such as Claude Opus's. `rumbo system set compact_at 15%`
+  brings that back for such a model.
 
 ### Front ends
 

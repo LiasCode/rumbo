@@ -1,18 +1,16 @@
 package agent
 
-// defaultCompactAt is the most a conversation grows before it is summarized
-// when nothing says otherwise. Models with very large contexts are held to
-// it too: a context that large costs more on every request and is not read
-// more carefully for it.
-const defaultCompactAt = 150_000
-
-// defaultCompactShare is how much of a smaller model's context is used
-// before summarizing, in percent. The rest is room for the next step.
+// defaultCompactShare is how much of the model's context is used before
+// summarizing, in percent, when nothing says otherwise. The rest is room
+// for the next step.
 const defaultCompactShare = 80
 
+// unsizedCompactAt is the size a conversation is summarized at when the
+// provider does not say how large the model's context is.
+const unsizedCompactAt = 150_000
+
 // Compaction says when a conversation is replaced by a summary. The zero
-// value is the default: at defaultCompactShare of the model's context, and
-// never later than defaultCompactAt.
+// value is the default: at defaultCompactShare of the model's context.
 type Compaction struct {
 	// Tokens is a fixed size to compact at.
 	Tokens int64
@@ -27,6 +25,8 @@ type Compaction struct {
 // model's context, which is zero when the provider did not say. Zero means
 // never.
 func (c Compaction) Limit(window int64) int64 {
+	share := int64(defaultCompactShare)
+
 	switch {
 	case c.Never:
 		return 0
@@ -34,13 +34,13 @@ func (c Compaction) Limit(window int64) int64 {
 	case c.Tokens > 0:
 		return c.Tokens
 
-	case c.Percent > 0 && window > 0:
-		return window * int64(c.Percent) / 100
+	case c.Percent > 0:
+		share = int64(c.Percent)
 	}
 
 	if window > 0 {
-		return min(defaultCompactAt, window*defaultCompactShare/100)
+		return window * share / 100
 	}
 
-	return defaultCompactAt
+	return unsizedCompactAt
 }

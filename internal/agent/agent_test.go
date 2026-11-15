@@ -591,7 +591,7 @@ func TestCompactionLimitFollowsTheModelsContext(t *testing.T) {
 		want   int64
 	}{
 		{Compaction{}, 0, 150_000},                // nothing known: the fixed limit
-		{Compaction{}, 1_000_000, 150_000},        // a very large context is not filled
+		{Compaction{}, 1_000_000, 800_000},        // a very large context is used to 80% too
 		{Compaction{}, 32_000, 25_600},            // a small one is used to 80%
 		{Compaction{Percent: 50}, 32_000, 16_000}, // a share the user chose
 		{Compaction{Percent: 90}, 1_000_000, 900_000},

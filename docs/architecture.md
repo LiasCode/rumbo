@@ -136,9 +136,8 @@ request, by every task, whether it helped that task or not.
 
 **A full context is compacted, not trimmed.** The provider reports how many
 tokens the model's context holds, and the conversation is summarized at 80%
-of that, and never later than 150,000 tokens: a very large context costs more
-on every request and is not read more carefully for it. The `compact_at`
-setting changes the rule. When the limit is reached the model is asked to
+of that, or at 150,000 tokens when the provider does not say. The
+`compact_at` setting changes the share. When the limit is reached the model is asked to
 summarize, and a compaction entry makes the next request start from the
 ambient context and that summary alone. A request that does not fit anyway is
 recovered the same way, without the step that tipped it over. No recent turns are kept alongside it: turns replayed after a

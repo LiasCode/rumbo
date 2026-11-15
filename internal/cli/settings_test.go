@@ -95,7 +95,7 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		"default_model        org/big-model  (stored)",
 		"frontend             (not set)",
 		"max_turns            150  (default)",
-		"compact_at           (not set)",
+		"compact_at           80%  (default)",
 		"no longer read",
 		"max_turns = 40  (/repo)",
 	} {
@@ -130,7 +130,7 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 
 	limits, err := loadLimits(database)
 
-	if err != nil || limits.MaxTurns != 150 || limits.Compaction != (agent.Compaction{}) || limits.MaxTokens != 0 {
+	if err != nil || limits.MaxTurns != 150 || limits.Compaction != (agent.Compaction{Percent: 80}) || limits.MaxTokens != 0 {
 		t.Fatalf("limits = %+v, err = %v", limits, err)
 	}
 

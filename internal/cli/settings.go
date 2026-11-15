@@ -60,7 +60,7 @@ var settingSpecs = []settingSpec{
 	{key: keyFrontend, help: "front end to start; unset uses tui in a terminal and plain otherwise", check: checkFrontend, atStart: true},
 	{key: keyMaxTurns, help: "model responses after which a run is stopped; 0 for no limit", fallback: "150", check: checkCount},
 	{key: keyMaxTokens, help: "output token limit per response; unset uses the provider's default", check: checkCount},
-	{key: keyCompactAt, help: "share of the model's context at which the conversation is summarized, such as 80%; 0% never; unset uses 80%, at most 150000 tokens", check: checkCompactAt},
+	{key: keyCompactAt, help: "share of the model's context at which the conversation is summarized, such as 80%; 0% never; 150000 tokens when the provider does not say the context's size", fallback: "80%", check: checkCompactAt},
 }
 
 func checkProvider(database store.Store, value string) error {
