@@ -65,6 +65,8 @@ optional.
 - The host lists a provider's models, `provider-models`, and the values its
   options take, `option-values`, asking it; `use`, `session-options`, and
   `provider-options` list their values with them.
+- For front ends written in Go, `protocol.DialFrontendConfigured` answers
+  with the start configuration in force.
 
 ## 0.2.0 (2026-11-15)
 

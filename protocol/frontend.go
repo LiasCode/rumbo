@@ -255,6 +255,14 @@ type talking struct {
 // DialFrontend answers the host's initialize on r and w and returns the
 // connection together with what the host said.
 func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, FrontendInitializeParams, error) {
+	return DialFrontendConfigured(r, w, name, nil)
+}
+
+// DialFrontendConfigured is DialFrontend for a front end with a start
+// configuration: inForce is given the one registered, and returns the one in
+// force, with the front end's own default for every field it left out,
+// which the host keeps with the registration.
+func DialFrontendConfigured(r io.Reader, w io.Writer, name string, inForce func(given json.RawMessage) json.RawMessage) (*FrontendConn, FrontendInitializeParams, error) {
 	reader := bufio.NewReader(r)
 
 	var params FrontendInitializeParams
@@ -274,7 +282,13 @@ func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, Fronten
 	}
 
 	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}, talking: map[int64]talking{}}
-	result, _ := json.Marshal(InitializeResult{Protocol: Version, Name: name})
+	answer := InitializeResult{Protocol: Version, Name: name}
+
+	if inForce != nil {
+		answer.Config = inForce(params.Config)
+	}
+
+	result, _ := json.Marshal(answer)
 
 	if err := conn.send(Frame{ID: frame.ID, Result: result}); err != nil {
 		return nil, params, err

@@ -8,7 +8,8 @@ the session, the tools, and the loop, and shows nothing itself.
 
 The Go types are in the [`protocol`](../protocol) package (`frontend.go`),
 which also contains `DialFrontend`, a ready-made connection for front ends
-written in Go. [examples/frontend.py](../examples/frontend.py) is a front end
+written in Go, and `DialFrontendConfigured` for one with a start
+configuration, which answers with the configuration in force. [examples/frontend.py](../examples/frontend.py) is a front end
 in Python.
 
 ## Transport

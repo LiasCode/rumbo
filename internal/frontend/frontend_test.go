@@ -550,3 +550,34 @@ func TestAFunctionTalksThroughTheFrontEnd(t *testing.T) {
 		t.Fatalf("a cancelled function: err = %v", err)
 	}
 }
+
+// A front end with a start configuration answers with the one in force,
+// which the host keeps.
+func TestAFrontEndSaysTheConfigurationInForce(t *testing.T) {
+	hostReads, frontendWrites := io.Pipe()
+	frontendReads, hostWrites := io.Pipe()
+
+	given := make(chan string, 1)
+
+	go protocol.DialFrontendConfigured(frontendReads, frontendWrites, "test", func(config json.RawMessage) json.RawMessage {
+		given <- string(config)
+
+		return json.RawMessage(`{"theme":"auto","color_code":"yellow"}`)
+	})
+
+	host, err := Connect(hostReads, hostWrites, protocol.FrontendInitializeParams{Config: json.RawMessage(`{"theme":"auto"}`)})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { frontendWrites.Close() })
+
+	if got := <-given; got != `{"theme":"auto"}` {
+		t.Fatalf("the front end was given %s", got)
+	}
+
+	if got := string(host.Config()); got != `{"theme":"auto","color_code":"yellow"}` {
+		t.Fatalf("the host keeps %s", got)
+	}
+}
