@@ -5,6 +5,14 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.3.0 (2026-11-15)
+
+The terminal UI is new. It draws inline, in the terminal's own scrollback,
+shows what the model writes as Markdown and each tool call as a block,
+opens pickers for sessions, models, and option values, brings back what
+you asked in any session, and can copy an answer and export a session.
+Sessions can branch.
+
 ### Terminal UI
 
 - It draws inline, below what the terminal showed before, instead of
@@ -61,8 +69,7 @@ it. The commits hold the reasons.
 
 ### Protocols
 
-The Agent Frontend Protocol stays at version 1, and what is new in it is
-optional.
+Both stay at version 1, and what is new in them is optional.
 
 - A front end can ask the host, with `recall`, what the person asked in the
   project's sessions, newest first, to bring it back to its input.
