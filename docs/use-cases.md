@@ -280,8 +280,14 @@ speaks the Agent Frontend Protocol with the host.
   nowhere, not even in the history.
 - Up and Down, or Ctrl-P and Ctrl-N, bring back what was entered. Ctrl-C
   gives up a provider's function in progress, else cancels the run, else
-  clears the input, else quits; Ctrl-D quits; Ctrl-U clears the line, Ctrl-W
-  deletes a word, and Ctrl-L redraws. Pasted line breaks stay text.
+  clears the input, else quits; Ctrl-D quits on an empty line, and Ctrl-L
+  redraws. Pasted line breaks stay text.
+- The line edits where the cursor is, with readline's keys: Left, Right,
+  Home, and End, or Ctrl-B, Ctrl-F, Ctrl-A, and Ctrl-E, move in it, and by
+  words with Ctrl or Alt and the arrows, or Alt-B and Alt-F; Delete or
+  Ctrl-D deletes under the cursor, and Ctrl-W, Ctrl-U, and Ctrl-K delete a
+  word back, to the start, and to the end. A line wider than the screen
+  scrolls with the cursor.
 - The status bar shows the provider, the model, what is happening, the
   session, the size of the context, and the tokens spent.
 - It gives the terminal back as it found it, when it quits or the host ends.

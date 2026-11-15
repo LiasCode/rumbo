@@ -122,14 +122,14 @@ type ui struct {
 	mu      sync.Mutex
 	width   int
 	height  int
-	input   []rune
+	input   inputLine
 	midLine bool
 	// history is what was entered here, oldest first, for Up and Down to
 	// bring back. recalled is the line of it in the input, len(history)
 	// when none is, and draft is what was being typed before going back.
 	history  []string
 	recalled int
-	draft    []rune
+	draft    string
 	// here is the run in the current session, which the screen follows, and
 	// away are the runs left working in other sessions.
 	here *job
@@ -220,8 +220,8 @@ func (u *ui) layout(row int) {
 	u.footer()
 }
 
-// footer redraws the status bar and the input line, and leaves the cursor at
-// the end of the input.
+// footer redraws the status bar and the input line, and leaves the cursor
+// where it is in the input.
 func (u *ui) footer() {
 	state := "ready"
 
@@ -239,7 +239,7 @@ func (u *ui) footer() {
 	}
 
 	// While a command is being typed, the bar shows what it could become.
-	if typed := string(u.input); strings.HasPrefix(typed, "/") && !strings.Contains(typed, " ") {
+	if typed := u.input.String(); strings.HasPrefix(typed, "/") && !strings.Contains(typed, " ") {
 		if matches := narrow(u.commandNames(), typed); len(matches) > 0 {
 			state = "Tab: " + suggest(matches)
 		}
@@ -272,21 +272,13 @@ func (u *ui) footer() {
 	status = fit(status+" | "+u.usage.String(), u.width)
 	status += strings.Repeat(" ", u.width-len([]rune(status)))
 
-	// The end of a long input stays visible, since that is where typing happens.
-	visible := u.input
-
-	if u.question != nil && u.question.secret {
-		visible = []rune(strings.Repeat("•", len(u.input)))
-	}
-
-	room := u.width - len(prompt) - 1
-
-	if len(visible) > room {
-		visible = visible[len(visible)-room:]
-	}
+	// A line wider than the screen shows the part around the cursor.
+	room := u.width - len([]rune(prompt))
+	visible, column := u.input.view(room, u.question != nil && u.question.secret)
 
 	fmt.Fprintf(u.out, "%s[%d;1H%s%s%s", escape, u.height-1, styleReverse, status, styleReset)
-	fmt.Fprintf(u.out, "%s[%d;1H%s%s%s", escape, u.height, clearLine, prompt, string(visible))
+	fmt.Fprintf(u.out, "%s[%d;1H%s%s%s", escape, u.height, clearLine, prompt, visible)
+	fmt.Fprintf(u.out, "%s[%d;%dH", escape, u.height, len([]rune(prompt))+column+1)
 }
 
 // write adds text to the conversation at the output cursor.
@@ -393,7 +385,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 	started := &job{session: u.session}
 	u.here = started
 	u.notice = ""
-	u.input = nil
+	u.input.clear()
 	u.line(styleBold, "\n"+prompt+label)
 	u.mu.Unlock()
 
@@ -493,7 +485,7 @@ func (u *ui) steer(text string) {
 
 	// The run may have ended since Enter was pressed.
 	if u.here == nil {
-		u.input = []rune(text)
+		u.input.set(text)
 		u.notice = "the run ended before this reached it; Enter sends it as a new task"
 		u.footer()
 		u.mu.Unlock()
@@ -502,7 +494,7 @@ func (u *ui) steer(text string) {
 	}
 
 	run := u.here.run
-	u.input = nil
+	u.input.clear()
 	u.notice = ""
 	u.telling++
 	u.footer()
@@ -520,9 +512,9 @@ func (u *ui) steer(text string) {
 		switch {
 		case err == nil:
 			u.line(styleBold, "\n"+prompt+text)
-		case len(u.input) == 0:
+		case u.input.empty():
 			u.line(styleRed, err.Error())
-			u.input = []rune(text)
+			u.input.set(text)
 		default:
 			u.line(styleRed, err.Error()+": "+text)
 		}
@@ -556,12 +548,33 @@ func (u *ui) readKeys(keys *bufio.Reader) {
 			case "[201~":
 				pasting = false
 
-			// The arrows move through what was entered, as Ctrl-P and
+			// Up and Down move through what was entered, as Ctrl-P and
 			// Ctrl-N do.
 			case "[A", "OA":
 				u.key(0x10)
 			case "[B", "OB":
 				u.key(0x0e)
+
+			// Left, Right, Home, and End move in the line, as Ctrl-B,
+			// Ctrl-F, Ctrl-A, and Ctrl-E do.
+			case "[D", "OD":
+				u.key(0x02)
+			case "[C", "OC":
+				u.key(0x06)
+			case "[H", "OH", "[1~", "[7~":
+				u.key(0x01)
+			case "[F", "OF", "[4~", "[8~":
+				u.key(0x05)
+
+			case "[3~": // Delete.
+				u.edit((*inputLine).remove)
+
+			// With Ctrl or Alt, Left and Right move by words, as Alt-B
+			// and Alt-F do.
+			case "[1;5D", "[1;3D", "b":
+				u.edit((*inputLine).wordLeft)
+			case "[1;5C", "[1;3C", "f":
+				u.edit((*inputLine).wordRight)
 			}
 
 			continue
@@ -578,6 +591,16 @@ func (u *ui) readKeys(keys *bufio.Reader) {
 	}
 }
 
+// edit changes the input line, for keys that do nothing else.
+func (u *ui) edit(change func(*inputLine)) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	change(&u.input)
+	u.notice = ""
+	u.footer()
+}
+
 // key applies one key press and reports whether to keep running.
 func (u *ui) key(key rune) bool {
 	u.mu.Lock()
@@ -592,7 +615,7 @@ func (u *ui) key(key rune) bool {
 			return true
 		}
 
-		line, running := strings.TrimSpace(string(u.input)), u.here != nil
+		line, running := strings.TrimSpace(u.input.String()), u.here != nil
 
 		// The answer to a confirmation is not worth bringing back.
 		if line != "" && u.pending == nil {
@@ -614,7 +637,7 @@ func (u *ui) key(key rune) bool {
 		return true
 
 	case '\t': // Tab: complete a command or its argument.
-		line := string(u.input)
+		line := u.input.String()
 		answering := u.question != nil
 		u.mu.Unlock()
 
@@ -626,7 +649,7 @@ func (u *ui) key(key rune) bool {
 		completed, hint := u.complete(line)
 
 		u.mu.Lock()
-		u.input = []rune(completed)
+		u.input.set(completed)
 		u.notice = hint
 		u.footer()
 		u.mu.Unlock()
@@ -643,32 +666,46 @@ func (u *ui) key(key rune) bool {
 			if u.here.run != 0 {
 				u.conn.CancelRun(u.here.run)
 			}
-		case len(u.input) > 0:
-			u.input = nil
+		case !u.input.empty():
+			u.input.clear()
 		default:
 			u.mu.Unlock()
 			return false
 		}
 
-	case 0x04: // Ctrl-D: quit.
-		if len(u.input) == 0 {
+	case 0x04: // Ctrl-D: quit on an empty line, else delete under the cursor.
+		if u.input.empty() {
 			u.mu.Unlock()
 			u.conn.Cancel()
 
 			return false
 		}
 
-	case 0x7f, 0x08:
-		if len(u.input) > 0 {
-			u.input = u.input[:len(u.input)-1]
-		}
+		u.input.remove()
 
-	case 0x15: // Ctrl-U: clear the line.
-		u.input = nil
+	case 0x7f, 0x08: // Backspace.
+		u.input.backspace()
 
-	case 0x17: // Ctrl-W: delete the last word.
-		text := strings.TrimRight(string(u.input), " ")
-		u.input = []rune(text[:strings.LastIndex(text, " ")+1])
+	case 0x01: // Ctrl-A, or Home: to the start of the line.
+		u.input.home()
+
+	case 0x05: // Ctrl-E, or End: to the end of the line.
+		u.input.end()
+
+	case 0x02: // Ctrl-B, or Left.
+		u.input.left()
+
+	case 0x06: // Ctrl-F, or Right.
+		u.input.right()
+
+	case 0x15: // Ctrl-U: delete to the start of the line.
+		u.input.killStart()
+
+	case 0x0b: // Ctrl-K: delete to the end of the line.
+		u.input.killEnd()
+
+	case 0x17: // Ctrl-W: delete the word before the cursor.
+		u.input.deleteWord()
 
 	case 0x0c: // Ctrl-L: redraw.
 		u.measure()
@@ -683,7 +720,7 @@ func (u *ui) key(key rune) bool {
 
 	default:
 		if key >= 0x20 {
-			u.input = append(u.input, key)
+			u.input.insert(key)
 		}
 	}
 
@@ -703,7 +740,7 @@ func (u *ui) remember(line string) {
 	}
 
 	u.recalled = len(u.history)
-	u.draft = nil
+	u.draft = ""
 }
 
 // recall puts another line of the history in the input: an older one for a
@@ -717,25 +754,30 @@ func (u *ui) recall(step int) {
 	}
 
 	if u.recalled == len(u.history) {
-		u.draft = slices.Clone(u.input)
+		u.draft = u.input.String()
 	}
 
 	u.recalled = next
 
 	if next == len(u.history) {
-		u.input = u.draft
+		u.input.set(u.draft)
 	} else {
-		u.input = []rune(u.history[next])
+		u.input.set(u.history[next])
 	}
 }
 
 // readSequence consumes the rest of an escape sequence, so arrow keys and
-// the like do not end up in the input as text.
+// the like do not end up in the input as text. Alt-B and Alt-F come as the
+// letter alone.
 func readSequence(keys *bufio.Reader) (string, error) {
 	first, _, err := keys.ReadRune()
 
 	if err != nil {
 		return "", err
+	}
+
+	if first == 'b' || first == 'f' {
+		return string(first), nil
 	}
 
 	if first != '[' && first != 'O' {

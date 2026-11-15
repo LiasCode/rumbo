@@ -83,7 +83,7 @@ func (u *ui) work(label string, do func() (answer, error)) {
 
 	u.asking = true
 	u.notice = ""
-	u.input = nil
+	u.input.clear()
 	u.line(styleBold, "\n"+prompt+label)
 	u.mu.Unlock()
 
@@ -386,7 +386,7 @@ func (t talk) Ask(ctx context.Context, text string, secret bool) (string, error)
 
 	u.mu.Lock()
 	u.question = asked
-	u.input = nil
+	u.input.clear()
 	u.notice = ""
 	u.line("", u.label(fromProvider)+" "+text)
 	u.mu.Unlock()
@@ -404,7 +404,7 @@ func (t talk) Ask(ctx context.Context, text string, secret bool) (string, error)
 			u.question = nil
 
 			if secret {
-				u.input = nil
+				u.input.clear()
 			}
 
 			u.footer()
@@ -418,7 +418,7 @@ func (t talk) Ask(ctx context.Context, text string, secret bool) (string, error)
 // answer is not shown, and no answer is kept in the history. The caller
 // holds the lock.
 func (u *ui) answer(asked *question) {
-	text := string(u.input)
+	text := u.input.String()
 	shown := text
 
 	if asked.secret {
@@ -426,7 +426,7 @@ func (u *ui) answer(asked *question) {
 	}
 
 	u.question = nil
-	u.input = nil
+	u.input.clear()
 	u.line(styleBold, "\n"+prompt+shown)
 	asked.answer <- text
 }

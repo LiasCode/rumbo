@@ -22,14 +22,14 @@ func TestTheArrowsBringBackWhatWasEntered(t *testing.T) {
 		u.remember(line)
 	}
 
-	u.input = []rune("half typ")
+	u.input.set("half typ")
 
 	// Ctrl-P and Ctrl-N, which the arrows stand for.
 	var shown []string
 
 	for _, key := range []rune{0x10, 0x10, 0x10, 0x10, 0x0e, 0x0e, 0x0e} {
 		u.key(key)
-		shown = append(shown, string(u.input))
+		shown = append(shown, u.input.String())
 	}
 
 	// A line entered twice in a row is kept once, and going further back
@@ -40,8 +40,8 @@ func TestTheArrowsBringBackWhatWasEntered(t *testing.T) {
 		t.Fatalf("shown %q, want %q", shown, want)
 	}
 
-	if u.key(0x0e); string(u.input) != "half typ" {
-		t.Fatalf("past the draft: %q", string(u.input))
+	if u.key(0x0e); u.input.String() != "half typ" {
+		t.Fatalf("past the draft: %q", u.input.String())
 	}
 }
 
@@ -51,7 +51,7 @@ func TestAConfirmationAnswerIsNotKept(t *testing.T) {
 	u := screen()
 	u.remember("/delete 4cf0261c")
 	u.pending = func() (answer, error) { return answer{}, nil }
-	u.input = []rune("no")
+	u.input.set("no")
 
 	u.key('\r')
 	u.wait.Wait()
@@ -60,8 +60,8 @@ func TestAConfirmationAnswerIsNotKept(t *testing.T) {
 		t.Fatalf("history = %q", u.history)
 	}
 
-	if u.key(0x10); string(u.input) != "/delete 4cf0261c" {
-		t.Fatalf("up after the answer: %q", string(u.input))
+	if u.key(0x10); u.input.String() != "/delete 4cf0261c" {
+		t.Fatalf("up after the answer: %q", u.input.String())
 	}
 }
 
@@ -101,5 +101,43 @@ func TestASecretAnswerIsNeitherShownNorKept(t *testing.T) {
 
 	if len(u.history) != 0 {
 		t.Fatalf("history = %q", u.history)
+	}
+}
+
+// The keys edit where the cursor is, as readline's do.
+func TestTheKeysEditWhereTheCursorIs(t *testing.T) {
+	u := screen()
+
+	for _, key := range "fix test" {
+		u.key(key)
+	}
+
+	// Ctrl-B back to the start of "test", then type: "fix the test".
+	for range 4 {
+		u.key(0x02)
+	}
+
+	for _, key := range "the " {
+		u.key(key)
+	}
+
+	if got := shown(&u.input); got != "fix the |test" {
+		t.Fatalf("after inserting: %q", got)
+	}
+
+	u.key(0x01) // Ctrl-A
+	u.key(0x04) // Ctrl-D deletes under the cursor on a line with text.
+	u.key(0x05) // Ctrl-E
+	u.key(0x17) // Ctrl-W
+
+	if got := shown(&u.input); got != "ix the |" {
+		t.Fatalf("after deleting: %q", got)
+	}
+
+	u.edit((*inputLine).wordLeft)
+	u.key(0x0b) // Ctrl-K
+
+	if got := shown(&u.input); got != "ix |" {
+		t.Fatalf("after killing to the end: %q", got)
 	}
 }
