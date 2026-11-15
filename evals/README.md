@@ -30,8 +30,9 @@ go run ./evals -model anthropic/claude-opus-5-5 -set compact_at=3000
 
 `-set key=value` applies a rumbo setting to every run. It is how a mechanism
 that small tasks never reach on their own gets exercised: with `compact_at`
-set that low, the longer tasks are summarized and continued mid-way, and
-still have to pass.
+set that low, a task whose context grows past it is summarized and
+continued mid-way, and still has to pass. Which tasks grow that far depends
+on the model: with `claude-haiku-5-5`, only `follow-instructions` did.
 
 A real run calls the model and costs tokens. Model output varies between
 runs: use `-runs` before reading much into a single pass or failure.
