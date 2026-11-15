@@ -98,6 +98,16 @@ its reasoning models need to use tools with an effort. One registered by an
 earlier version speaks Chat Completions until
 `rumbo provider config openai api=responses`.
 
+The built-in `chatgpt` provider uses your ChatGPT plan instead of an API key:
+
+```sh
+rumbo -p chatgpt      # then /login signs in with ChatGPT, and /use chatgpt lists the plan's models
+```
+
+Its usage counts against your plan, which you manage in your ChatGPT
+settings. Anthropic's terms do not let other applications use a Claude
+subscription, so the `anthropic` provider takes an API key.
+
 The model also reads your instructions: the `AGENTS.md` or `CLAUDE.md` files
 from the project's root down to where you are, and yours in
 `~/.config/rumbo/` (`~/Library/Application Support/rumbo/` on macOS).

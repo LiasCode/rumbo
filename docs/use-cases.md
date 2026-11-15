@@ -262,6 +262,20 @@ the Agent Provider Protocol on its stdin and stdout.
   configuration directory (`rumbo/credentials/`), readable only by the user;
   `logout`, which removes it; and `account`, which says which credential is
   in use and where it comes from, without showing it.
+- **`chatgpt`** uses the person's ChatGPT plan instead of an API key, as
+  OpenAI offers to open-source apps that run where the person does. Its
+  `login` signs in with ChatGPT in the browser, which comes back to a
+  listener on the loopback, or, from another computer, to an address the
+  person pastes; OpenAI registers this installation as its client on the
+  way. It keeps what that gives with the other credentials, renews it as it
+  expires, one process at a time, and forgets it when it can no longer be
+  renewed. Its requests go to OpenAI's Responses API as the plan asks:
+  nothing stored, the answer streamed, and no limit on the output. It lists
+  the models the plan can use, offers an `effort` option, and says where to
+  manage the plan's usage, in `account` and when a usage limit is reached.
+  `logout` forgets the sign-in and takes it back on OpenAI's side.
+- Anthropic's terms do not let other applications use a Claude
+  subscription, so no built-in provider does; `anthropic` takes an API key.
 
 ## Front end
 

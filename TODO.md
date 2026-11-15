@@ -57,8 +57,6 @@ The owner decided what this covers: these, in this order.
 
 25. **Configurable limits.** Tool output size and timeouts are fixed in the
     code.
-59. **Signing in with an account.** The built-in providers sign in with an
-    API key. Signing in with OAuth, and using a subscription, are next.
 
 ## 3. Sessions
 

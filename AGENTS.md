@@ -64,6 +64,10 @@ rumbo is a general agent harness. These are decisions, not gaps:
 - **It has no permission system.** The agent acts with the rights of the
   user who started it. Limiting what it may write or run is out of scope;
   someone who needs that runs rumbo inside a sandbox of their choice.
+- **It uses a subscription only where its maker allows it.** `chatgpt`
+  signs in with ChatGPT as OpenAI offers open-source apps. Anthropic's terms
+  keep a Claude subscription to its own apps, so no provider signs in to
+  one, or passes for Claude Code; `anthropic` takes an API key.
 - **It does not track files.** A session keeps the conversation, not the
   disk: there are no restore points, and a branch starts from an earlier
   point of the conversation with the files as they are.

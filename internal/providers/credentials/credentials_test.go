@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestKeysAreKeptByServerAndOnlyForTheUser(t *testing.T) {
@@ -69,4 +70,72 @@ func TestABrokenFileIsReported(t *testing.T) {
 	if _, err := store.APIKey("https://api.anthropic.com"); err == nil {
 		t.Fatal("a broken file was read as empty")
 	}
+}
+
+// What signing in gives is kept apart from the key, and signing out keeps
+// the registration, so signing in again is not a new one.
+func TestAGrantIsKeptWithItsRegistration(t *testing.T) {
+	store := Store{Path: filepath.Join(t.TempDir(), "chatgpt.json")}
+	address := "https://api.openai.com/v1"
+
+	if grant, err := store.Grant(address); grant != nil || err != nil {
+		t.Fatalf("before signing in: %+v, %v", grant, err)
+	}
+
+	store.SetRegistration(address, "oaiapp_1", "urn:uuid:1")
+	store.SetGrant(address, &Grant{Subject: "user-1", AccessToken: "a", RefreshToken: "r", ExpiresAt: time.Unix(100, 0).UTC()})
+
+	if grant, _ := store.Grant(address); grant == nil || grant.Subject != "user-1" || !grant.ExpiresAt.Equal(time.Unix(100, 0)) {
+		t.Fatalf("grant = %+v", grant)
+	}
+
+	store.SetGrant(address, nil)
+
+	if client, host, _ := store.Registration(address); client != "oaiapp_1" || host != "urn:uuid:1" {
+		t.Fatalf("after signing out the registration is %q, %q", client, host)
+	}
+
+	if grant, _ := store.Grant(address); grant != nil {
+		t.Fatalf("after signing out: %+v", grant)
+	}
+
+	// A key stored for the same server leaves the rest as it is, and so
+	// does removing it.
+	store.SetAPIKey(address, "sk")
+	store.Remove(address)
+
+	if client, _, _ := store.Registration(address); client != "oaiapp_1" {
+		t.Fatalf("the key took the registration with it: %q", client)
+	}
+}
+
+// One process holds the store at a time.
+func TestTheStoreIsHeldByOneAtATime(t *testing.T) {
+	store := Store{Path: filepath.Join(t.TempDir(), "chatgpt.json")}
+	held := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+
+	go store.Locked(func() error {
+		close(held)
+		<-release
+
+		return nil
+	})
+
+	<-held
+
+	go func() {
+		store.Locked(func() error { return nil })
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("the store was held twice at once")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	<-done
 }

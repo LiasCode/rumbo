@@ -21,7 +21,7 @@ reaches the model.
  +--+----------------------------------------------------------+
     |  Agent Provider Protocol: JSON-RPC, conversation in, message out
     v
- provider process  (built-in anthropic or openai, or written by the user)
+ provider process  (built-in anthropic, openai, or chatgpt, or the user's)
 ```
 
 The host is the only part that is always rumbo. It owns the sessions, the

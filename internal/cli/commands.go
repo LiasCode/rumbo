@@ -12,6 +12,7 @@ import (
 	"github.com/LiasCode/rumbo/internal/frontends/plain"
 	"github.com/LiasCode/rumbo/internal/frontends/tui"
 	"github.com/LiasCode/rumbo/internal/providers/anthropic"
+	"github.com/LiasCode/rumbo/internal/providers/chatgpt"
 	"github.com/LiasCode/rumbo/internal/providers/openai"
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/protocol"
@@ -20,7 +21,7 @@ import (
 // provide runs a built-in provider as a protocol server on stdin and stdout.
 func provide(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: rumbo provide <anthropic|openai>")
+		return errors.New("usage: rumbo provide <anthropic|openai|chatgpt>")
 	}
 
 	var handler protocol.Handler
@@ -30,6 +31,8 @@ func provide(args []string) error {
 		handler = anthropic.New()
 	case "openai":
 		handler = openai.New()
+	case "chatgpt":
+		handler = chatgpt.New()
 	default:
 		return fmt.Errorf("unknown built-in provider %q", args[0])
 	}

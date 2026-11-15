@@ -294,7 +294,7 @@ func TestBuiltinsAreRegisteredOnce(t *testing.T) {
 
 	// The openai one speaks the Responses API, which OpenAI's own models
 	// need; the others need nothing.
-	for name, want := range map[string]string{"openai": `{"api":"responses"}`, "anthropic": "{}"} {
+	for name, want := range map[string]string{"openai": `{"api":"responses"}`, "anthropic": "{}", "chatgpt": "{}"} {
 		if program, err := database.Program(store.KindProvider, name); err != nil || string(program.Config) != want {
 			t.Fatalf("%s registered with %q, err %v; want %q", name, program.Config, err, want)
 		}

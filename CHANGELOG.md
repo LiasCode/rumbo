@@ -5,6 +5,15 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Providers
+
+- A new built-in provider, `chatgpt`, uses your ChatGPT plan instead of an
+  API key: `/login` signs in with ChatGPT in your browser, and over ssh you
+  paste the address the browser ends at. Its usage counts against your
+  plan; `/account` and a usage limit say where to manage it. rumbo
+  registers it at its next start, and `rumbo provider rm chatgpt` removes
+  it for good.
+
 ## 0.3.0 (2026-11-15)
 
 The terminal UI is new. It draws inline, in the terminal's own scrollback,

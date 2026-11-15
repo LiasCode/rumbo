@@ -43,7 +43,7 @@ var builtins = []struct {
 	// more than its defaults.
 	configs map[string]json.RawMessage
 }{
-	{store.KindProvider, "provide", []string{"anthropic", "openai"}, map[string]json.RawMessage{
+	{store.KindProvider, "provide", []string{"anthropic", "openai", "chatgpt"}, map[string]json.RawMessage{
 		// The provider speaks Chat Completions unless told otherwise, as most
 		// servers do; OpenAI's own reasoning models need the Responses API to
 		// use tools with an effort.
