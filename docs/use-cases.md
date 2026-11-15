@@ -105,8 +105,10 @@ nothing and knows no model API.
 
 - Register, configure, show, and remove providers. A provider is started
   when it is added, which is the test that it works. The built-in
-  `anthropic` and `openai` are registered the first time rumbo runs, and
-  `{self}` stands for rumbo's own executable in a command.
+  `anthropic`, `openai`, and `chatgpt` are registered the first time
+  rumbo meets each of them: one a new version brings at its next start,
+  and one the user removed stays removed. `{self}` stands for rumbo's
+  own executable in a command.
 - Keep with each registered provider and front end a value for every field
   of its configuration, and for every option of a provider: the one the
   user gave, or else the program's own default, stored the first time the
