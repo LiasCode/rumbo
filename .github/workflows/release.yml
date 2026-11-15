@@ -1,0 +1,45 @@
+# Publishes a release when a tag vX.Y.Z is pushed: the checks, the archives
+# from scripts/release.sh, and the notes from the changelog's section for
+# that version.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+      - name: A release carries its license
+        run: test -f LICENSE
+      - name: Notes from the changelog
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v heading="## $version" '
+            $0 == heading || index($0, heading " ") == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md >notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+      - name: Build the archives
+        run: scripts/release.sh "${GITHUB_REF_NAME#v}" dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "rumbo ${GITHUB_REF_NAME#v}" --notes-file notes.md

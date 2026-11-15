@@ -3,3 +3,4 @@
 *.db-*
 /baseline.jsonl
 /results*.jsonl
+/dist
