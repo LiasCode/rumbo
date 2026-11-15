@@ -35,6 +35,7 @@ Usage:
   rumbo frontend ...             manage front ends
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
+  rumbo version                  print the version
 
 Flags:
   -c            continue the latest session of the current project
@@ -77,6 +78,9 @@ func dispatch(args []string) error {
 		case "help", "-h", "--help":
 			fmt.Print(usage)
 			return nil
+		case "version", "-version", "--version":
+			fmt.Println(describeVersion())
+			return nil
 		case "provide":
 			return provide(args[1:])
 		case "attach":
@@ -93,6 +97,14 @@ func dispatch(args []string) error {
 			return withStore(args[1:], listSessions)
 		case "log":
 			return withStore(args[1:], printLog)
+		}
+	}
+
+	// A lone word close to a command is taken for a typo, not sent to the
+	// model as a task; after -- it is a task whatever it looks like.
+	if len(args) == 1 {
+		if command, ok := mistyped(args[0]); ok {
+			return fmt.Errorf("%q is not a command; did you mean %q? To give it to the model as a task, run: rumbo -- %s", args[0], command, args[0])
 		}
 	}
 
