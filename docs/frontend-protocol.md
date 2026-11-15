@@ -362,6 +362,8 @@ The functions of this version, by group:
 | `sessions` | session | | Lists the project's sessions, most recently used first, and marks those working in this host. |
 | `open` | session | `session` | Makes another session of the project the current one. |
 | `new` | session | | Makes the next task start a new session. |
+| `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it waits for a run working in the session. |
+| `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. |
 | `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
 | `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
@@ -385,8 +387,8 @@ run in progress keeps the one it started with.
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
 `system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
-`sessions`, `providers`, `provider-add`, `provider-options`, and
-`provider-rm`.
+`sessions`, `branch-points`, `providers`, `provider-add`,
+`provider-options`, and `provider-rm`.
 
 ## What the host guarantees
 

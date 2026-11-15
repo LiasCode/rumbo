@@ -84,6 +84,10 @@ nothing and knows no model API.
 - Continue the latest session (`-c`) or a given one (`-s`), or resume its
   unfinished run (`-r`).
 - Open another session, start a new one, and delete one with its history.
+- Branch a session: go on in a new one that starts with a copy of it, as it
+  is or as it was before one of the person's messages. The session it came
+  from stays as it is, and can go on working at the same time; the files
+  are not the session's, and stay as they are.
 - Show a session's status: its provider and model, the size of its context,
   what it has spent and how much of its input the provider read from its
   cache, and how its last run stands.
@@ -135,8 +139,8 @@ nothing and knows no model API.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
-  session: `status`, `sessions`, `open`, `new`, `delete`, `use`,
-  `session-options`, and `compact`. For the providers: `providers`, `provider-add`,
+  session: `status`, `sessions`, `open`, `new`, `branch`,
+  `branch-points`, `delete`, `use`, `session-options`, and `compact`. For the providers: `providers`, `provider-add`,
   `provider-config`, `provider-options`, `provider-show`, and
   `provider-rm`.
 - Mark the functions that cannot be undone, so a front end asks the person
@@ -170,6 +174,8 @@ nothing and knows no model API.
   instructions.
 - Limit what the agent may do. It acts with the rights of the user who
   started it, inside whatever sandbox the user chose.
+- Track the files the model changes. A session keeps the conversation, not
+  the disk.
 - Call a model API, render anything, or see a provider's credentials.
 
 ## Provider

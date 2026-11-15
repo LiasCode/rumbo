@@ -113,7 +113,9 @@ terminal and from a front end cannot drift apart.
 ## Rules the design depends on
 
 **History is append-only.** Entries are never edited or deleted. Changes to
-the system prompt or to the ambient context are new entries.
+the system prompt or to the ambient context are new entries. Going back to
+an earlier point makes a branch: a new session that starts with a copy of
+the entries up to it, so its first request is one the provider has seen.
 
 **The request is a pure function of the entries.** `transcript.Build` is the
 only code that turns a session into a request. Nothing else is added on the

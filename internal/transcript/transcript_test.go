@@ -136,3 +136,19 @@ func TestBuildDropsOpaqueBlocksWhenTheSystemPromptChanges(t *testing.T) {
 		t.Fatalf("the block from after the change was dropped: %+v", second)
 	}
 }
+
+// A session is branched before one of the person's objectives; what was
+// said to a run while it worked is no such point.
+func TestPointsAreTheObjectives(t *testing.T) {
+	points, err := Points([]store.Entry{
+		entry(1, KindSystem, System{Text: "prompt"}),
+		entry(2, KindUser, Text{Text: "fix the parser"}),
+		entry(3, KindSteer, Text{Text: "and the tests"}),
+		entry(4, KindNote, Note{Type: NoteDone}),
+		entry(5, KindUser, Text{Text: "now document it"}),
+	})
+
+	if err != nil || len(points) != 2 || points[0] != (Point{Seq: 2, Text: "fix the parser"}) || points[1] != (Point{Seq: 5, Text: "now document it"}) {
+		t.Fatalf("points = %+v, err = %v", points, err)
+	}
+}

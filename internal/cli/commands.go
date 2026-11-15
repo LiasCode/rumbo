@@ -306,7 +306,13 @@ func listSessions(database store.Store, _ []string) error {
 	}
 
 	for _, session := range sessions {
-		fmt.Printf("%s\t%s\t%s\n", session.ID, session.ActiveAt.Format("2006-01-02 15:04"), session.Title)
+		title := session.Title
+
+		if session.Parent != "" {
+			title += "  (branch of " + session.Parent + ")"
+		}
+
+		fmt.Printf("%s\t%s\t%s\n", session.ID, session.ActiveAt.Format("2006-01-02 15:04"), title)
 	}
 
 	return nil

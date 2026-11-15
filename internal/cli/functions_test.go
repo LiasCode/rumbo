@@ -529,3 +529,90 @@ func TestHistoryTellsTheSessionAsked(t *testing.T) {
 		t.Fatalf("history of another project's session: err = %v", err)
 	}
 }
+
+// A branch is a new session that starts from the current one, as it is or
+// as it was before one of the person's messages, and leaves it as it is.
+func TestBranchesStartFromAPointOfASession(t *testing.T) {
+	h := testHost(t)
+
+	if err := refused(t, h, "branch", ""); !strings.Contains(err, "no session to branch") {
+		t.Fatalf("branching before any session: %v", err)
+	}
+
+	call(t, h, "use", `{"provider":"second","model":"large"}`)
+	source, _ := h.made(h.current, "fix the parser")
+
+	for _, entry := range []struct {
+		kind    string
+		payload any
+	}{
+		{transcript.KindSystem, transcript.System{Text: "prompt"}},
+		{transcript.KindUser, transcript.Text{Text: "fix the parser"}},
+		{transcript.KindNote, transcript.Note{Type: transcript.NoteDone}},
+		{transcript.KindContext, transcript.Context{Sections: []transcript.Section{{Name: "environment", Text: "here"}}}},
+		{transcript.KindUser, transcript.Text{Text: "now document it\nin the README"}},
+		{transcript.KindNote, transcript.Note{Type: transcript.NoteDone}},
+	} {
+		h.database.Append(source.ID, entry.kind, entry.payload)
+	}
+
+	points := call(t, h, "branch-points", "")
+
+	if len(points.Values) != 2 || points.Values[0].Value != "1" || points.Values[1].Label != "now document it" {
+		t.Fatalf("branch-points = %+v", points.Values)
+	}
+
+	// A run works in the session: a branch can still start before one of
+	// its messages, not from what the run is recording.
+	h.busy[h.current] = busyRun
+
+	if err := refused(t, h, "branch", ""); !strings.Contains(err, "is busy with a run") {
+		t.Fatalf("branching from now during a run: %v", err)
+	}
+
+	for _, point := range []string{"0", "3", "two"} {
+		refused(t, h, "branch", `{"point":"`+point+`"}`)
+	}
+
+	branched := call(t, h, "branch", `{"point":"2"}`)
+
+	for _, said := range []string{"before your message 2", "the files are as they are now", "a run goes on in session " + source.ID, "your message was:\nnow document it\nin the README"} {
+		if !strings.Contains(branched.Text, said) {
+			t.Fatalf("branch = %q, missing %q", branched.Text, said)
+		}
+	}
+
+	branch := h.current.session
+
+	if branched.State.Session != branch.ID || branch.Parent != source.ID || branch.ParentSeq != 4 || h.current.provider != "second" || h.current.model != "large" {
+		t.Fatalf("the branch is %+v, choosing %+v", branch, h.current.choice)
+	}
+
+	// Its requests are those the session it came from made at that point.
+	copied, _ := h.database.Entries(branch.ID)
+	original, _ := h.database.Entries(source.ID)
+
+	if len(copied) != 4 || len(original) != 6 {
+		t.Fatalf("the branch has %d entries and the session %d", len(copied), len(original))
+	}
+
+	fromBranch, _ := transcript.Build(copied)
+	fromSource, _ := transcript.Build(original[:4])
+
+	if fromBranch.Objective != "fix the parser" || len(fromBranch.Messages) != len(fromSource.Messages) {
+		t.Fatalf("the branch builds %+v", fromBranch)
+	}
+
+	if stored, _ := h.database.Session(branch.ID); stored.Provider != "second" || stored.Model != "large" {
+		t.Fatalf("the branch keeps %s/%s", stored.Provider, stored.Model)
+	}
+
+	// A branch of the branch, as it is now.
+	if again := call(t, h, "branch", ""); !strings.Contains(again.Text, "a branch of "+branch.ID+" as it is") {
+		t.Fatalf("branch from now = %q", again.Text)
+	}
+
+	if whole, _ := h.database.Entries(h.current.session.ID); len(whole) != 4 {
+		t.Fatalf("the branch from now has %d entries", len(whole))
+	}
+}

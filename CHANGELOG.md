@@ -5,6 +5,16 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Sessions
+
+- A session can branch: `/branch` goes on in a new session that starts
+  from the current one as it is, or as it was before one of your messages,
+  numbered as `/branch-points` lists them. The first session stays as it
+  was, and can keep working at the same time. The files are not part of a
+  session, so a branch finds them as they are.
+- `/sessions`, `/status`, and `rumbo sessions` say which session a branch
+  came from.
+
 ## 0.2.0 (2026-11-15)
 
 Configuration is simpler: the system settings, and over them what each

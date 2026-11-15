@@ -14,6 +14,11 @@ was. A steer that comes as the model finishes keeps the run going.
 entries. It keeps its provider, its model, and the values of the provider's
 options chosen in it.
 
+**Branch.** A session that starts with a copy of another one's entries, up
+to now or to just before one of the person's messages, and goes on from
+there. The session it came from is left as it was. A branch copies the
+conversation only; the files are as they are.
+
 **Entry.** One immutable record in a session. Kinds: `system` (prompt and tool
 declarations in force), `context` (ambient sections that changed), `user` (an
 objective), `steer`, `assistant` (a model response), `tool_result`, `harness` (a

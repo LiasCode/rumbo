@@ -19,8 +19,6 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ## Decisions for the owner
 
-- **File restore points** (35): whether sessions should be able to undo
-  changes to files.
 - **Windows** (39): whether it is in scope.
 
 ## 1. Loop
@@ -80,10 +78,6 @@ The owner decided what this covers: these, in this order.
 33. **Rename and prune.** A session can be deleted, one at a time and from a
     front end only. There is no renaming, no deleting by age, and no
     `rumbo sessions rm`.
-35. **File state.** History reproduces what the model was sent, not the
-    files: no restore points and no undo.
-36. **Branches.** There is no way to go back to an earlier point and continue
-    from there.
 
 ## 4. Quality
 

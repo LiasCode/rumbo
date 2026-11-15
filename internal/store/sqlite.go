@@ -92,12 +92,18 @@ var migrations = []string{
 	// 5: the option values a provider gets with every request, kept with
 	// its registration. Providers from before have none stored here.
 	`ALTER TABLE providers ADD COLUMN options TEXT NOT NULL DEFAULT '';`,
+
+	// 6: the session a branch started from, and the last of its entries the
+	// branch took. Sessions from before are no branches.
+	`ALTER TABLE sessions ADD COLUMN parent TEXT NOT NULL DEFAULT '';
+	 ALTER TABLE sessions ADD COLUMN parent_seq INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // sessionColumns are selected in the order scanSession reads them. Activity
-// is when the session was last used: its newest entry, or its creation.
-const sessionColumns = `id, dir, project, title, provider, model, options, created_at,
-	COALESCE((SELECT MAX(created_at) FROM entries WHERE session_id = sessions.id), created_at) AS activity`
+// is when the session was last used: its newest entry, or its creation when
+// that is later, as it is for a branch, whose entries were copied.
+const sessionColumns = `id, dir, project, title, provider, model, options, parent, parent_seq, created_at,
+	MAX(created_at, COALESCE((SELECT MAX(created_at) FROM entries WHERE session_id = sessions.id), created_at)) AS activity`
 
 // SQLite is the Store backed by a single SQLite file.
 type SQLite struct {
@@ -383,6 +389,59 @@ func (s *SQLite) CreateSession(dir, project, title string) (Session, error) {
 	return session, err
 }
 
+// BranchSession implements Store.
+func (s *SQLite) BranchSession(from string, upTo int64) (Session, error) {
+	source, err := s.Session(from)
+
+	if err != nil {
+		return Session{}, err
+	}
+
+	raw := make([]byte, 4)
+
+	if _, err := rand.Read(raw); err != nil {
+		return Session{}, err
+	}
+
+	branch := source
+	branch.ID, branch.Parent, branch.ParentSeq = hex.EncodeToString(raw), source.ID, upTo
+	branch.CreatedAt = time.Now()
+	branch.ActiveAt = branch.CreatedAt
+
+	tx, err := s.db.Begin()
+
+	if err != nil {
+		return Session{}, err
+	}
+
+	defer tx.Rollback()
+
+	_, err = tx.Exec(
+		`INSERT INTO sessions (id, dir, project, title, provider, model, options, parent, parent_seq, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		branch.ID, branch.Dir, branch.Project, branch.Title, branch.Provider, branch.Model, string(branch.Options),
+		branch.Parent, branch.ParentSeq, branch.CreatedAt.UnixMilli(),
+	)
+
+	if err != nil {
+		return Session{}, err
+	}
+
+	// The entries keep their numbers and times, so the branch's history
+	// reads as the other's did up to that point.
+	_, err = tx.Exec(
+		`INSERT INTO entries (session_id, seq, kind, payload, created_at)
+		 SELECT ?, seq, kind, payload, created_at FROM entries WHERE session_id = ? AND seq <= ?`,
+		branch.ID, source.ID, upTo,
+	)
+
+	if err != nil {
+		return Session{}, err
+	}
+
+	return branch, tx.Commit()
+}
+
 // Session implements Store.
 func (s *SQLite) Session(id string) (Session, error) {
 	row := s.db.QueryRow(`SELECT `+sessionColumns+` FROM sessions WHERE id = ?`, id)
@@ -423,7 +482,7 @@ func (s *SQLite) SetSessionOptions(id string, options json.RawMessage) error {
 // LatestSession implements Store.
 func (s *SQLite) LatestSession(project string) (Session, error) {
 	row := s.db.QueryRow(
-		`SELECT `+sessionColumns+` FROM sessions WHERE project = ? ORDER BY activity DESC LIMIT 1`,
+		`SELECT `+sessionColumns+` FROM sessions WHERE project = ? ORDER BY activity DESC, created_at DESC, rowid DESC LIMIT 1`,
 		project,
 	)
 
@@ -433,7 +492,7 @@ func (s *SQLite) LatestSession(project string) (Session, error) {
 // Sessions implements Store.
 func (s *SQLite) Sessions(project string) ([]Session, error) {
 	rows, err := s.db.Query(
-		`SELECT `+sessionColumns+` FROM sessions WHERE ? = '' OR project = ? ORDER BY activity DESC`,
+		`SELECT `+sessionColumns+` FROM sessions WHERE ? = '' OR project = ? ORDER BY activity DESC, created_at DESC, rowid DESC`,
 		project, project,
 	)
 
@@ -606,7 +665,7 @@ func scanSession(row scanner) (Session, error) {
 	var options string
 	var createdAt, activity int64
 
-	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &session.Provider, &session.Model, &options, &createdAt, &activity)
+	err := row.Scan(&session.ID, &session.Dir, &session.Project, &session.Title, &session.Provider, &session.Model, &options, &session.Parent, &session.ParentSeq, &createdAt, &activity)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return session, ErrNotFound

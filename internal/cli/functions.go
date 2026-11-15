@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/LiasCode/rumbo/internal/frontends/render"
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/internal/transcript"
 	"github.com/LiasCode/rumbo/protocol"
@@ -107,6 +109,23 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{Name: "new", Description: "Start a new session with the next task", Group: protocol.GroupSession},
 		call:     (*host).newSession,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "branch",
+			Description: "Go on in a new session that starts from this one, as it is or as it was before one of your messages; this one stays as it is, and so do the files",
+			Params: []protocol.Option{{
+				Name: "point", Type: protocol.OptionString, Values: "branch-points", Optional: true,
+				Description: "the number of one of your messages, which the branch starts before; without it, it starts from now",
+			}},
+			Group: protocol.GroupSession,
+		},
+		call: (*host).branchSession,
+	},
+	{
+		Function:  protocol.Function{Name: "branch-points", Description: "List your messages in this session, which a branch can start before", Group: protocol.GroupSession},
+		duringRun: true,
+		call:      (*host).branchPoints,
 	},
 	{
 		Function: protocol.Function{
@@ -375,6 +394,10 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 	}
 
 	fmt.Fprintf(out, "\nsession: %s (%s)", session.ID, session.Title)
+
+	if session.Parent != "" {
+		fmt.Fprintf(out, "\na branch of %s, which it copied up to its entry %d", session.Parent, session.ParentSeq)
+	}
 	fmt.Fprintf(out, "\ncontext: %d tokens", state.Tokens)
 
 	if state.Window > 0 {
@@ -429,6 +452,10 @@ func (h *host) listSessions(context.Context, map[string]string) (protocol.HostRe
 
 	for _, session := range sessions {
 		description := "last used " + session.ActiveAt.Format("2006-01-02 15:04")
+
+		if session.Parent != "" {
+			description = "branch of " + session.Parent + "; " + description
+		}
 
 		if what := working[session.ID]; what != "" {
 			description = what + " in progress; " + description
@@ -514,6 +541,130 @@ func (h *host) newSession(context.Context, map[string]string) (protocol.HostResu
 	h.letGo(previous)
 
 	return protocol.HostResult{Text: "the next task starts a new session" + h.background(previous)}, nil
+}
+
+// branchPoints lists the person's messages in the current session, by
+// number, which a branch can start before.
+func (h *host) branchPoints(context.Context, map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	session := h.current.session
+	h.mu.Unlock()
+
+	if session == nil {
+		return protocol.HostResult{Text: "this session has no messages yet"}, nil
+	}
+
+	points, err := h.points(session.ID)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	var result protocol.HostResult
+
+	for index, point := range points {
+		result.Values = append(result.Values, protocol.Value{Value: strconv.Itoa(index + 1), Label: render.FirstLine(point.Text)})
+	}
+
+	if len(points) == 0 {
+		result.Text = "this session has no messages yet"
+	}
+
+	return result, nil
+}
+
+func (h *host) points(session string) ([]transcript.Point, error) {
+	entries, err := h.database.Entries(session)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return transcript.Points(entries)
+}
+
+// branchSession makes a branch of the current session the current one: a
+// new session with a copy of its entries up to now, or up to just before
+// one of the person's messages. The session it came from stays as it is,
+// and goes on working in the background when it was. The files are not the
+// session's, so they stay as they are.
+func (h *host) branchSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	source := h.current
+
+	if source.session == nil {
+		return protocol.HostResult{}, errors.New("there is no session to branch yet")
+	}
+
+	points, err := h.points(source.session.ID)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	var upTo int64
+	var before string
+
+	switch point := params["point"]; point {
+	case "":
+		// What a run records while it works is no place to start from.
+		if what := h.busy[source]; what != "" {
+			return protocol.HostResult{}, fmt.Errorf("%s is busy with %s; branch from before one of your messages, or once it ends", source.name(), what)
+		}
+
+		entries, err := h.database.Entries(source.session.ID)
+
+		if err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		if len(entries) > 0 {
+			upTo = entries[len(entries)-1].Seq
+		}
+
+	default:
+		number, err := strconv.Atoi(point)
+
+		if err != nil || number < 1 || number > len(points) {
+			return protocol.HostResult{}, fmt.Errorf("there is no message %s in this session; branch-points lists them", point)
+		}
+
+		upTo, before = points[number-1].Seq-1, points[number-1].Text
+	}
+
+	created, err := h.database.BranchSession(source.session.ID, upTo)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	branch := h.fresh(source)
+	branch.session, branch.dir = &created, created.Dir
+	h.places[created.ID] = branch
+
+	if err := h.choose(branch, source.choice); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	h.current = branch
+	h.letGo(source)
+	h.prune()
+
+	text := fmt.Sprintf("now in session %s, a branch of %s as it is", created.ID, source.session.ID)
+
+	if before != "" {
+		text = fmt.Sprintf("now in session %s, a branch of %s from before your message %s; the files are as they are now, not as they were then", created.ID, source.session.ID, params["point"])
+	}
+
+	text += h.background(source)
+
+	if before != "" {
+		text += "\nyour message was:\n" + before
+	}
+
+	return protocol.HostResult{Text: text}, nil
 }
 
 // background says that a session left behind keeps working. The caller

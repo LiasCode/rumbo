@@ -239,3 +239,69 @@ func TestSessionsKeepTheirModel(t *testing.T) {
 		}
 	}
 }
+
+// A branch starts with a copy of the other session's entries up to a point,
+// keeps the rest of what that session was, and leaves it as it is.
+func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "test.db"))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer database.Close()
+
+	source, _ := database.CreateSession("/project/sub", "/project", "fix the parser")
+	database.SetSessionModel(source.ID, "anthropic", "claude-opus-5-5")
+	database.SetSessionOptions(source.ID, json.RawMessage(`{"effort":"high"}`))
+
+	for index := range 5 {
+		database.Append(source.ID, "user", map[string]int{"n": index + 1})
+	}
+
+	branch, err := database.BranchSession(source.ID, 3)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found, _ := database.Session(branch.ID)
+
+	if found.Parent != source.ID || found.ParentSeq != 3 || found.Dir != "/project/sub" || found.Project != "/project" ||
+		found.Title != "fix the parser" || found.Provider != "anthropic" || string(found.Options) != `{"effort":"high"}` {
+		t.Fatalf("branch = %+v", found)
+	}
+
+	copied, _ := database.Entries(branch.ID)
+	original, _ := database.Entries(source.ID)
+
+	if len(copied) != 3 || len(original) != 5 {
+		t.Fatalf("the branch has %d entries and the session %d", len(copied), len(original))
+	}
+
+	for index, entry := range copied {
+		if entry.Seq != original[index].Seq || string(entry.Payload) != string(original[index].Payload) || !entry.CreatedAt.Equal(original[index].CreatedAt) {
+			t.Fatalf("entry %d = %+v, want %+v", index, entry, original[index])
+		}
+	}
+
+	// It goes on from there, and is the session -c continues.
+	if next, _ := database.Append(branch.ID, "user", map[string]int{"n": 9}); next.Seq != 4 {
+		t.Fatalf("the branch's next entry is %d", next.Seq)
+	}
+
+	if latest, _ := database.LatestSession("/project"); latest.ID != branch.ID {
+		t.Fatalf("the latest session is %s, not the branch", latest.ID)
+	}
+
+	// Removing the session it came from leaves the branch whole.
+	database.DeleteSession(source.ID)
+
+	if kept, _ := database.Entries(branch.ID); len(kept) != 4 {
+		t.Fatalf("the branch kept %d entries", len(kept))
+	}
+
+	if _, err := database.BranchSession("missing", 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("branching a session that does not exist: err = %v", err)
+	}
+}

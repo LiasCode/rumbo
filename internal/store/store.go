@@ -41,6 +41,8 @@ type Program struct {
 // continued by. Provider and Model are what the session uses, empty for a
 // session from before they were stored. Options are the values of the
 // provider's options chosen in the session, a JSON object, or nothing.
+// Parent is the session a branch started from, and ParentSeq the last of its
+// entries the branch took; a session that is no branch has neither.
 type Session struct {
 	ID        string
 	Dir       string
@@ -49,6 +51,8 @@ type Session struct {
 	Provider  string
 	Model     string
 	Options   json.RawMessage
+	Parent    string
+	ParentSeq int64
 	CreatedAt time.Time
 	// ActiveAt is when the session was last used.
 	ActiveAt time.Time
@@ -96,6 +100,11 @@ type Store interface {
 	// SetSessionOptions records the provider options chosen in a session.
 	// Empty options record that none are.
 	SetSessionOptions(id string, options json.RawMessage) error
+
+	// BranchSession makes a new session from another one, with the same
+	// directory, provider, model, and options, and a copy of its entries up
+	// to upTo. The other session is left as it is.
+	BranchSession(from string, upTo int64) (Session, error)
 
 	// DeleteSession removes a session and its entries for good.
 	DeleteSession(id string) error

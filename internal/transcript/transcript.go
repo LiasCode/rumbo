@@ -341,3 +341,32 @@ func RenderContext(context Context) string {
 
 	return strings.TrimRight(out.String(), "\n")
 }
+
+// Point is a place a branch of a session can start before: an objective the
+// person gave. Seq is its entry.
+type Point struct {
+	Seq  int64
+	Text string
+}
+
+// Points returns where a session can be branched, in order: before each of
+// its objectives. A steer is not one, since a run was working when it came.
+func Points(entries []store.Entry) ([]Point, error) {
+	var points []Point
+
+	for _, entry := range entries {
+		if entry.Kind != KindUser {
+			continue
+		}
+
+		var text Text
+
+		if err := json.Unmarshal(entry.Payload, &text); err != nil {
+			return nil, fmt.Errorf("entry %d (%s): %w", entry.Seq, entry.Kind, err)
+		}
+
+		points = append(points, Point{Seq: entry.Seq, Text: text.Text})
+	}
+
+	return points, nil
+}
