@@ -312,6 +312,18 @@ speaks the Agent Frontend Protocol with the host.
   conversation goes into the terminal's own scrollback, and a live area
   under it shows the line the model is still writing, the menu while a
   command is typed, the input, and the status bar.
+- What the model writes shows as the Markdown it is: headings, lists,
+  quotes, code, bold, italics, links, and tables with their columns lined
+  up. Code keeps its text, so it can be copied as it is.
+- A tool call shows in the live area while it works, with its time, and
+  then as a block that says how it went: an edit with the lines it changed,
+  a command with the start of what it printed, or, when it failed, with its
+  status and the end of what it printed. A blank line sets the calls apart
+  from the text around them.
+- A run ends with a line that says how it ended, how long it took, and its
+  turns and tokens.
+- A session opened, branched to, or continued shows what it holds first,
+  told as its runs were shown.
 - Enter sends a task. During a run it tells the run what was typed, which
   shows once the model has it, and goes back to the input if the run ended
   first.
@@ -349,7 +361,8 @@ speaks the Agent Frontend Protocol with the host.
   Ctrl-D deletes under the cursor, and Ctrl-W, Ctrl-U, and Ctrl-K delete a
   word back, to the start of the line, and to its end.
 - The status bar shows the provider, the model, what is happening, the
-  session, the size of the context, and the tokens spent.
+  session, and the size of its context and the tokens it has spent, which
+  start again with the session.
 - It gives the terminal back as it found it, when it quits or the host ends.
 
 **`plain`**, for pipes and scripts:

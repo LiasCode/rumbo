@@ -20,6 +20,16 @@ it. The commits hold the reasons.
   only in this start, and Ctrl-R searches it. It comes from the sessions
   themselves, so deleting a session removes it from there too; commands
   are remembered until the terminal UI quits.
+- What the model writes shows as Markdown: headings, lists, quotes, code,
+  bold, italics, links, and tables lined up in columns.
+- A tool call shows with a spinner and its time while it works, then with
+  how it went: an edit with the lines it changed, a command with the start
+  of its output, or its exit status and the end of its output when it
+  failed.
+- A run ends with how long it took, its turns, and its tokens.
+- Opening, branching to, or continuing a session (`/open`, `/branch`, `-c`,
+  `-s`) shows what it holds, and the status bar counts that session's
+  context and tokens.
 
 ### Sessions
 

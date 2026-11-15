@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LiasCode/rumbo/internal/frontends/render"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -32,10 +33,12 @@ const (
 
 var commandName = regexp.MustCompile(`^/[a-z][a-z0-9_-]*$`)
 
-// answer is what a command has to show, and whose it is.
+// answer is what a command has to show, and whose it is. A command that
+// moved to a session that holds something tells what it holds after it.
 type answer struct {
 	source string
 	text   string
+	told   *protocol.HistoryResult
 }
 
 // isCommand reports whether line is a command rather than a task. A path
@@ -109,6 +112,10 @@ func (u *ui) work(label string, do func() (answer, error)) {
 			u.line("", mark+"\n"+styleDim+reply.text)
 		default:
 			u.line(styleDim, reply.text)
+		}
+
+		if reply.told != nil {
+			u.retell(*reply.told)
 		}
 
 		u.footer()
@@ -359,6 +366,25 @@ func (u *ui) host(function protocol.Function, params json.RawMessage) (answer, e
 	}
 
 	u.mu.Lock()
+	moved := result.State.Session != u.session
+	u.mu.Unlock()
+
+	// A session opened or branched to shows what it holds.
+	var told *protocol.HistoryResult
+
+	if moved && result.State.Session != "" {
+		if history, err := u.conn.History(result.State.Session); err == nil {
+			told = &history
+		}
+	}
+
+	u.mu.Lock()
+
+	// What the status bar counts is the current session's, which its
+	// history tells again.
+	if moved {
+		u.usage = render.Usage{}
+	}
 
 	// What is known of the provider was for the provider that was in use,
 	// and the new one is asked at once, for its commands.
@@ -375,7 +401,7 @@ func (u *ui) host(function protocol.Function, params json.RawMessage) (answer, e
 	u.follow()
 	u.mu.Unlock()
 
-	return answer{source: fromHost, text: strings.TrimSpace(result.Text + "\n" + list(result.Values))}, nil
+	return answer{source: fromHost, text: strings.TrimSpace(result.Text + "\n" + list(result.Values)), told: told}, nil
 }
 
 // provider calls a function of the provider and shows what it answers.

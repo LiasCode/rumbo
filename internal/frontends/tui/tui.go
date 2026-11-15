@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 
@@ -103,6 +104,16 @@ func Run(r io.Reader, w io.Writer) int {
 	// which is asked for at once, so the menu has them from the start.
 	ui.wait.Go(func() { _, _ = ui.describe() })
 
+	// A session continued or chosen at the start shows what it holds, which
+	// the host tells before a run it is asked for next starts.
+	if info.Session != "" {
+		if told, err := conn.History(info.Session); err == nil {
+			ui.mu.Lock()
+			ui.retell(told)
+			ui.mu.Unlock()
+		}
+	}
+
 	switch {
 	case info.Resume:
 		ui.start("(resuming the unfinished run)", protocol.RunParams{Resume: true})
@@ -117,6 +128,20 @@ func Run(r io.Reader, w io.Writer) int {
 	go func() {
 		ui.readKeys(bufio.NewReader(os.Stdin))
 		close(quit)
+	}()
+
+	go func() {
+		ticks := time.NewTicker(120 * time.Millisecond)
+		defer ticks.Stop()
+
+		for {
+			select {
+			case <-quit:
+				return
+			case <-ticks.C:
+				ui.tick()
+			}
+		}
 	}()
 
 	select {
@@ -140,8 +165,20 @@ type ui struct {
 	screen screen
 	input  inputLine
 	// partial is what the model wrote of a line it has not ended yet, which
-	// the live area shows until the line is done.
-	partial string
+	// the live area shows until the line is done, and markdown shows what
+	// the model writes as the Markdown it is.
+	partial  string
+	markdown markdown
+	// tool is the call in progress, which the live area shows until it is
+	// done.
+	tool *running
+	// last is the kind of what went into the scrollback last, and blank is
+	// true when that ended with an empty line.
+	last  int
+	blank bool
+	// closed is true once the terminal was given back, and nothing is drawn
+	// any more.
+	closed  bool
 	history *history
 	// searching is true while Ctrl-R looks back through the history for
 	// query; found is the entry shown, and before what the input held when
@@ -185,12 +222,25 @@ type question struct {
 	answer chan string
 }
 
+// The kinds of what goes into the scrollback. Where text and what the run
+// did meet, and before how a run ended, a blank line sets them apart.
+const (
+	blockOther = iota
+	blockText
+	blockWork
+	blockEnd
+)
+
 // job is a run this front end started, and the session it works in. A run
 // in a new session learns its session from its first event.
 type job struct {
 	// run is the id of the run request, which names the run to the host.
 	run     int64
 	session string
+	// tally is what the run took so far. A run told by a session's history,
+	// rather than followed, has no time.
+	tally tally
+	told  bool
 }
 
 // open draws the live area where the cursor is, below what the terminal
@@ -212,6 +262,17 @@ func (u *ui) close() {
 	u.flush()
 	u.screen.clear()
 	fmt.Fprint(u.screen.out, pasteOff)
+	u.closed = true
+}
+
+// tick draws again what is working, for its spinner and its clock.
+func (u *ui) tick() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if u.here != nil || u.tool != nil {
+		u.footer()
+	}
 }
 
 func (u *ui) resize() {
@@ -251,13 +312,38 @@ func (u *ui) footer() {
 // area under it: what the model is writing, the menu, the input, and the
 // status bar.
 func (u *ui) paint(done string) {
-	width := u.screen.width
+	if u.closed {
+		return
+	}
+
+	if done != "" {
+		u.blank = endsBlank(done)
+	}
+
+	width, now := u.screen.width, time.Now()
 	var rows []string
 
-	// A long line still being written shows its end.
+	// A long line still being written shows its end, and a table still
+	// coming shows as it is so far.
+	writing := u.markdown.held()
+
 	if u.partial != "" {
-		written := wrap(u.partial, width-1)
-		rows = append(rows, written[max(len(written)-u.maxInputRows(), 0):]...)
+		writing = u.markdown.peek(u.partial, width)
+	}
+
+	var written []string
+
+	for _, row := range writing {
+		written = append(written, wrap(row, width-1)...)
+	}
+
+	rows = append(rows, written[max(len(written)-u.maxInputRows(), 0):]...)
+
+	switch {
+	case u.tool != nil:
+		rows = append(rows, cut(u.tool.working(now), width-1))
+	case u.here != nil:
+		rows = append(rows, styleCyan+spin(now)+styleColorOff+styleDim+" working  "+elapsed(now.Sub(u.here.tally.started)))
 	}
 
 	if u.menu != nil {
@@ -329,37 +415,104 @@ func (u *ui) status(width int) string {
 }
 
 // write adds text the model wrote to the conversation. Whole lines go into
-// the scrollback; the rest waits in the live area for the line to end.
+// the scrollback as the Markdown they are; the rest waits in the live area
+// for the line to end.
 func (u *ui) write(text string) {
 	u.partial += text
-	done := ""
 
-	if end := strings.LastIndexByte(u.partial, '\n'); end >= 0 {
-		done, u.partial = u.partial[:end+1], u.partial[end+1:]
+	var rows []string
+
+	for {
+		end := strings.IndexByte(u.partial, '\n')
+
+		if end < 0 {
+			break
+		}
+
+		rows = append(rows, u.markdown.line(u.partial[:end], u.screen.width)...)
+		u.partial = u.partial[end+1:]
 	}
 
-	u.paint(done)
+	if len(rows) > 0 {
+		rows = u.apart(blockText, rows)
+	}
+
+	u.paint(joined(rows))
 }
 
 // line adds a styled line of its own to the conversation, after what the
 // model was writing.
 func (u *ui) line(style, text string) {
-	done := ""
-
-	if u.partial != "" {
-		done, u.partial = u.partial+"\n", ""
-	}
-
-	u.paint(done + style + text + styleReset + "\n")
+	u.rows(blockOther, []string{style + text})
 }
 
-// flush ends the line the model was writing, if there is one.
+// rows adds rows of their own, of a kind, to the conversation, after what
+// the model was writing.
+func (u *ui) rows(kind int, rows []string) {
+	done := u.ended()
+
+	if done != "" {
+		u.blank = endsBlank(done)
+	}
+
+	u.paint(done + joined(u.apart(kind, rows)))
+}
+
+// endsBlank reports whether whole lines end with an empty one.
+func endsBlank(done string) bool {
+	lines := strings.Split(strings.TrimSuffix(done, "\n"), "\n")
+
+	return visibleWidth(lines[len(lines)-1]) == 0
+}
+
+// apart puts a blank line before rows of a kind that follow another, and
+// keeps the kind as the last one. The caller holds the lock.
+func (u *ui) apart(kind int, rows []string) []string {
+	if kind != blockOther && u.last != blockOther && u.last != kind && !u.blank {
+		rows = append([]string{""}, rows...)
+	}
+
+	u.last = kind
+
+	return rows
+}
+
+// flush ends what the model was writing, if it was.
 func (u *ui) flush() {
-	if u.partial != "" {
-		done := u.partial + "\n"
-		u.partial = ""
+	if done := u.ended(); done != "" {
 		u.paint(done)
 	}
+}
+
+// ended takes what the model wrote that is not shown yet, as whole lines:
+// the line it had not ended, and a table still coming.
+func (u *ui) ended() string {
+	var rows []string
+
+	if u.partial != "" {
+		rows = u.markdown.line(u.partial, u.screen.width)
+		u.partial = ""
+	}
+
+	rows = append(rows, u.markdown.end()...)
+
+	if len(rows) == 0 {
+		return ""
+	}
+
+	return joined(u.apart(blockText, rows))
+}
+
+// joined is rows as the scrollback takes them, each ended and its styles
+// with it.
+func joined(rows []string) string {
+	var out strings.Builder
+
+	for _, row := range rows {
+		out.WriteString(row + styleReset + "\n")
+	}
+
+	return out.String()
 }
 
 // show renders one event of a run.
@@ -382,24 +535,59 @@ func (u *ui) show(from *job, event protocol.Event) {
 		return
 	}
 
+	u.tell(from, event)
+}
+
+// tell shows one event of a run, followed as it works or told by a
+// session's history, which also tells what each objective was and how
+// each run ended. The caller holds the lock.
+func (u *ui) tell(from *job, event protocol.Event) {
 	switch event.Type {
 	case protocol.EventText:
 		u.write(event.Text)
 
 	case protocol.EventContext:
-		u.line(styleDim, "context: "+strings.Join(event.Sections, ", "))
+		u.rows(blockWork, []string{styleDim + "context: " + strings.Join(event.Sections, ", ")})
 
 	case protocol.EventToolStarted:
-		u.line(styleDim, "  "+render.Tool(event.Name, event.Args))
+		u.settle()
+		u.flush()
+		u.tool = &running{name: event.Name, args: event.Args}
 
-	case protocol.EventToolFinished:
-		if event.Failed {
-			u.line(styleRed, "  failed: "+render.FirstLine(event.Result))
+		if !from.told {
+			u.tool.started = time.Now()
 		}
 
+		u.footer()
+
+	case protocol.EventToolFinished:
+		// A call of a run that was in the background when it started is
+		// known only by its name.
+		if u.tool == nil || u.tool.name != event.Name {
+			u.tool = &running{name: event.Name}
+		}
+
+		done := u.tool.finished(event.Result, event.Failed, time.Now(), u.screen.width)
+		u.tool = nil
+		u.rows(blockWork, done)
+
 	case protocol.EventTurn:
+		from.tally.add(event.Usage)
 		u.usage.Turn(event)
 		u.footer()
+
+	case protocol.EventObjective, protocol.EventSteer:
+		u.settle()
+
+		if event.Type == protocol.EventObjective {
+			from.tally = tally{}
+		}
+
+		u.line(styleBold, "\n"+echoed(event.Text))
+
+	case protocol.EventEnded:
+		u.settle()
+		u.rows(blockEnd, []string{from.tally.summary(event.Status, event.Text, time.Now())})
 
 	case protocol.EventLog:
 		// A log line is the provider's own output or something the host
@@ -412,6 +600,47 @@ func (u *ui) show(from *job, event protocol.Event) {
 
 		u.line("", u.label(source)+" "+styleYellow+event.Text)
 	}
+}
+
+// settle shows a call told as started that will not finish. The caller
+// holds the lock.
+func (u *ui) settle() {
+	if u.tool != nil {
+		done := u.tool.interrupted(u.screen.width)
+		u.tool = nil
+		u.rows(blockWork, done)
+	}
+}
+
+// retell shows what a session held, as if its runs had been followed, and
+// counts what they spent. The caller holds the lock.
+func (u *ui) retell(told protocol.HistoryResult) {
+	if told.Session == "" || len(told.Events) == 0 {
+		return
+	}
+
+	heading := "── session " + told.Session + " "
+	u.line(styleDim, "\n"+heading+strings.Repeat("─", max(min(u.screen.width-1, 60)-visibleWidth(heading), 3)))
+
+	from := &job{session: told.Session, told: true}
+
+	// The context a run starts with is stored before its objective, which a
+	// run that is followed shows first.
+	events := slices.Clone(told.Events)
+
+	for index := 0; index+1 < len(events); index++ {
+		if events[index].Type == protocol.EventContext && events[index+1].Type == protocol.EventObjective {
+			events[index], events[index+1] = events[index+1], events[index]
+			index++
+		}
+	}
+
+	for _, event := range events {
+		u.tell(from, event)
+	}
+
+	u.settle()
+	u.flush()
 }
 
 // submit starts a run on objective, unless one is already in progress.
@@ -441,7 +670,7 @@ func (u *ui) start(label string, params protocol.RunParams) {
 		return
 	}
 
-	started := &job{session: u.session}
+	started := &job{session: u.session, tally: tally{started: time.Now()}}
 	u.here = started
 	u.notice = ""
 	u.input.clear()
@@ -497,15 +726,13 @@ func (u *ui) end(done *job, result protocol.RunResult, err error) {
 
 	u.here = nil
 	u.notice = ""
+	u.settle()
 	u.flush()
 
-	switch {
-	case err != nil:
+	if err != nil {
 		u.line(styleRed, err.Error())
-	case result.Status == protocol.RunFailed:
-		u.line(styleRed, result.Error)
-	case result.Status == protocol.RunCancelled:
-		u.line(styleYellow, "cancelled")
+	} else {
+		u.rows(blockEnd, []string{done.tally.summary(result.Status, result.Error, time.Now())})
 	}
 
 	if result.Session != "" {

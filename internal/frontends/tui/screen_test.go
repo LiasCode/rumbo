@@ -34,6 +34,15 @@ func TestTheWidthOfTextIsWhatItShows(t *testing.T) {
 	if got := wrap("abcdefghij", 4); strings.Join(got, "|") != "abcd|efgh|ij" {
 		t.Fatalf("wrap of a long word = %q", got)
 	}
+
+	// Styles take no room, and one that goes on past a row starts the next.
+	if got := wrap("plain "+styleBold+"bold words"+styleReset+" end", 10); strings.Join(got, "|") != "plain "+styleBold+"bold|"+styleBold+"words"+styleReset+" end" {
+		t.Fatalf("wrap of styled text = %q", got)
+	}
+
+	if got := wrap("one\n\ntwo", 10); strings.Join(got, "|") != "one||two" {
+		t.Fatalf("wrap of an empty line = %q", got)
+	}
 }
 
 // What is done goes above the live area once, and the live area is drawn

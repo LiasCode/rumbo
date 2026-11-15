@@ -230,52 +230,116 @@ func pad(text string, width int) string {
 }
 
 // wrap breaks text into rows of at most width columns, at spaces when it
-// can. It knows nothing of escape sequences, so it is for plain text.
+// can. Escape sequences take no room, and a row that goes on with a style
+// begun on the row before starts with that style again.
 func wrap(text string, width int) []string {
 	width = max(width, 1)
 
 	var rows []string
 
 	for _, line := range strings.Split(text, "\n") {
-		runes := []rune(line)
+		cells, trailing := cellsOf(line)
+		styles := ""
 
-		for len(runes) > 0 {
+		for len(cells) > 0 {
 			end, columns := 0, 0
 
-			for end < len(runes) && columns+runeWidth(runes[end]) <= width {
-				columns += runeWidth(runes[end])
+			for end < len(cells) && columns+runeWidth(cells[end].r) <= width {
+				columns += runeWidth(cells[end].r)
 				end++
 			}
 
 			// A word that does not fit goes to the next row whole, unless it
 			// is longer than a row. A row that ends where a word does needs
 			// no going back.
-			if end < len(runes) && runes[end] != ' ' {
-				if space := lastSpace(runes[:end]); space > 0 {
+			if end < len(cells) && cells[end].r != ' ' {
+				if space := lastSpace(cells[:end]); space > 0 {
 					end = space + 1
 				}
 			}
 
-			rows = append(rows, strings.TrimRight(string(runes[:end]), " "))
-			runes = runes[end:]
+			var row strings.Builder
+
+			row.WriteString(styles)
+			shown := end
+
+			for shown > 0 && cells[shown-1].r == ' ' {
+				shown--
+			}
+
+			for _, each := range cells[:end] {
+				styles = carried(styles, each.lead)
+			}
+
+			for _, each := range cells[:shown] {
+				row.WriteString(each.lead)
+				row.WriteRune(each.r)
+			}
+
+			cells = cells[end:]
 
 			// The next row starts where the next word does.
-			for end > 0 && len(runes) > 0 && runes[0] == ' ' {
-				runes = runes[1:]
+			for end > 0 && len(cells) > 0 && cells[0].r == ' ' {
+				styles = carried(styles, cells[0].lead)
+				cells = cells[1:]
 			}
+
+			if len(cells) == 0 {
+				row.WriteString(trailing)
+			}
+
+			rows = append(rows, row.String())
 		}
 
-		if len(line) == 0 {
-			rows = append(rows, "")
+		if visibleWidth(line) == 0 {
+			rows = append(rows, line)
 		}
 	}
 
 	return rows
 }
 
-func lastSpace(runes []rune) int {
-	for index := len(runes) - 1; index >= 0; index-- {
-		if runes[index] == ' ' {
+// cell is one rune that shows, with the escape sequences before it.
+type cell struct {
+	lead string
+	r    rune
+}
+
+// cellsOf splits text into what shows, rune by rune, and the escape
+// sequences after the last rune.
+func cellsOf(text string) ([]cell, string) {
+	var cells []cell
+	var lead strings.Builder
+
+	scan(text, func(r rune, escaped bool) bool {
+		if escaped {
+			lead.WriteRune(r)
+		} else {
+			cells = append(cells, cell{lead: lead.String(), r: r})
+			lead.Reset()
+		}
+
+		return true
+	})
+
+	return cells, lead.String()
+}
+
+// carried is the styles in force after more escape sequences: what came
+// since the last reset.
+func carried(styles, more string) string {
+	styles += more
+
+	if index := strings.LastIndex(styles, styleReset); index >= 0 {
+		styles = styles[index+len(styleReset):]
+	}
+
+	return styles
+}
+
+func lastSpace(cells []cell) int {
+	for index := len(cells) - 1; index >= 0; index-- {
+		if cells[index].r == ' ' {
 			return index
 		}
 	}
