@@ -5,6 +5,12 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+Configuration is simpler: the system settings, and over them what each
+session chooses. The built-in providers sign in with an API key, and
+`openai` speaks OpenAI's Responses API. Some commands and settings have new
+names; what you stored is carried over, but for values stored for one
+project.
+
 ### Settings
 
 Settings are now kept apart by what they act on: the system, a session, or
@@ -48,10 +54,8 @@ a provider.
   them behind. The terminal UI's `/set`, whose choices lasted until it
   closed, is gone.
 - A system setting or a provider's option you store applies to the next
-  run, without starting rumbo again. The model and the front end still apply
-  from the next start.
-- Front end protocol: each function of the host says what it acts on, in
-  `group`.
+  run, without starting rumbo again. The default provider and model, and the
+  front end, still apply from the next start.
 
 ### Providers
 
@@ -71,6 +75,19 @@ a provider.
   encrypted.
 - In the terminal UI, what a provider's function answers in words shows
   without quotes.
+
+### Protocols
+
+Both stay at version 1, and what is new in them is optional.
+
+- Each function of the host says what it acts on, in `group`: `system`,
+  `session`, or `provider`.
+- A provider's or a front end's answer to `initialize` may carry `config`,
+  its configuration in force, with its default for every field it was not
+  given. rumbo keeps it with the registration.
+- Every option a provider describes has a `default`, which may be empty
+  when that means the model decides. `rumbo provider add` says which ones a
+  provider gives none for.
 
 ## 0.1.0 (2026-11-15)
 
