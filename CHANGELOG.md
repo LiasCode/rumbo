@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.2.0 (2026-11-15)
+
 Configuration is simpler: the system settings, and over them what each
 session chooses. The built-in providers sign in with an API key, and
 `openai` speaks OpenAI's Responses API. Some commands and settings have new
