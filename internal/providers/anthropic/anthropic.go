@@ -31,8 +31,8 @@ const defaultMaxTokens = 64_000
 // profile created by "ant auth login".
 type Config struct {
 	BaseURL string `json:"base_url"`
-	// Effort is one of low, medium, high, xhigh, max. Empty uses the model's
-	// default.
+	// Effort is one of low, medium, high, xhigh, max, sent when a request
+	// chooses none as an option. Empty uses the model's default.
 	Effort string `json:"effort"`
 }
 
@@ -130,7 +130,7 @@ var description = protocol.Description{
 		Name:        "effort",
 		Type:        protocol.OptionString,
 		Enum:        []string{"low", "medium", "high", "xhigh", "max"},
-		Description: "How much the model thinks and how thorough it is. Empty, the model's own default applies.",
+		Description: "How much the model thinks and how thorough it is. Empty, the effort in the provider's configuration applies, or else the model's own default.",
 		Default:     json.RawMessage(`""`),
 	}},
 	Functions: []protocol.Function{

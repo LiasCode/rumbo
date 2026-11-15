@@ -29,8 +29,8 @@ type Config struct {
 	// does not report it, so it is said here when it is known, which matters
 	// most for local models with small contexts.
 	ContextWindow int64 `json:"context_window"`
-	// Effort is the reasoning effort sent with every request, as the
-	// server's model names it. Empty sends none.
+	// Effort is the reasoning effort sent with every request that chooses
+	// none as an option, as the server's model names it. Empty sends none.
 	Effort string `json:"effort"`
 	// API is the one spoken: chat, for Chat Completions, which most servers
 	// offer, or responses, for OpenAI's Responses API. Empty is chat.
@@ -114,7 +114,7 @@ var description = protocol.Description{
 	Options: []protocol.Option{{
 		Name:        "effort",
 		Type:        protocol.OptionString,
-		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Empty, none is sent and the model's own default applies.",
+		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Empty, the effort in the provider's configuration is sent, or else none, and the model's own default applies.",
 		Default:     json.RawMessage(`""`),
 	}},
 	Functions: []protocol.Function{

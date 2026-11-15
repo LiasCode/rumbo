@@ -33,8 +33,8 @@ type Config struct {
 	// ContextWindow is the size of the model's context, in tokens, which
 	// the model list does not say.
 	ContextWindow int64 `json:"context_window"`
-	// Effort is the reasoning effort sent with every request. Empty sends
-	// none.
+	// Effort is the reasoning effort sent with every request that chooses
+	// none as an option. Empty sends none.
 	Effort string `json:"effort"`
 }
 
@@ -88,7 +88,7 @@ var description = protocol.Description{
 	Options: []protocol.Option{{
 		Name:        "effort",
 		Type:        protocol.OptionString,
-		Description: "How much a reasoning model thinks, such as low, medium, and high, as the model names them. Empty, the model's own default applies.",
+		Description: "How much a reasoning model thinks, such as low, medium, and high, as the model names them. Empty, the effort in the provider's configuration applies, or else the model's own default.",
 		Default:     json.RawMessage(`""`),
 	}},
 	Functions: []protocol.Function{

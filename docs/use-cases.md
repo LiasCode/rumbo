@@ -250,13 +250,14 @@ the Agent Provider Protocol on its stdin and stdout.
   at the address its configuration gives, with the key in the variable its
   configuration names (`OPENAI_API_KEY` by default), or else the key its
   `login` stored for that address. It lists the server's models, offers an
-  `effort` option, sent as `reasoning_effort` only when it is chosen, and
-  takes the size of the context from its configuration, since a server
-  cannot say. With `api` set to `responses` in its configuration, as the
-  `openai` registered the first time rumbo runs has it, it speaks OpenAI's
-  Responses API instead, which its reasoning models need to use tools with
-  an effort: nothing is stored on the server, and a model's encrypted
-  reasoning goes back to that model alone, in opaque blocks.
+  `effort` option, sent as `reasoning_effort` only when it or the
+  configuration chooses one, and takes the size of the context from its
+  configuration, since a server cannot say. With `api` set to `responses`
+  in its configuration, as the `openai` registered the first time rumbo
+  runs has it, it speaks OpenAI's Responses API instead, which its
+  reasoning models need to use tools with an effort: nothing is stored on
+  the server, and a model's encrypted reasoning goes back to that model
+  alone, in opaque blocks.
 - Both offer `login`, which asks for an API key, checks it with a request
   that costs nothing, and keeps it for the server in the user's
   configuration directory (`rumbo/credentials/`), readable only by the user;
