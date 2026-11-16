@@ -186,13 +186,18 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "prune",
-			Description: "Delete the sessions of this project not used in a given time, with their history",
-			Params: []protocol.Option{{
-				Name: "age", Type: protocol.OptionString,
-				Description: "how long they have not been used: hours, days, or weeks, such as 12h, 30d, or 2w",
-			}},
-			Confirm: "This deletes, for good, the sessions of this project last used longer ago than that, and everything recorded in them. Those in use are kept, and files they changed stay as they are.",
-			Group:   protocol.GroupSession,
+			Description: "List the sessions of this project not used in a given time, and delete them with their history",
+			Params: []protocol.Option{
+				{
+					Name: "age", Type: protocol.OptionString,
+					Description: "how long they have not been used: hours, days, or weeks, such as 12h, 30d, or 2w",
+				},
+				{
+					Name: "confirm", Type: protocol.OptionString, Enum: []string{"yes"}, Optional: true,
+					Description: "yes deletes them; without it, they are only listed",
+				},
+			},
+			Group: protocol.GroupSession,
 		},
 		call: (*host).pruneSessions,
 	},
@@ -703,14 +708,20 @@ func (h *host) renameSession(_ context.Context, params map[string]string) (proto
 	return protocol.HostResult{Text: fmt.Sprintf("session %s is now %q", renamed.ID, title)}, nil
 }
 
-// pruneSessions deletes the project's sessions not used in a while. Those
-// this host holds, or something works in, and those another rumbo process
-// uses, are kept.
+// pruneSessions lists the project's sessions not used in a while, and
+// deletes them when confirmed. Those this host holds, or something works
+// in, and those another rumbo process uses, are kept.
 func (h *host) pruneSessions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	age, err := parseAge(params["age"])
 
 	if err != nil {
 		return protocol.HostResult{}, err
+	}
+
+	confirmed := params["confirm"] == "yes"
+
+	if params["confirm"] != "" && !confirmed {
+		return protocol.HostResult{}, fmt.Errorf("confirm is yes, which deletes the sessions, or left out, which lists them; not %q", params["confirm"])
 	}
 
 	h.mu.Lock()
@@ -722,12 +733,20 @@ func (h *host) pruneSessions(_ context.Context, params map[string]string) (proto
 		return protocol.HostResult{}, err
 	}
 
+	old := unused(sessions, time.Now().Add(-age))
+
+	if len(old) == 0 {
+		return protocol.HostResult{Text: fmt.Sprintf("no session of this project was last used more than %s ago", params["age"])}, nil
+	}
+
+	if !confirmed {
+		return h.prunable(old, params["age"])
+	}
+
 	var deleted, kept []string
 
-	for _, session := range unused(sessions, time.Now().Add(-age)) {
-		target, known := h.places[session.ID]
-
-		if session.ID == h.current.id() || (known && (target.unlock != nil || h.busy[target] != "")) {
+	for _, session := range old {
+		if h.holds(session.ID) {
 			kept = append(kept, session.ID)
 			continue
 		}
@@ -743,10 +762,6 @@ func (h *host) pruneSessions(_ context.Context, params map[string]string) (proto
 		deleted = append(deleted, fmt.Sprintf("\n  %s  %s", session.ID, titled(session)))
 	}
 
-	if len(deleted)+len(kept) == 0 {
-		return protocol.HostResult{Text: fmt.Sprintf("no session of this project was last used more than %s ago", params["age"])}, nil
-	}
-
 	text := fmt.Sprintf("deleted %s last used more than %s ago%s", counted(len(deleted), "session"), params["age"], strings.Join(deleted, ""))
 
 	if len(kept) > 0 {
@@ -754,6 +769,43 @@ func (h *host) pruneSessions(_ context.Context, params map[string]string) (proto
 	}
 
 	return protocol.HostResult{Text: text}, nil
+}
+
+// prunable lists the sessions prune deletes when confirmed, and marks those
+// it keeps. The caller holds the lock.
+func (h *host) prunable(old []store.Session, age string) (protocol.HostResult, error) {
+	var out strings.Builder
+
+	fmt.Fprintf(&out, "%s of this project last used more than %s ago:", counted(len(old), "session"), age)
+
+	for _, session := range old {
+		used, err := h.database.SessionInUse(session.ID)
+
+		if err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		mark := ""
+
+		if used || h.holds(session.ID) {
+			mark = "  (in use, kept)"
+		}
+
+		fmt.Fprintf(&out, "\n  %s  %s  %s%s", session.ID, session.ActiveAt.Format("2006-01-02 15:04"), titled(session), mark)
+	}
+
+	out.WriteString("\nwith confirm yes, prune deletes them with their history; those in use are kept")
+
+	return protocol.HostResult{Text: out.String()}, nil
+}
+
+// holds says whether this host keeps a session from being deleted: it is
+// the current one, the host holds it, or something works in it. The caller
+// holds the lock.
+func (h *host) holds(id string) bool {
+	target, known := h.places[id]
+
+	return id == h.current.id() || (known && (target.unlock != nil || h.busy[target] != ""))
 }
 
 func (h *host) newSession(context.Context, map[string]string) (protocol.HostResult, error) {

@@ -34,9 +34,10 @@ it. The commits hold the reasons.
   each session stands and its turns too.
 - Sessions can be renamed, with `/rename` or `rumbo sessions rename`, and
   deleted several at once, with `rumbo sessions rm`, or by age, with
-  `/prune 30d` or `rumbo sessions prune 30d`. `/prune` asks you to confirm,
-  and says which it deleted; `rumbo sessions prune` lists them, and deletes
-  them when given `-yes`. A session in use by a rumbo process is kept.
+  `/prune 30d` or `rumbo sessions prune 30d`. Both list the sessions
+  first, and delete them when given `yes`: `/prune 30d yes`, or
+  `rumbo sessions prune -yes 30d`. A session in use by a rumbo process is
+  kept.
 - `rumbo request <session> [turn]` prints the request a turn sent the
   provider, exactly as it was sent, rebuilt from the session.
 - Each response records the output limit its request set, how long the

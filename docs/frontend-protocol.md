@@ -394,7 +394,7 @@ The functions of this version, by group:
 | `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. |
 | `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `rename` | session | `title` | Gives the current session a title of the person's own. |
-| `prune` | session | `age` | Deletes, for good, the project's sessions not used in that long, such as `30d`, with their history; those in use are kept. Asks to be confirmed. |
+| `prune` | session | `age`, `confirm`? | Lists the project's sessions not used in that long, such as `30d`; with `confirm` as `yes`, deletes them, for good, with their history. Those in use are kept. |
 | `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
 | `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |

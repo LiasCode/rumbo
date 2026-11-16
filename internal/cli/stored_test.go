@@ -164,8 +164,8 @@ func TestRenameGivesTheCurrentSessionATitle(t *testing.T) {
 	}
 }
 
-// Pruning deletes the project's sessions not used in a while, and keeps the
-// current one and those in use, however old.
+// Pruning lists the project's sessions not used in a while, and deletes them
+// when confirmed, keeping the current one and those in use, however old.
 func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 	h, path := storedHost(t)
 	old := time.Now().Add(-40 * 24 * time.Hour)
@@ -193,7 +193,26 @@ func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 		t.Fatalf("an age without a unit: %s", err)
 	}
 
-	pruned := call(t, h, "prune", `{"age":"30d"}`).Text
+	if err := refused(t, h, "prune", `{"age":"30d","confirm":"no"}`); !strings.Contains(err, "confirm is yes") {
+		t.Fatalf("a confirm other than yes: %s", err)
+	}
+
+	listed := call(t, h, "prune", `{"age":"30d"}`).Text
+
+	if !strings.HasPrefix(listed, "3 sessions of this project last used more than 30d ago:") ||
+		strings.Count(listed, "(in use, kept)") != 2 || !strings.Contains(listed, forgotten.ID+"  ") || strings.Contains(listed, recent.ID) {
+		t.Fatalf("prune without confirm answered:\n%s", listed)
+	}
+
+	if _, err := h.database.Session(forgotten.ID); err != nil {
+		t.Fatalf("prune without confirm deleted a session: %v", err)
+	}
+
+	if none := call(t, h, "prune", `{"age":"60d","confirm":"yes"}`).Text; none != "no session of this project was last used more than 60d ago" {
+		t.Fatalf("a prune with nothing to delete answered: %s", none)
+	}
+
+	pruned := call(t, h, "prune", `{"age":"30d","confirm":"yes"}`).Text
 
 	if !strings.HasPrefix(pruned, "deleted 1 session last used more than 30d ago\n  "+forgotten.ID) || !strings.Contains(pruned, "kept 2 sessions in use") {
 		t.Fatalf("prune answered:\n%s", pruned)
@@ -209,7 +228,7 @@ func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 		t.Error("the forgotten session is still there")
 	}
 
-	if again := call(t, h, "prune", `{"age":"30d"}`).Text; !strings.HasPrefix(again, "deleted 0 sessions") {
+	if again := call(t, h, "prune", `{"age":"30d","confirm":"yes"}`).Text; !strings.HasPrefix(again, "deleted 0 sessions") {
 		t.Fatalf("a second prune answered:\n%s", again)
 	}
 }

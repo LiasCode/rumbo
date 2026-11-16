@@ -108,10 +108,10 @@ nothing and knows no model API.
   person's own (`rename`, `rumbo sessions rename`).
 - Delete a session with its history, several by id (`rumbo sessions rm`),
   or those of a project not used in a given time (`prune`, `rumbo sessions
-  prune`), only when the person confirms: `prune` asks first, and says
-  which it deleted; `rumbo sessions prune` lists them, and deletes them
-  when given `-yes`. A session a rumbo process is using is kept, and a host
-  whose session another process deleted says so instead of working in it.
+  prune`), only when the person confirms: both list them first, and delete
+  them when given `yes` (`-yes`), saying which they deleted. A session a
+  rumbo process is using is kept, and a host whose session another process
+  deleted says so instead of working in it.
 - Branch a session: go on in a new one that starts with a copy of it, as it
   is or as it was before one of the person's messages. The session it came
   from stays as it is, and can go on working at the same time; the files
