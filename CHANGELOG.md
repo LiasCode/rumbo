@@ -5,6 +5,14 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.5.0 (2026-11-16)
+
+The model is told of your skills. rumbo says how each session stands,
+renames and prunes sessions, lists those of every project, and prints the
+request any turn sent. It tells you when a request misses the provider's
+cache, and summarizes a conversation at 80% of the model's context however
+large it is.
+
 ### Host
 
 - The model is told of your skills, in the Agent Skills format: each
