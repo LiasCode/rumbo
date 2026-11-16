@@ -160,7 +160,7 @@ func TestSkillMistakesAreSaidOnTheirLine(t *testing.T) {
 		}
 	}
 
-	if _, reason := parseSkill("---\nname: x\ndescription: [a, b]\n---\n", "x"); !strings.HasPrefix(reason, "its frontmatter cannot be read: line 3: cannot unmarshal !!seq") {
+	if _, reason := parseSkill("---\nname: x\ndescription: [a, b]\n---\n", "x"); !strings.HasPrefix(reason, "its frontmatter cannot be read: line 3: cannot construct !!seq") {
 		t.Errorf("a description that is a list: %q", reason)
 	}
 }

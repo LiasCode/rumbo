@@ -207,12 +207,20 @@ func decodeFrontmatter(front string) (name, description string, err error) {
 // the file. YAML's own line is not always the one to fix: it can be one too
 // early, or where the mapping holding the mistake starts.
 func yamlProblem(front string, err error) string {
-	if syntax, ok := errors.AsType[*yaml.ParserError](err); ok {
-		return fmt.Sprintf("its frontmatter is not valid YAML: line %d: %s", brokenLine(front), syntax.Message)
+	// Values of the wrong type are looked for first, since errors.As also
+	// finds the first of them as a LoadError, which is what a syntax error is.
+	if loaded, ok := errors.AsType[*yaml.LoadErrors](err); ok && len(loaded.Errors) > 0 {
+		first := loaded.Errors[0]
+
+		if first.Mark.Line == 0 {
+			return "its frontmatter cannot be read: " + first.Message
+		}
+
+		return fmt.Sprintf("its frontmatter cannot be read: line %d: %s", first.Mark.Line, first.Message)
 	}
 
-	if typed, ok := errors.AsType[*yaml.TypeError](err); ok && len(typed.Errors) > 0 {
-		return "its frontmatter cannot be read: " + typed.Errors[0].Error()
+	if syntax, ok := errors.AsType[*yaml.LoadError](err); ok {
+		return fmt.Sprintf("its frontmatter is not valid YAML: line %d: %s", brokenLine(front), syntax.Message)
 	}
 
 	return "its frontmatter cannot be read: " + err.Error()
