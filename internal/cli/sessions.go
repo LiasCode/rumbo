@@ -385,6 +385,14 @@ func (h *host) hold(target *place) error {
 		return nil
 	}
 
+	// Another rumbo process may have deleted the session since this one
+	// read it, and nothing should be recorded in it then.
+	if _, err := h.database.Session(target.session.ID); errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("session %s was deleted by another rumbo process; start a new session, or open another", target.session.ID)
+	} else if err != nil {
+		return err
+	}
+
 	unlock, err := h.database.LockSession(target.session.ID)
 
 	if err != nil {

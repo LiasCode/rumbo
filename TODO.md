@@ -62,11 +62,6 @@ The owner decided what this covers: these, in this order.
 
 30. **Reproduce a request.** `log` prints entries. A command should print the
     exact request of turn N, which is the proof that history is reproducible.
-32. **Useful listing.** `sessions` shows only the current project, and no
-    turns, tokens, or state (finished, failed, unfinished).
-33. **Rename and prune.** A session can be deleted, one at a time and from a
-    front end only. There is no renaming, no deleting by age, and no
-    `rumbo sessions rm`.
 
 ## 4. Quality
 

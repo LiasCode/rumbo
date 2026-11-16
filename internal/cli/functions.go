@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LiasCode/rumbo/internal/frontends/render"
 	"github.com/LiasCode/rumbo/internal/store"
@@ -110,7 +111,7 @@ var hostFunctions = []hostFunction{
 		call:      (*host).listSkills,
 	},
 	{
-		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first", Group: protocol.GroupSession},
+		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first, with how each one stands", Group: protocol.GroupSession},
 		duringRun: true,
 		call:      (*host).listSessions,
 	},
@@ -153,6 +154,29 @@ var hostFunctions = []hostFunction{
 			Group:       protocol.GroupSession,
 		},
 		call: (*host).deleteSession,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "rename",
+			Description: "Give this session a title of your own",
+			Params:      []protocol.Option{{Name: "title", Type: protocol.OptionString}},
+			Group:       protocol.GroupSession,
+		},
+		duringRun: true,
+		call:      (*host).renameSession,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "prune",
+			Description: "Delete the sessions of this project not used in a given time, with their history",
+			Params: []protocol.Option{{
+				Name: "age", Type: protocol.OptionString,
+				Description: "how long they have not been used: hours, days, or weeks, such as 12h, 30d, or 2w",
+			}},
+			Confirm: "This deletes, for good, the sessions of this project last used longer ago than that, and everything recorded in them. Those in use are kept, and files they changed stay as they are.",
+			Group:   protocol.GroupSession,
+		},
+		call: (*host).pruneSessions,
 	},
 	{
 		Function: protocol.Function{
@@ -410,27 +434,8 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 		return err
 	}
 
-	var spent protocol.Usage
-	turns := 0
-
-	for _, entry := range entries {
-		var answer struct {
-			Usage protocol.Usage `json:"usage"`
-		}
-
-		if entry.Kind != transcript.KindAssistant && entry.Kind != transcript.KindCompaction {
-			continue
-		}
-
-		if json.Unmarshal(entry.Payload, &answer) != nil {
-			continue
-		}
-
-		turns++
-		spent.Input += answer.Usage.Input + answer.Usage.CacheWrite
-		spent.CacheRead += answer.Usage.CacheRead
-		spent.Output += answer.Usage.Output
-	}
+	summary := transcript.Summarize(entries)
+	spent := summary.Spent
 
 	fmt.Fprintf(out, "\nsession: %s (%s)", session.ID, session.Title)
 
@@ -453,11 +458,11 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 		fmt.Fprintf(out, "; summarized at %d", limit)
 	}
 
-	fmt.Fprintf(out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", turns, spent.Input, spent.CacheRead, spent.Output)
+	fmt.Fprintf(out, "\nspent: %d requests, %d input tokens, %d read from cache, %d output", summary.Turns, render.Input(spent), spent.CacheRead, spent.Output)
 
 	// What the provider read from its cache is what the stable start of each
 	// request saved; a share that drops says something broke the cache.
-	if all := spent.Input + spent.CacheRead; all > 0 {
+	if all := render.Input(spent) + spent.CacheRead; all > 0 {
 		fmt.Fprintf(out, "\nfrom the cache: %d%% of all input", spent.CacheRead*100/all)
 	}
 
@@ -472,7 +477,7 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 }
 
 func (h *host) listSessions(context.Context, map[string]string) (protocol.HostResult, error) {
-	sessions, err := h.database.Sessions(h.root)
+	listed, err := standings(h.database, h.root)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -480,34 +485,56 @@ func (h *host) listSessions(context.Context, map[string]string) (protocol.HostRe
 
 	h.mu.Lock()
 	working := map[string]string{}
+	held := map[string]bool{h.current.id(): h.current.unlock != nil}
 
 	for target, what := range h.busy {
 		working[target.id()] = what
+	}
+
+	for id, target := range h.places {
+		held[id] = held[id] || target.unlock != nil
 	}
 
 	h.mu.Unlock()
 
 	var result protocol.HostResult
 
-	for _, session := range sessions {
-		description := "last used " + session.ActiveAt.Format("2006-01-02 15:04")
+	for _, each := range listed {
+		var parts []string
 
-		if session.Parent != "" {
-			description = "branch of " + session.Parent + "; " + description
+		switch {
+		case working[each.ID] != "":
+			parts = append(parts, working[each.ID]+" in progress")
+		case each.inUse && !held[each.ID]:
+			parts = append(parts, "in use by another rumbo process")
+		default:
+			parts = append(parts, each.ended())
 		}
 
-		if what := working[session.ID]; what != "" {
-			description = what + " in progress; " + description
+		parts = append(parts, counted(each.summary.Turns, "turn"))
+
+		if each.Parent != "" {
+			parts = append(parts, "branch of "+each.Parent)
 		}
 
-		result.Values = append(result.Values, protocol.Value{Value: session.ID, Label: session.Title, Description: description})
+		parts = append(parts, "last used "+each.ActiveAt.Format("2006-01-02 15:04"))
+		result.Values = append(result.Values, protocol.Value{Value: each.ID, Label: each.Title, Description: strings.Join(parts, "; ")})
 	}
 
-	if len(sessions) == 0 {
+	if len(listed) == 0 {
 		result.Text = "this project has no sessions yet"
 	}
 
 	return result, nil
+}
+
+// counted says how many of something there are, such as 1 turn or 2 turns.
+func counted(count int, what string) string {
+	if count == 1 {
+		return "1 " + what
+	}
+
+	return fmt.Sprintf("%d %ss", count, what)
 }
 
 // openSession makes another session the current one. One that works goes
@@ -569,6 +596,85 @@ func (h *host) deleteSession(_ context.Context, params map[string]string) (proto
 	}
 
 	return protocol.HostResult{Text: fmt.Sprintf("deleted session %s (%s)", target.session.ID, target.session.Title)}, nil
+}
+
+// renameSession gives the current session a title of the person's own.
+func (h *host) renameSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	target := h.current
+
+	if target.session == nil {
+		return protocol.HostResult{}, errors.New("this session has no task yet: it takes its title from its first one, and can be renamed then")
+	}
+
+	title, err := retitle(h.database, target.session.ID, params["title"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	// What works in the session keeps the copy it read; the place gets a
+	// new one.
+	renamed := *target.session
+	renamed.Title = title
+	target.session = &renamed
+
+	return protocol.HostResult{Text: fmt.Sprintf("session %s is now %q", renamed.ID, title)}, nil
+}
+
+// pruneSessions deletes the project's sessions not used in a while. Those
+// this host holds, or something works in, and those another rumbo process
+// uses, are kept.
+func (h *host) pruneSessions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	age, err := parseAge(params["age"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	sessions, err := h.database.Sessions(h.root)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	var deleted, kept []string
+
+	for _, session := range unused(sessions, time.Now().Add(-age)) {
+		target, known := h.places[session.ID]
+
+		if session.ID == h.current.id() || (known && (target.unlock != nil || h.busy[target] != "")) {
+			kept = append(kept, session.ID)
+			continue
+		}
+
+		if err := discard(h.database, session.ID); errors.Is(err, store.ErrLocked) {
+			kept = append(kept, session.ID)
+			continue
+		} else if err != nil {
+			return protocol.HostResult{}, err
+		}
+
+		delete(h.places, session.ID)
+		deleted = append(deleted, fmt.Sprintf("\n  %s  %s", session.ID, titled(session)))
+	}
+
+	if len(deleted)+len(kept) == 0 {
+		return protocol.HostResult{Text: fmt.Sprintf("no session of this project was last used more than %s ago", params["age"])}, nil
+	}
+
+	text := fmt.Sprintf("deleted %s last used more than %s ago%s", counted(len(deleted), "session"), params["age"], strings.Join(deleted, ""))
+
+	if len(kept) > 0 {
+		text += fmt.Sprintf("\nkept %s in use: %s", counted(len(kept), "session"), strings.Join(kept, ", "))
+	}
+
+	return protocol.HostResult{Text: text}, nil
 }
 
 func (h *host) newSession(context.Context, map[string]string) (protocol.HostResult, error) {

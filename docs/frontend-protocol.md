@@ -131,7 +131,6 @@ The result arrives when the run is over, however it ends:
 ```
 
 | `status` | Meaning |
-| `skills` | session | | Lists the skills the model is told of in the current session's directory, and those left out, with why. |
 |---|---|
 | `done` | The model finished the task. |
 | `failed` | The run ended with a problem; `error` explains it. |
@@ -386,12 +385,15 @@ The functions of this version, by group:
 | `system-keys` | system | | Lists the system settings there are. |
 | `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
 | `status` | session | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
-| `sessions` | session | | Lists the project's sessions, most recently used first, and marks those working in this host. |
+| `skills` | session | | Lists the skills the model is told of in the current session's directory, and those left out, with why. |
+| `sessions` | session | | Lists the project's sessions, most recently used first, with how each one stands: how its last run ended, or that it works in this host or in another rumbo process, and its turns. |
 | `open` | session | `session` | Makes another session of the project the current one. |
 | `new` | session | | Makes the next task start a new session. |
 | `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it waits for a run working in the session. |
 | `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. |
 | `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
+| `rename` | session | `title` | Gives the current session a title of the person's own. |
+| `prune` | session | `age` | Deletes, for good, the project's sessions not used in that long, such as `30d`, with their history; those in use are kept. Asks to be confirmed. |
 | `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
 | `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
@@ -416,8 +418,9 @@ run in progress keeps the one it started with.
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
 `system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
-`skills`, `sessions`, `branch-points`, `providers`, `provider-models`,
-`option-values`, `provider-add`, `provider-options`, and `provider-rm`.
+`skills`, `sessions`, `branch-points`, `rename`, `providers`,
+`provider-models`, `option-values`, `provider-add`, `provider-options`, and
+`provider-rm`.
 
 ## What the host guarantees
 

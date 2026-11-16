@@ -100,6 +100,9 @@ type Store interface {
 	// SetSessionOptions records the provider options chosen in a session.
 	// Empty options record that none are.
 	SetSessionOptions(id string, options json.RawMessage) error
+	// RenameSession changes a session's title, which is all a person reads
+	// of it in a list.
+	RenameSession(id, title string) error
 
 	// BranchSession makes a new session from another one, with the same
 	// directory, provider, model, and options, and a copy of its entries up
@@ -113,6 +116,9 @@ type Store interface {
 	// the process ends. Two processes appending to one session would
 	// interleave their entries into a history neither of them sent.
 	LockSession(id string) (release func(), err error)
+	// SessionInUse reports whether a process holds the session, this one
+	// included, without taking it.
+	SessionInUse(id string) (bool, error)
 
 	Append(sessionID, kind string, payload any) (Entry, error)
 	Entries(sessionID string) ([]Entry, error)

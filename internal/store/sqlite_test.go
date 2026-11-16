@@ -42,11 +42,23 @@ func TestLockSessionExcludesOtherProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Whether a session is in use is seen from any process, without taking
+	// it, as a listing does.
+	for _, database := range []*SQLite{first, second} {
+		if used, err := database.SessionInUse(session.ID); err != nil || !used {
+			t.Fatalf("a held session in use: %v, %v", used, err)
+		}
+	}
+
 	if _, err := second.LockSession(session.ID); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second lock: err = %v, want ErrLocked", err)
 	}
 
 	other, _ := first.CreateSession("/project", "/project", "other")
+
+	if used, err := second.SessionInUse(other.ID); err != nil || used {
+		t.Fatalf("a session never held in use: %v, %v", used, err)
+	}
 
 	if unlock, err := second.LockSession(other.ID); err != nil {
 		t.Fatalf("a different session should be free: %v", err)
@@ -55,6 +67,10 @@ func TestLockSessionExcludesOtherProcesses(t *testing.T) {
 	}
 
 	release()
+
+	if used, err := second.SessionInUse(session.ID); err != nil || used {
+		t.Fatalf("a released session in use: %v, %v", used, err)
+	}
 
 	if unlock, err := second.LockSession(session.ID); err != nil {
 		t.Fatalf("lock after release: %v", err)
@@ -231,9 +247,18 @@ func TestSessionsKeepTheirModel(t *testing.T) {
 		t.Fatalf("options after clearing = %s", found.Options)
 	}
 
+	if err := database.RenameSession(session.ID, "a better title"); err != nil {
+		t.Fatal(err)
+	}
+
+	if found, _ := database.Session(session.ID); found.Title != "a better title" || found.Model != "claude-opus-5-5" {
+		t.Fatalf("after renaming, session = %+v", found)
+	}
+
 	for _, err := range []error{
 		database.SetSessionModel("missing", "anthropic", "x"),
 		database.SetSessionOptions("missing", nil),
+		database.RenameSession("missing", "x"),
 	} {
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("a session that does not exist: err = %v", err)

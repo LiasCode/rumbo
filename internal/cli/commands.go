@@ -295,32 +295,6 @@ func systemCommands(database store.Store, args []string) error {
 	return errors.New(systemUsage())
 }
 
-func listSessions(database store.Store, _ []string) error {
-	_, root, err := workingProject()
-
-	if err != nil {
-		return err
-	}
-
-	sessions, err := database.Sessions(root)
-
-	if err != nil {
-		return err
-	}
-
-	for _, session := range sessions {
-		title := session.Title
-
-		if session.Parent != "" {
-			title += "  (branch of " + session.Parent + ")"
-		}
-
-		fmt.Printf("%s\t%s\t%s\n", session.ID, session.ActiveAt.Format("2006-01-02 15:04"), title)
-	}
-
-	return nil
-}
-
 // printLog writes the session's entries, one JSON object per line. The
 // entries are the complete record: replaying them rebuilds every request.
 func printLog(database store.Store, args []string) error {

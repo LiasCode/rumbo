@@ -95,10 +95,21 @@ nothing and knows no model API.
 **Sessions**
 
 - Find a project by its git root, from any directory inside it.
-- List the sessions of a project, marking those working in this host.
+- List the sessions of a project, or of every one (`rumbo sessions -all`),
+  with how each one stands: how its last run ended, done, failed,
+  cancelled, or interrupted when its process died, or that a rumbo process
+  is using it; its turns, and the tokens they took. A front end's list
+  marks those working in this host.
 - Continue the latest session (`-c`) or a given one (`-s`), or resume its
   unfinished run (`-r`).
-- Open another session, start a new one, and delete one with its history.
+- Open another session, start a new one, and give one a title of the
+  person's own (`rename`, `rumbo sessions rename`).
+- Delete a session with its history, several by id (`rumbo sessions rm`),
+  or those of a project not used in a given time (`prune`, `rumbo sessions
+  prune`), only when the person confirms: `prune` asks first, and says
+  which it deleted; `rumbo sessions prune` lists them, and deletes them
+  when given `-yes`. A session a rumbo process is using is kept, and a host
+  whose session another process deleted says so instead of working in it.
 - Branch a session: go on in a new one that starts with a copy of it, as it
   is or as it was before one of the person's messages. The session it came
   from stays as it is, and can go on working at the same time; the files
@@ -164,7 +175,8 @@ nothing and knows no model API.
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
   session: `status`, `skills`, `sessions`, `open`, `new`, `branch`,
-  `branch-points`, `delete`, `use`, `session-options`, and `compact`. For
+  `branch-points`, `delete`, `rename`, `prune`, `use`, `session-options`,
+  and `compact`. For
   the providers: `providers`, `provider-models`, `option-values`,
   `provider-add`, `provider-config`, `provider-options`, `provider-show`,
   and `provider-rm`.

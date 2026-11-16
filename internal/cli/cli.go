@@ -28,7 +28,7 @@ const usage = `rumbo - a minimal agent harness
 Usage:
   rumbo [flags] [objective]      work in the current directory, in a front end
   rumbo serve [flags]            be the host for a front end on stdin/stdout
-  rumbo sessions                 list the sessions of the current project
+  rumbo sessions ...             list, rename, and delete sessions
   rumbo skills                   list the skills the model is told of here, and those left out
   rumbo log <session>            print a session's entries as JSON lines
   rumbo system ...               read and write the system settings
@@ -102,7 +102,7 @@ func dispatch(args []string) error {
 			// The old name would otherwise reach the model as a task.
 			return errors.New(`"rumbo config" is now "rumbo system", for the system settings; a provider's options are set with "rumbo provider options"`)
 		case "sessions":
-			return withStore(args[1:], listSessions)
+			return withStore(args[1:], sessionCommands)
 		case "skills":
 			return printSkills(args[1:])
 		case "log":

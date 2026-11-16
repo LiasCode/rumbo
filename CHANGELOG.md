@@ -27,9 +27,21 @@ it. The commits hold the reasons.
   summarized at 150,000 tokens at most, which was 15% of a context of a
   million tokens, such as Claude Opus's. `rumbo system set compact_at 15%`
   brings that back for such a model.
+- `rumbo sessions` says how each session stands: how its last run ended,
+  or that a rumbo process is using it, its turns, and the tokens they took.
+  `-all` lists the sessions of every project. Its output now has a header
+  and aligned columns, with the title last. The list of `/open` says how
+  each session stands and its turns too.
+- Sessions can be renamed, with `/rename` or `rumbo sessions rename`, and
+  deleted several at once, with `rumbo sessions rm`, or by age, with
+  `/prune 30d` or `rumbo sessions prune 30d`. `/prune` asks you to confirm,
+  and says which it deleted; `rumbo sessions prune` lists them, and deletes
+  them when given `-yes`. A session in use by a rumbo process is kept.
 - Each response records the output limit its request set, how long the
   provider took, and the version of rumbo; each tool result, how long the
   tool took. `rumbo log` shows them.
+- A host whose session was deleted by another rumbo process says so when
+  given a task, instead of failing with a database error.
 
 ### Front ends
 

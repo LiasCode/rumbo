@@ -480,6 +480,21 @@ func (s *SQLite) SetSessionOptions(id string, options json.RawMessage) error {
 	return nil
 }
 
+// RenameSession implements Store.
+func (s *SQLite) RenameSession(id, title string) error {
+	result, err := s.db.Exec(`UPDATE sessions SET title = ? WHERE id = ?`, title, id)
+
+	if err != nil {
+		return err
+	}
+
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // LatestSession implements Store.
 func (s *SQLite) LatestSession(project string) (Session, error) {
 	row := s.db.QueryRow(
@@ -579,6 +594,33 @@ func (s *SQLite) LockSession(id string) (func(), error) {
 	}
 
 	return func() { _ = file.Close() }, nil
+}
+
+// SessionInUse implements Store. A lock is taken on an open file, so trying
+// it through another one fails while any process holds it, this one too.
+func (s *SQLite) SessionInUse(id string) (bool, error) {
+	file, err := os.OpenFile(filepath.Join(filepath.Dir(s.path), "locks", id+".lock"), os.O_RDWR, 0)
+
+	// Without a lock file, nothing ever held it.
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	defer file.Close()
+
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return true, nil
+		}
+
+		return false, err
+	}
+
+	return false, nil
 }
 
 // Append implements Store.

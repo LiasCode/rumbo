@@ -29,8 +29,9 @@ interrupted), `compaction`, and `note`.
 the conversation: how it ended (`done`, `failed`, `cancelled`), or a retried
 request. The model never sees notes.
 
-**Unfinished run.** A run whose last note is not `done`, or that has none
-because the process died. It can be resumed.
+**Unfinished run.** A run whose last note is not `done`: it failed, was
+cancelled, or was interrupted, which leaves no note because its process
+died. It can be resumed.
 
 **Resume.** To continue an unfinished run without a new objective. The model
 is told the run was interrupted, and calls that never finished are closed
