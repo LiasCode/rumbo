@@ -47,6 +47,10 @@ it. The commits hold the reasons.
 
 ### Front ends
 
+- A front end can show the sessions of every project: `projects` lists the
+  projects that have sessions, most recently used first, and `sessions`
+  lists another project's with its `project`. In the terminal UI they are
+  `/projects` and `/sessions <project>`.
 - The input tokens the terminal UI and `plain` count now include those the
   provider wrote to its cache, as `/status` does. With Claude, which writes
   nearly all of each request there, `in` showed almost nothing, and a

@@ -85,6 +85,53 @@ func refused(t *testing.T, h *host, name, params string) string {
 	return err.Error()
 }
 
+func TestHostListsEveryProjectAndTheSessionsOfAny(t *testing.T) {
+	h := testHost(t)
+
+	if none := call(t, h, "projects", ""); len(none.Values) != 0 || none.Text == "" {
+		t.Fatalf("projects with no sessions = %+v", none)
+	}
+
+	h.database.CreateSession("/repo", "/repo", "here")
+	h.database.CreateSession("/elsewhere/sub", "/elsewhere", "there")
+	there, _ := h.database.CreateSession("/elsewhere", "/elsewhere", "there too")
+
+	projects := call(t, h, "projects", "").Values
+
+	if len(projects) != 2 {
+		t.Fatalf("projects = %+v", projects)
+	}
+
+	// Most recently used first, each by its root, with how many sessions it
+	// has; this host's own says so.
+	if projects[0].Value != "/elsewhere" || projects[0].Label != "elsewhere" || !strings.HasPrefix(projects[0].Description, "2 sessions; last used ") {
+		t.Fatalf("first project = %+v", projects[0])
+	}
+
+	if projects[1].Value != "/repo" || !strings.HasPrefix(projects[1].Description, "this project; 1 session; ") {
+		t.Fatalf("second project = %+v", projects[1])
+	}
+
+	elsewhere := call(t, h, "sessions", `{"project":"/elsewhere"}`).Values
+
+	if len(elsewhere) != 2 || elsewhere[0].Value != there.ID || elsewhere[0].Label != "there too" {
+		t.Fatalf("sessions of /elsewhere = %+v", elsewhere)
+	}
+
+	if own := call(t, h, "sessions", "").Values; len(own) != 1 || own[0].Label != "here" {
+		t.Fatalf("sessions of this project = %+v", own)
+	}
+
+	if empty := call(t, h, "sessions", `{"project":"/nowhere"}`); len(empty.Values) != 0 || !strings.Contains(empty.Text, "/nowhere") {
+		t.Fatalf("sessions of an unknown project = %+v", empty)
+	}
+
+	// Listing another project's sessions does not move this host there.
+	if state := call(t, h, "status", "").State; state.Dir != "/repo" {
+		t.Fatalf("state after listing = %+v", state)
+	}
+}
+
 func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 	h := testHost(t)
 	older, _ := h.database.CreateSession("/repo/sub", "/repo", "older work")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,13 @@ type hostFunction struct {
 
 // sessionParam lets a function act on a session other than the current one.
 var sessionParam = protocol.Option{Name: "session", Type: protocol.OptionString, Values: "sessions", Optional: true}
+
+// projectParam lets sessions list another project's, so a front end can
+// show every project's sessions from one host.
+var projectParam = protocol.Option{
+	Name: "project", Type: protocol.OptionString, Values: "projects", Optional: true,
+	Description: "the root of another project; without it, this one",
+}
 
 // chosenProvider lets a function ask a provider other than the current
 // session's. A front end that lists a parameter's values with such a
@@ -111,9 +119,19 @@ var hostFunctions = []hostFunction{
 		call:      (*host).listSkills,
 	},
 	{
-		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first, with how each one stands", Group: protocol.GroupSession},
+		Function: protocol.Function{
+			Name:        "sessions",
+			Description: "List the sessions of this project, or of another, most recently used first, with how each one stands",
+			Params:      []protocol.Option{projectParam},
+			Group:       protocol.GroupSession,
+		},
 		duringRun: true,
 		call:      (*host).listSessions,
+	},
+	{
+		Function:  protocol.Function{Name: "projects", Description: "List the projects that have sessions, most recently used first", Group: protocol.GroupSession},
+		duringRun: true,
+		call:      (*host).listProjects,
 	},
 	{
 		Function: protocol.Function{
@@ -476,8 +494,14 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 	return nil
 }
 
-func (h *host) listSessions(context.Context, map[string]string) (protocol.HostResult, error) {
-	listed, err := standings(h.database, h.root)
+func (h *host) listSessions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	project := params["project"]
+
+	if project == "" {
+		project = h.root
+	}
+
+	listed, err := standings(h.database, project)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -521,8 +545,63 @@ func (h *host) listSessions(context.Context, map[string]string) (protocol.HostRe
 		result.Values = append(result.Values, protocol.Value{Value: each.ID, Label: each.Title, Description: strings.Join(parts, "; ")})
 	}
 
-	if len(listed) == 0 {
+	if len(listed) == 0 && project == h.root {
 		result.Text = "this project has no sessions yet"
+	} else if len(listed) == 0 {
+		result.Text = project + " has no sessions"
+	}
+
+	return result, nil
+}
+
+// listProjects lists the projects that have sessions, by their root, most
+// recently used first, so a front end can show every project's sessions
+// and start rumbo in the one a person opens.
+func (h *host) listProjects(context.Context, map[string]string) (protocol.HostResult, error) {
+	sessions, err := h.database.Sessions("")
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	type project struct {
+		root     string
+		sessions int
+		used     string
+	}
+
+	var projects []*project
+
+	known := map[string]*project{}
+
+	// The sessions come most recently used first, so a project's first one
+	// says when it was last used.
+	for _, session := range sessions {
+		found, ok := known[session.Project]
+
+		if !ok {
+			found = &project{root: session.Project, used: session.ActiveAt.Format("2006-01-02 15:04")}
+			known[session.Project] = found
+			projects = append(projects, found)
+		}
+
+		found.sessions++
+	}
+
+	var result protocol.HostResult
+
+	for _, project := range projects {
+		description := counted(project.sessions, "session") + "; last used " + project.used
+
+		if project.root == h.root {
+			description = "this project; " + description
+		}
+
+		result.Values = append(result.Values, protocol.Value{Value: project.root, Label: filepath.Base(project.root), Description: description})
+	}
+
+	if len(projects) == 0 {
+		result.Text = "no project has sessions yet"
 	}
 
 	return result, nil

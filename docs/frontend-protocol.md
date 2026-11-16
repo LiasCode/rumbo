@@ -386,7 +386,8 @@ The functions of this version, by group:
 | `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
 | `status` | session | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
 | `skills` | session | | Lists the skills the model is told of in the current session's directory, and those left out, with why. |
-| `sessions` | session | | Lists the project's sessions, most recently used first, with how each one stands: how its last run ended, or that it works in this host or in another rumbo process, and its turns. |
+| `sessions` | session | `project`? | Lists the project's sessions, most recently used first, with how each one stands: how its last run ended, or that it works in this host or in another rumbo process, and its turns; with a `project`, by its root, that project's instead. |
+| `projects` | session | | Lists the projects that have sessions, by their root, most recently used first, with how many each has, and marks this host's. A front end shows every project's sessions with them, and starts `rumbo serve` in the root of the one a person opens. |
 | `open` | session | `session` | Makes another session of the project the current one. |
 | `new` | session | | Makes the next task start a new session. |
 | `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it waits for a run working in the session. |
@@ -418,7 +419,7 @@ run in progress keeps the one it started with.
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
 `system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
-`skills`, `sessions`, `branch-points`, `rename`, `providers`,
+`skills`, `sessions`, `projects`, `branch-points`, `rename`, `providers`,
 `provider-models`, `option-values`, `provider-add`, `provider-options`, and
 `provider-rm`.
 

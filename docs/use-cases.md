@@ -100,6 +100,8 @@ nothing and knows no model API.
   cancelled, or interrupted when its process died, or that a rumbo process
   is using it; its turns, and the tokens they took. A front end's list
   marks those working in this host.
+- List the projects that have sessions, and the sessions of any of them, to
+  a front end, so it can show those of every project from one host.
 - Continue the latest session (`-c`) or a given one (`-s`), or resume its
   unfinished run (`-r`).
 - Open another session, start a new one, and give one a title of the
@@ -175,9 +177,9 @@ nothing and knows no model API.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
-  session: `status`, `skills`, `sessions`, `open`, `new`, `branch`,
-  `branch-points`, `delete`, `rename`, `prune`, `use`, `session-options`,
-  and `compact`. For
+  session: `status`, `skills`, `sessions`, `projects`, `open`, `new`,
+  `branch`, `branch-points`, `delete`, `rename`, `prune`, `use`,
+  `session-options`, and `compact`. For
   the providers: `providers`, `provider-models`, `option-values`,
   `provider-add`, `provider-config`, `provider-options`, `provider-show`,
   and `provider-rm`.
