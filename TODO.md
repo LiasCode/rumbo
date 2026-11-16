@@ -1,8 +1,8 @@
 # To do
 
 rumbo is a general agent harness: it is not tied to programming, it does not
-judge the model's work, and it sends no context beyond the environment and
-the user's instructions.
+judge the model's work, and it sends no context beyond the environment, the
+user's instructions, and what the user's skills are for.
 
 What is left on our side: the loop, configuration, and sessions.
 

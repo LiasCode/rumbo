@@ -58,9 +58,9 @@ rumbo is a general agent harness. These are decisions, not gaps:
   calling tools. The host runs no checks and sends the model back for
   nothing. Measured over the evaluation set, checks never changed an outcome
   and cost a great deal of machinery.
-- **It sends no context unasked** beyond the environment and the user's
-  instructions. The model looks at the project with its tools when it needs
-  to.
+- **It sends no context unasked** beyond the environment, the user's
+  instructions, and what each of the user's skills is for. The model looks
+  at the project, and reads a skill, with its tools when it needs to.
 - **It has no permission system.** The agent acts with the rights of the
   user who started it. Limiting what it may write or run is out of scope;
   someone who needs that runs rumbo inside a sandbox of their choice.

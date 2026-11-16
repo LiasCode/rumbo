@@ -80,6 +80,13 @@ nothing and knows no model API.
 - The user's instructions: the `AGENTS.md` or `CLAUDE.md` files from the
   project's root down to the working directory, and the user's own in
   `~/.config/rumbo/`. A long one is cut, saying where the rest is.
+- The user's skills: the name, the description, and the path of each
+  `SKILL.md` in `~/.config/rumbo/skills/<name>/`, and in
+  `.agents/skills/<name>/` from the project's root down to the working
+  directory, where one of the same name replaces the user's. The model reads
+  a skill when a task needs it. One without a description in its
+  frontmatter is left out, and a long description is cut; a value with a
+  colon in it that YAML rejects unquoted is read anyway.
 
 **Sessions**
 
@@ -181,8 +188,8 @@ nothing and knows no model API.
   programming or any other domain.
 - Judge the model's work. A run ends when the model stops calling tools,
   and the host runs no checks of its own.
-- Send context nobody asked for, beyond the environment and the user's
-  instructions.
+- Send context nobody asked for, beyond the environment, the user's
+  instructions, and what the user's skills are for.
 - Limit what the agent may do. It acts with the rights of the user who
   started it, inside whatever sandbox the user chose.
 - Track the files the model changes. A session keeps the conversation, not

@@ -38,9 +38,9 @@ A real run calls the model and costs tokens. Model output varies between
 runs: use `-runs` before reading much into a single pass or failure.
 
 Each run gets a fresh copy of the task's project and a database of its own,
-and ignores the machine's global instructions, so results depend only on the
-task and the code. A provider you registered is carried over from your own
-database.
+and ignores the machine's global instructions and skills, so results depend
+only on the task and the code. A provider you registered is carried over
+from your own database.
 
 ## Reading the report
 

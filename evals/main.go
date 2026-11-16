@@ -304,7 +304,8 @@ func prepare(task, workdir string) (string, error) {
 }
 
 // environment isolates a run from the machine: its own database, and no
-// global instructions, so results depend only on the task and the code.
+// global instructions or skills, so results depend only on the task and the
+// code.
 func environment(task, workdir string) []string {
 	return append(os.Environ(),
 		"RUMBO_DB="+filepath.Join(workdir, "eval.db"),

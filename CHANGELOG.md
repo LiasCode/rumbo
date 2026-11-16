@@ -5,6 +5,14 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Host
+
+- The model is told of your skills, in the Agent Skills format: each
+  `SKILL.md` in `~/.config/rumbo/skills/<name>/`, and in a project's
+  `.agents/skills/<name>/`. It gets the name and the description of each,
+  and reads the skill itself when a task needs it. A project's skill
+  replaces one of yours with the same name.
+
 ### Sessions
 
 - rumbo says when a request misses the provider's cache: when the provider

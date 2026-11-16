@@ -67,9 +67,11 @@ in the background, and the files the tools save for the model, are the
 host's: they go when it exits.
 
 **Ambient context** (`internal/ambient`). The little the model is told
-without asking: the environment it runs in, and the user's instruction files.
-Each collector produces a named section. Everything else about a task the
-model finds out with its tools, when it needs it.
+without asking: the environment it runs in, the user's instruction files,
+and the user's skills. Of a skill the model is told only what it is for and
+where it is; it reads the skill when a task needs it. Each collector
+produces a named section. Everything else about a task the model finds out
+with its tools, when it needs it.
 
 **Store** (`internal/store`). Settings, registered programs, sessions, and
 entries, in one SQLite file.
@@ -130,8 +132,9 @@ read less from the cache than the request before left there is a cache miss,
 and the person is told, since the rest is paid for again.
 
 **The harness adds as little as it can.** The system prompt is a few lines,
-and the only context sent unasked is the environment and the user's
-instructions. Whatever else the harness sent would be paid for on every
+and the only context sent unasked is the environment, the user's
+instructions, and what each of the user's skills is for. Whatever else the
+harness sent would be paid for on every
 request, by every task, whether it helped that task or not.
 
 **A full context is compacted, not trimmed.** The provider reports how many

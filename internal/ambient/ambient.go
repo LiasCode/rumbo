@@ -1,6 +1,6 @@
 // Package ambient gathers the little the model is told without asking: where
-// it is running, and the user's standing instructions. Everything else about
-// a task the model finds out with its tools.
+// it is running, the user's standing instructions, and the user's skills.
+// Everything else about a task the model finds out with its tools.
 package ambient
 
 import (
@@ -46,6 +46,7 @@ func Defaults() []Collector {
 	return []Collector{
 		Func("environment", environment),
 		Func("instructions", instructions),
+		Func("skills", skills),
 	}
 }
 
@@ -100,20 +101,10 @@ var instructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 // instructions gathers the user's global guide and the guides from the
 // repository root down to dir, so the most specific one comes last.
 func instructions(ctx context.Context, dir string) string {
-	var dirs []string
+	dirs := projectDirs(ctx, dir)
 
-	root := project.Root(ctx, dir)
-
-	for current := dir; ; current = filepath.Dir(current) {
-		dirs = append([]string{current}, dirs...)
-
-		if current == root || current == filepath.Dir(current) {
-			break
-		}
-	}
-
-	if config, err := os.UserConfigDir(); err == nil {
-		dirs = append([]string{filepath.Join(config, "rumbo")}, dirs...)
+	if user, found := userDir(); found {
+		dirs = append([]string{user}, dirs...)
 	}
 
 	var parts []string
@@ -131,4 +122,34 @@ func instructions(ctx context.Context, dir string) string {
 	}
 
 	return strings.Join(parts, "\n\n")
+}
+
+// userDir is where the user keeps what rumbo reads from them everywhere: the
+// global guide and the skills.
+func userDir() (string, bool) {
+	config, err := os.UserConfigDir()
+
+	if err != nil {
+		return "", false
+	}
+
+	return filepath.Join(config, "rumbo"), true
+}
+
+// projectDirs returns the directories from the project's root down to dir,
+// so the most specific one comes last.
+func projectDirs(ctx context.Context, dir string) []string {
+	var dirs []string
+
+	root := project.Root(ctx, dir)
+
+	for current := dir; ; current = filepath.Dir(current) {
+		dirs = append([]string{current}, dirs...)
+
+		if current == root || current == filepath.Dir(current) {
+			break
+		}
+	}
+
+	return dirs
 }

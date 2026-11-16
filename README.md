@@ -112,6 +112,23 @@ The model also reads your instructions: the `AGENTS.md` or `CLAUDE.md` files
 from the project's root down to where you are, and yours in
 `~/.config/rumbo/` (`~/Library/Application Support/rumbo/` on macOS).
 
+It is told of your skills too, in the [Agent Skills](https://agentskills.io)
+format: a directory with a `SKILL.md` whose frontmatter has a `name` and a
+`description` of what it is for and when to use it. Yours go in
+`~/.config/rumbo/skills/`, and a project's in `.agents/skills/`, from its
+root down to where you are; a project's skill replaces one of yours with the
+same name. Only the description is sent with every request, and the model
+reads the skill when a task needs it. This one is
+`~/.config/rumbo/skills/meeting-notes/SKILL.md`:
+
+```markdown
+---
+name: meeting-notes
+description: Write meeting notes in my format. Use for any summary of a meeting.
+---
+One heading per topic, decisions first, then who does what by when.
+```
+
 ## Bring your own
 
 - **A provider** answers `initialize` and `complete` on its stdin and

@@ -121,15 +121,20 @@ program's own default, kept the first time the program says it.
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
 
 **Ambient context.** What the harness tells the model without being asked:
-the environment it runs in and the user's instructions.
+the environment it runs in, the user's instructions, and the user's skills.
 
 **Instructions.** The `AGENTS.md` or `CLAUDE.md` files of the project and of
 the user. They are where the user says how work should be done.
 
+**Skill.** Instructions for one kind of task, kept by the user or the
+project in a directory with a `SKILL.md`, in the
+[Agent Skills](https://agentskills.io) format. The model is told only what
+each one is for, and reads the rest when a task needs it.
+
 **Collector.** The source of one section of ambient context.
 
-**Section.** A named piece of ambient context: `environment` or
-`instructions`. A new
+**Section.** A named piece of ambient context: `environment`,
+`instructions`, or `skills`. A new
 version of a section replaces the previous one.
 
 **Project.** The directory tree the work belongs to, identified by its root:
