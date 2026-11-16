@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -354,19 +353,15 @@ func (a *Agent) shed(ctx context.Context, session store.Session, objective strin
 	}
 
 	// The last step is the model's last message and what answered it.
-	last := len(state.Messages) - 1
+	conversation, found := withoutLastStep(state.Messages)
 
-	for last >= 0 && state.Messages[last].Role != protocol.RoleAssistant {
-		last--
-	}
-
-	if last < 1 {
+	if !found {
 		return errors.New("the request does not fit in the model's context even at its start; shorten the instructions or use a model with a larger context")
 	}
 
 	a.Observer.Notice("the request did not fit in the model's context; summarizing the conversation without its last step and trying again")
 
-	if err := a.summarize(ctx, session, state, state.Messages[:last], objective, shedNote); err != nil {
+	if err := a.summarize(ctx, session, state, conversation, objective, shedNote); err != nil {
 		return err
 	}
 
@@ -383,20 +378,8 @@ func (a *Agent) shed(ctx context.Context, session store.Session, objective strin
 // request on the same prefix, and records the compaction the next request
 // starts from.
 func (a *Agent) summarize(ctx context.Context, session store.Session, state transcript.State, conversation []protocol.Message, objective, note string) error {
-	// The instruction joins the last user message when there is one, since
-	// roles must alternate.
-	messages := slices.Clone(conversation)
-	instruction := protocol.Block{Type: protocol.BlockText, Text: summarize}
-	last := len(messages) - 1
-
-	if last >= 0 && messages[last].Role == protocol.RoleUser {
-		messages[last].Content = append(slices.Clone(messages[last].Content), instruction)
-	} else {
-		messages = append(messages, protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{instruction}})
-	}
-
 	// The summary is not an answer to the user, so it is not shown as text.
-	params := a.params(state, messages)
+	params := a.params(state, summaryRequest(conversation, summarize))
 	result, took, err := a.complete(ctx, session, params, func(string) {})
 
 	if err != nil {
@@ -448,14 +431,7 @@ func summaryOf(result protocol.CompleteResult) string {
 }
 
 func (a *Agent) params(state transcript.State, messages []protocol.Message) protocol.CompleteParams {
-	return protocol.CompleteParams{
-		Model:     a.Model,
-		System:    state.System.Text,
-		Messages:  messages,
-		Tools:     state.System.Tools,
-		MaxTokens: a.MaxTokens,
-		Options:   a.Options,
-	}
+	return request(state, messages, a.Model, a.MaxTokens, a.Options)
 }
 
 // sent is what a response records of the request params that asked for it,

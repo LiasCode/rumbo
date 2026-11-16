@@ -4,7 +4,7 @@ rumbo is a general agent harness: it is not tied to programming, it does not
 judge the model's work, and it sends no context beyond the environment, the
 user's instructions, and what the user's skills are for.
 
-What is left on our side: the loop, configuration, and sessions.
+What is left on our side: the loop and configuration.
 
 Items are numbered so they can be referred to. Within a block they are in the
 order to do them. Remove an item when it is done.
@@ -57,11 +57,6 @@ The owner decided what this covers: these, in this order.
 
 25. **Configurable limits.** Tool output size and timeouts are fixed in the
     code.
-
-## 3. Sessions
-
-30. **Reproduce a request.** `log` prints entries. A command should print the
-    exact request of turn N, which is the proof that history is reproducible.
 
 ## 4. Quality
 

@@ -16,7 +16,7 @@ var version = ""
 
 // commands are the words rumbo reads as a command rather than an
 // objective.
-var commands = []string{"help", "version", "provide", "attach", "serve", "provider", "frontend", "system", "sessions", "skills", "log"}
+var commands = []string{"help", "version", "provide", "attach", "serve", "provider", "frontend", "system", "sessions", "skills", "log", "request"}
 
 // describeVersion says what this binary is, and the protocol version it
 // speaks.

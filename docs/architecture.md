@@ -121,8 +121,9 @@ the entries up to it, so its first request is one the provider has seen.
 
 **The request is a pure function of the entries.** `transcript.Build` is the
 only code that turns a session into a request. Nothing else is added on the
-way to the provider, so a stored session reproduces every request exactly.
-Anything that should influence the model must be an entry first.
+way to the provider, so a stored session reproduces every request exactly,
+and `rumbo request` prints any of them. Anything that should influence the
+model must be an entry first.
 
 **The prefix is stable.** The system prompt is constant, tool declarations
 are deterministic, and ambient context is sent once and then only as changed

@@ -7,14 +7,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/LiasCode/rumbo/internal/agent"
 	"github.com/LiasCode/rumbo/internal/frontends/plain"
 	"github.com/LiasCode/rumbo/internal/frontends/tui"
 	"github.com/LiasCode/rumbo/internal/providers/anthropic"
 	"github.com/LiasCode/rumbo/internal/providers/chatgpt"
 	"github.com/LiasCode/rumbo/internal/providers/openai"
 	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/transcript"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -293,6 +296,59 @@ func systemCommands(database store.Store, args []string) error {
 	}
 
 	return errors.New(systemUsage())
+}
+
+// printRequest writes what the provider was sent for a turn of a session,
+// as it was sent: the params of its complete, rebuilt from the entries
+// before the response. Without a turn, the last one.
+func printRequest(database store.Store, args []string) error {
+	if len(args) < 1 || len(args) > 2 {
+		return errors.New("usage: rumbo request <session> [<turn>]")
+	}
+
+	if _, err := database.Session(args[0]); err != nil {
+		return fmt.Errorf("session %s: %w", args[0], err)
+	}
+
+	entries, err := database.Entries(args[0])
+
+	if err != nil {
+		return err
+	}
+
+	turns := transcript.Summarize(entries).Turns
+
+	if turns == 0 {
+		return fmt.Errorf("session %s has no turns yet", args[0])
+	}
+
+	turn := turns
+
+	if len(args) == 2 {
+		if turn, err = strconv.Atoi(args[1]); err != nil {
+			return fmt.Errorf("a turn is a number, counted from 1, not %q", args[1])
+		}
+	}
+
+	params, sent, err := agent.Request(entries, turn)
+
+	if err != nil {
+		return fmt.Errorf("session %s: %w", args[0], err)
+	}
+
+	raw, err := json.Marshal(params)
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(raw))
+
+	if sent.Version == "" {
+		fmt.Fprintf(os.Stderr, "rumbo: turn %d was recorded before rumbo kept the output limit a request set, so the request shows none\n", turn)
+	}
+
+	return nil
 }
 
 // printLog writes the session's entries, one JSON object per line. The

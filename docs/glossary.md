@@ -52,7 +52,8 @@ failure ends the run.
 **Transcript.** The interpretation of a session's entries as the request sent
 to the model.
 
-**Turn.** One request to the provider and its response.
+**Turn.** One request to the provider and its response: the model's answer,
+or a summary. A session's turns are counted from 1.
 
 **Cache miss.** A response whose provider read less from its cache than the
 request before left there, as the usage of both says: what the earlier one

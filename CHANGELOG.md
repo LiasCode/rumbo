@@ -37,6 +37,8 @@ it. The commits hold the reasons.
   `/prune 30d` or `rumbo sessions prune 30d`. `/prune` asks you to confirm,
   and says which it deleted; `rumbo sessions prune` lists them, and deletes
   them when given `-yes`. A session in use by a rumbo process is kept.
+- `rumbo request <session> [turn]` prints the request a turn sent the
+  provider, exactly as it was sent, rebuilt from the session.
 - Each response records the output limit its request set, how long the
   provider took, and the version of rumbo; each tool result, how long the
   tool took. `rumbo log` shows them.

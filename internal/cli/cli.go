@@ -31,6 +31,8 @@ Usage:
   rumbo sessions ...             list, rename, and delete sessions
   rumbo skills                   list the skills the model is told of here, and those left out
   rumbo log <session>            print a session's entries as JSON lines
+  rumbo request <session> [turn] print the request a turn sent the provider, as it was sent;
+                                 without a turn, the last one
   rumbo system ...               read and write the system settings
   rumbo provider ...             manage providers and their options
   rumbo frontend ...             manage front ends
@@ -107,6 +109,8 @@ func dispatch(args []string) error {
 			return printSkills(args[1:])
 		case "log":
 			return withStore(args[1:], printLog)
+		case "request":
+			return withStore(args[1:], printRequest)
 		}
 	}
 

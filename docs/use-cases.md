@@ -122,7 +122,8 @@ nothing and knows no model API.
   settings. `-p`, `-m`, and `-o` choose them for the session, as `use` and
   `session-options` do. A session that changes provider leaves its options
   behind.
-- Print a session's whole record (`rumbo log`).
+- Print a session's whole record (`rumbo log`), and the exact request any
+  of its turns sent the provider, rebuilt from it (`rumbo request`).
 - Record with each response the output limit its request set, how long the
   provider took, and the rumbo that sent it; and with each tool result how
   long the tool took. None of it is sent to the model.

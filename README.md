@@ -12,10 +12,10 @@ it and the interfaces in front of it are separate programs you can replace.
   programs that speak a small JSON-RPC protocol over stdio. The built-in
   ones use the same protocols as the ones you write; none gets a shortcut.
 - **History you can replay.** A session is an append-only log in SQLite.
-  Every request sent to the model can be rebuilt from it, a run that failed
-  or was cut short resumes where it stopped (`rumbo -r`), and `/branch`
-  goes on from before any of your messages in a new session, while the
-  first one stays as it was.
+  Every request sent to the model can be rebuilt from it (`rumbo request`
+  prints it), a run that failed or was cut short resumes where it stopped
+  (`rumbo -r`), and `/branch` goes on from before any of your messages in a
+  new session, while the first one stays as it was.
 - **Built for the provider's cache.** Each request extends the one before
   until a summary starts the conversation over, so the provider can read it
   from its cache; a test guarantees it.
