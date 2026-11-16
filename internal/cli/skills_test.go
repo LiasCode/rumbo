@@ -11,6 +11,8 @@ import (
 // in the session's directory, and why one is left out, so a skill that
 // does not work can be fixed.
 func TestSkillsSayWhatTheModelIsToldOf(t *testing.T) {
+	// macOS keeps the configuration under HOME, whatever XDG_CONFIG_HOME says.
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	h := testHost(t)

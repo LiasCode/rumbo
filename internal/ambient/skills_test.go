@@ -30,8 +30,7 @@ func writeSkill(t *testing.T, skills, directory, content string) string {
 // The model is told of the user's skills and of the project's, from its root
 // down to the working directory, and the most specific one of a name wins.
 func TestSkillsComeFromTheUserAndTheProject(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", config)
+	config := userConfig(t)
 
 	// The temporary directory may be reached through a symlink, and git
 	// reports the real path.
@@ -74,7 +73,7 @@ func TestSkillsComeFromTheUserAndTheProject(t *testing.T) {
 // A skill the model could not tell when to use is left out, saying why, and
 // without skills there is no section, so nothing more is sent.
 func TestSkillsWithoutADescriptionAreLeftOut(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	userConfig(t)
 
 	dir := t.TempDir()
 	ctx := context.Background()

@@ -8,10 +8,29 @@ import (
 	"testing"
 )
 
+// userConfig gives the test a configuration directory of its own, and
+// returns it: XDG_CONFIG_HOME on Linux, and one under HOME on macOS, which
+// does not read XDG_CONFIG_HOME.
+func userConfig(t *testing.T) string {
+	t.Helper()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	config, err := os.UserConfigDir()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return config
+}
+
 // The model is told where it is and what the user's instructions are, and
 // on later runs only what changed.
 func TestChangesReportsOnlyWhatChanged(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	userConfig(t)
 
 	dir := t.TempDir()
 	ctx := context.Background()
