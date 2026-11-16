@@ -16,7 +16,8 @@ large it is.
 ### Host
 
 - The model is told of your skills, in the Agent Skills format: each
-  `SKILL.md` in `~/.config/rumbo/skills/<name>/`, and in a project's
+  `SKILL.md` in `~/.config/rumbo/skills/<name>/` (`~/Library/Application
+  Support/rumbo/skills/<name>/` on macOS), and in a project's
   `.agents/skills/<name>/`. It gets the name and the description of each,
   and reads the skill itself when a task needs it. A project's skill
   replaces one of yours with the same name. `rumbo skills`, or `/skills`

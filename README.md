@@ -115,10 +115,11 @@ from the project's root down to where you are, and yours in
 It is told of your skills too, in the [Agent Skills](https://agentskills.io)
 format: a directory with a `SKILL.md` whose frontmatter has a `name` and a
 `description` of what it is for and when to use it. Yours go in
-`~/.config/rumbo/skills/`, and a project's in `.agents/skills/`, from its
-root down to where you are; a project's skill replaces one of yours with the
-same name. Only the description is sent with every request, and the model
-reads the skill when a task needs it. This one is
+`~/.config/rumbo/skills/` (`~/Library/Application Support/rumbo/skills/` on
+macOS), and a project's in `.agents/skills/`, from its root down to where
+you are; a project's skill replaces one of yours with the same name. Only
+the description is sent with every request, and the model reads the skill
+when a task needs it. This one is
 `~/.config/rumbo/skills/meeting-notes/SKILL.md`:
 
 ```markdown
