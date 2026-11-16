@@ -14,8 +14,8 @@ and answers with what it was told.
 Register and use it:
 
     rumbo provider add toy python3 /path/to/examples/provider.py
-    rumbo -m toy/any "list the files"
-    rumbo -m toy/any          # then type /greet in the terminal UI
+    rumbo -p toy -m any "list the files"
+    rumbo -p toy -m any       # then type /greet in the terminal UI
 """
 
 import json
