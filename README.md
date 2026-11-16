@@ -129,6 +129,9 @@ description: Write meeting notes in my format. Use for any summary of a meeting.
 One heading per topic, decisions first, then who does what by when.
 ```
 
+`rumbo skills`, or `/skills` in the terminal UI, lists the skills the model
+is told of where you are, and says why one is left out.
+
 ## Bring your own
 
 - **A provider** answers `initialize` and `complete` on its stdin and

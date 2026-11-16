@@ -11,7 +11,9 @@ it. The commits hold the reasons.
   `SKILL.md` in `~/.config/rumbo/skills/<name>/`, and in a project's
   `.agents/skills/<name>/`. It gets the name and the description of each,
   and reads the skill itself when a task needs it. A project's skill
-  replaces one of yours with the same name.
+  replaces one of yours with the same name. `rumbo skills`, or `/skills`
+  in the terminal UI, lists those the model is told of where you are, and
+  says why one is left out, such as a frontmatter without a description.
 
 ### Sessions
 

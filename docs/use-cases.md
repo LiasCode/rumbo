@@ -87,6 +87,10 @@ nothing and knows no model API.
   a skill when a task needs it. One without a description in its
   frontmatter is left out, and a long description is cut; a value with a
   colon in it that YAML rejects unquoted is read anyway.
+- List the skills the model is told of in a session's directory, and those
+  left out, with why: one of the same name replaced it, or its frontmatter
+  is missing, unclosed, not valid YAML, or without a description
+  (`skills`, and `rumbo skills` in the working directory).
 
 **Sessions**
 

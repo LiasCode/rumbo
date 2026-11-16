@@ -101,6 +101,15 @@ var hostFunctions = []hostFunction{
 		call:      (*host).status,
 	},
 	{
+		Function: protocol.Function{
+			Name:        "skills",
+			Description: "List the skills the model is told of here, and why one is left out",
+			Group:       protocol.GroupSession,
+		},
+		duringRun: true,
+		call:      (*host).listSkills,
+	},
+	{
 		Function:  protocol.Function{Name: "sessions", Description: "List the sessions of this project, most recently used first", Group: protocol.GroupSession},
 		duringRun: true,
 		call:      (*host).listSessions,
