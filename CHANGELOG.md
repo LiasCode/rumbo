@@ -27,6 +27,9 @@ it. The commits hold the reasons.
   summarized at 150,000 tokens at most, which was 15% of a context of a
   million tokens, such as Claude Opus's. `rumbo system set compact_at 15%`
   brings that back for such a model.
+- Each response records the output limit its request set, how long the
+  provider took, and the version of rumbo; each tool result, how long the
+  tool took. `rumbo log` shows them.
 
 ### Front ends
 

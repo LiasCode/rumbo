@@ -62,8 +62,6 @@ The owner decided what this covers: these, in this order.
 
 30. **Reproduce a request.** `log` prints entries. A command should print the
     exact request of turn N, which is the proof that history is reproducible.
-31. **Entry metadata.** Duration, rumbo version, and request parameters are
-    not stored.
 32. **Useful listing.** `sessions` shows only the current project, and no
     turns, tokens, or state (finished, failed, unfinished).
 33. **Rename and prune.** A session can be deleted, one at a time and from a

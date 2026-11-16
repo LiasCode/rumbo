@@ -112,6 +112,9 @@ nothing and knows no model API.
   `session-options` do. A session that changes provider leaves its options
   behind.
 - Print a session's whole record (`rumbo log`).
+- Record with each response the output limit its request set, how long the
+  provider took, and the rumbo that sent it; and with each tool result how
+  long the tool took. None of it is sent to the model.
 - Tell a front end what a session holds, in the events its runs sent, with
   what the person asked and how each run ended, so it can show a session it
   opens.

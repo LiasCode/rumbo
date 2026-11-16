@@ -72,6 +72,20 @@ type Assistant struct {
 	Options json.RawMessage `json:"options,omitempty"`
 	// Window is the size of the model's context, as the provider reported it.
 	Window int64 `json:"window,omitempty"`
+	Sent
+}
+
+// Sent is what a response records of the request that asked for it, beyond
+// the conversation: the output limit it set, how long the provider took to
+// answer it, and the rumbo that sent it. Responses recorded before rumbo
+// kept it have none of it.
+type Sent struct {
+	// MaxTokens is the output limit; none leaves it to the provider.
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// Duration is how long the provider took to answer, in milliseconds.
+	Duration int64 `json:"duration_ms,omitempty"`
+	// Version names the rumbo that sent the request.
+	Version string `json:"version,omitempty"`
 }
 
 // ToolResult is the outcome of one tool call.
@@ -80,6 +94,8 @@ type ToolResult struct {
 	Name    string `json:"name"`
 	Text    string `json:"text"`
 	IsError bool   `json:"is_error,omitempty"`
+	// Duration is how long the tool took, in milliseconds.
+	Duration int64 `json:"duration_ms,omitempty"`
 }
 
 // Note records something that happened in a run and is not part of the
@@ -100,6 +116,7 @@ type Compaction struct {
 	Provider string          `json:"provider"`
 	Model    string          `json:"model"`
 	Options  json.RawMessage `json:"options,omitempty"`
+	Sent
 }
 
 // Interrupted is the result given to a tool call that never got one, for

@@ -90,6 +90,9 @@ type Agent struct {
 	Model        string
 	Options      json.RawMessage
 	MaxTokens    int
+	// Version names the rumbo that sends the requests, recorded with every
+	// response.
+	Version string
 
 	// Compaction says when the conversation is replaced by a summary.
 	Compaction Compaction
@@ -393,7 +396,8 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 	}
 
 	// The summary is not an answer to the user, so it is not shown as text.
-	result, err := a.complete(ctx, session, a.params(state, messages), func(string) {})
+	params := a.params(state, messages)
+	result, took, err := a.complete(ctx, session, params, func(string) {})
 
 	if err != nil {
 		return fmt.Errorf("could not summarize the conversation: %w", err)
@@ -415,6 +419,7 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 		Provider: a.ProviderName,
 		Model:    a.Model,
 		Options:  a.Options,
+		Sent:     a.sent(params, took),
 	})
 }
 
@@ -453,18 +458,26 @@ func (a *Agent) params(state transcript.State, messages []protocol.Message) prot
 	}
 }
 
+// sent is what a response records of the request params that asked for it,
+// which the provider answered in took.
+func (a *Agent) sent(params protocol.CompleteParams, took time.Duration) transcript.Sent {
+	return transcript.Sent{MaxTokens: params.MaxTokens, Duration: took.Milliseconds(), Version: a.Version}
+}
+
 // complete sends one request. A request that fails for a transient reason is
-// sent again after a pause.
-func (a *Agent) complete(ctx context.Context, session store.Session, params protocol.CompleteParams, onDelta func(string)) (protocol.CompleteResult, error) {
+// sent again after a pause. It returns how long the provider took to give
+// the answer, without the attempts that failed.
+func (a *Agent) complete(ctx context.Context, session store.Session, params protocol.CompleteParams, onDelta func(string)) (protocol.CompleteResult, time.Duration, error) {
 	for attempt := 0; ; attempt++ {
+		started := time.Now()
 		result, err := a.Provider.Complete(ctx, params, onDelta)
 
 		if err == nil {
-			return result, nil
+			return result, time.Since(started), nil
 		}
 
 		if ctx.Err() != nil || !protocol.IsTransient(err) || attempt >= len(a.RetryWaits) {
-			return result, err
+			return result, 0, err
 		}
 
 		wait := a.RetryWaits[attempt]
@@ -473,12 +486,12 @@ func (a *Agent) complete(ctx context.Context, session store.Session, params prot
 		a.Observer.Notice(notice)
 
 		if err := a.note(session, transcript.NoteRetry, notice); err != nil {
-			return result, err
+			return result, 0, err
 		}
 
 		select {
 		case <-ctx.Done():
-			return result, ctx.Err()
+			return result, 0, ctx.Err()
 		case <-time.After(wait):
 		}
 	}
@@ -499,7 +512,8 @@ func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.Compl
 		a.Observer.Text(text)
 	}
 
-	result, err := a.complete(ctx, session, a.params(state, state.Messages), onDelta)
+	params := a.params(state, state.Messages)
+	result, took, err := a.complete(ctx, session, params, onDelta)
 
 	if err != nil {
 		return result, err
@@ -525,6 +539,7 @@ func (a *Agent) turn(ctx context.Context, session store.Session) (protocol.Compl
 		Model:    a.Model,
 		Options:  a.Options,
 		Window:   result.ContextWindow,
+		Sent:     a.sent(params, took),
 	})
 
 	usage := result.Usage
@@ -574,11 +589,13 @@ func (a *Agent) execute(ctx context.Context, session store.Session, calls []prot
 
 		a.Observer.ToolStarted(call.Name, call.Args)
 
+		started := time.Now()
 		text, failed := a.call(ctx, session.Dir, call)
+		took := time.Since(started)
 
 		a.Observer.ToolFinished(call.Name, text, failed)
 
-		result := transcript.ToolResult{ID: call.ID, Name: call.Name, Text: text, IsError: failed}
+		result := transcript.ToolResult{ID: call.ID, Name: call.Name, Text: text, IsError: failed, Duration: took.Milliseconds()}
 
 		if err := a.append(session, transcript.KindToolResult, result); err != nil {
 			return err

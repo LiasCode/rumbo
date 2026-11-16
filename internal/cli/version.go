@@ -21,9 +21,14 @@ var commands = []string{"help", "version", "provide", "attach", "serve", "provid
 // describeVersion says what this binary is, and the protocol version it
 // speaks.
 func describeVersion() string {
+	return fmt.Sprintf("rumbo %s (protocol %d)", release(), protocol.Version)
+}
+
+// release names this build, which every response records with it.
+func release() string {
 	info, _ := debug.ReadBuildInfo()
 
-	return fmt.Sprintf("rumbo %s (protocol %d)", built(version, info), protocol.Version)
+	return built(version, info)
 }
 
 // built names this build: the release it was built as, else the module
