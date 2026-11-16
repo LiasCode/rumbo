@@ -131,6 +131,7 @@ The result arrives when the run is over, however it ends:
 ```
 
 | `status` | Meaning |
+| `skills` | session | | Lists the skills the model is told of in the current session's directory, and those left out, with why. |
 |---|---|
 | `done` | The model finished the task. |
 | `failed` | The run ended with a problem; `error` explains it. |
@@ -415,7 +416,7 @@ run in progress keeps the one it started with.
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
 `system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
-`sessions`, `branch-points`, `providers`, `provider-models`,
+`skills`, `sessions`, `branch-points`, `providers`, `provider-models`,
 `option-values`, `provider-add`, `provider-options`, and `provider-rm`.
 
 ## What the host guarantees

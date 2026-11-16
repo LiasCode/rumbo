@@ -160,7 +160,7 @@ nothing and knows no model API.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
-  session: `status`, `sessions`, `open`, `new`, `branch`,
+  session: `status`, `skills`, `sessions`, `open`, `new`, `branch`,
   `branch-points`, `delete`, `use`, `session-options`, and `compact`. For
   the providers: `providers`, `provider-models`, `option-values`,
   `provider-add`, `provider-config`, `provider-options`, `provider-show`,
