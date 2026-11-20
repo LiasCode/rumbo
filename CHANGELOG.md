@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.6.0 (2026-11-20)
+
 Configuration is one thing to learn. Everything rumbo keeps is in files you
 can read: what you chose in one `config.yaml`, and each session in a
 directory of its own. Every setting is changed the same way, `name=value`,
