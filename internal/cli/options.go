@@ -35,9 +35,9 @@ func (o *optionFlags) Set(value string) error {
 	return nil
 }
 
-// fieldValue reads the value of a name=value change. A value that is valid
-// JSON is kept as it is, so true and 3 are a boolean and a number; anything
-// else is text.
+// fieldValue reads the value of a name=value change for a setting nothing
+// describes. A value that is valid JSON is kept as it is, so true and 3 are
+// a boolean and a number; anything else is text.
 func fieldValue(value string) json.RawMessage {
 	if json.Valid([]byte(value)) {
 		return json.RawMessage(value)
@@ -46,27 +46,6 @@ func fieldValue(value string) json.RawMessage {
 	quoted, _ := json.Marshal(value)
 
 	return quoted
-}
-
-// applyChanges lays name=value changes over the fields of an object and
-// leaves the others. An empty value removes the field.
-func applyChanges(fields map[string]json.RawMessage, changes []string) error {
-	for _, change := range changes {
-		name, value, found := strings.Cut(change, "=")
-
-		if !found || name == "" {
-			return fmt.Errorf("%q is not name=value", change)
-		}
-
-		if value == "" {
-			delete(fields, name)
-			continue
-		}
-
-		fields[name] = fieldValue(value)
-	}
-
-	return nil
 }
 
 // mergeOptions lays each JSON object over the ones before it, field by
@@ -127,26 +106,4 @@ func optionsInForce(config json.RawMessage, described []protocol.Option, session
 	}
 
 	return mergeOptions(configured, session)
-}
-
-// changeObject lays name=value changes over the fields of a JSON object, as
-// applyChanges does. What is left is nil when no field is.
-func changeObject(object json.RawMessage, changes []string) (json.RawMessage, error) {
-	fields := map[string]json.RawMessage{}
-
-	if len(object) > 0 {
-		if err := json.Unmarshal(object, &fields); err != nil {
-			return nil, fmt.Errorf("what is there is not a JSON object: %w", err)
-		}
-	}
-
-	if err := applyChanges(fields, changes); err != nil {
-		return nil, err
-	}
-
-	if len(fields) == 0 {
-		return nil, nil
-	}
-
-	return json.Marshal(fields)
 }

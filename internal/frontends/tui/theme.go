@@ -13,7 +13,7 @@ import (
 
 // Config is the start configuration of the terminal UI. What the user
 // chose of it is in rumbo's configuration file, and changes with rumbo
-// frontend config tui field=value.
+// frontend set tui field=value.
 type Config struct {
 	// Theme is auto, which shows colors unless NO_COLOR is set; color, which
 	// always does; or plain, which shows none.
@@ -38,14 +38,34 @@ var defaultConfig = Config{
 	Success: "green", Failure: "red", Warning: "yellow", Progress: "cyan",
 }
 
-// configured reads the configuration registered, over the defaults.
+// configured reads the configuration chosen, over the defaults. Every field
+// is text, and a number, such as a color of the 256 written in YAML as 214,
+// is read as the text it is.
 func configured(given json.RawMessage) (Config, error) {
 	config := defaultConfig
 
-	if len(given) > 0 {
-		if err := json.Unmarshal(given, &config); err != nil {
-			return defaultConfig, fmt.Errorf("the configuration of the terminal UI: %w", err)
+	if len(given) == 0 {
+		return config, nil
+	}
+
+	var fields map[string]json.RawMessage
+
+	if err := json.Unmarshal(given, &fields); err != nil {
+		return defaultConfig, fmt.Errorf("the configuration of the terminal UI: %w", err)
+	}
+
+	for name, value := range fields {
+		var number json.Number
+
+		if json.Unmarshal(value, &number) == nil {
+			fields[name], _ = json.Marshal(number.String())
 		}
+	}
+
+	text, _ := json.Marshal(fields)
+
+	if err := json.Unmarshal(text, &config); err != nil {
+		return defaultConfig, fmt.Errorf("the configuration of the terminal UI: %w", err)
 	}
 
 	return config, nil

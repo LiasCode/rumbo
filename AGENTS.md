@@ -46,11 +46,17 @@ changes one of those updates it in the same change.
   are passed down, and a run keeps what it started with.
 - **Configuration has three levels, kept apart.** A system setting is
   rumbo's own, the same everywhere (`settings.go`); a session keeps what it
-  chose, which wins over the system's in it; a provider has one
-  configuration, which holds the values of its options too, and a session's
-  win over those (`programs.go`, `options.go`). Nothing is set per project.
-  Something new goes at one level, and a host function names it in its
-  `Group`.
+  chose, which wins over the system's in it; a provider has its model and
+  one configuration, which holds the values of its options too, and a
+  session's win over those (`programs.go`, `options.go`). Nothing is set
+  per project. Something new goes at one level, and a host function names
+  it in its `Group`.
+- **Every setting is changed the same way**: `name=value`, where an empty
+  value gives it back to the level under it, through `changes.go`, and
+  checked before it is kept. A new command or host function that sets
+  something takes that grammar, and shows what it changed one line to a
+  change; what is shown of the configuration goes through `view.go`, each
+  value with where it comes from.
 - **Users read CHANGELOG.md.** A change they would notice adds a line to its
   `Unreleased` section, in their terms; the reason goes in the commit.
 

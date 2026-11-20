@@ -112,15 +112,20 @@ type InitializeResult struct {
 }
 
 // Description is how a provider tells the host and the front end what can be
-// chosen and asked of it. The host does not interpret any of it: it passes
-// the description to the front end, the chosen options to the provider with
-// every request, and function calls through. All of it is optional.
+// chosen and asked of it. The host passes the description to the front end,
+// the chosen options to the provider with every request, and function calls
+// through, and checks a value a person sets against what describes it. All
+// of it is optional.
 type Description struct {
 	// Model says how a model is chosen, usually by naming the function that
 	// lists them. Its Name is ignored.
 	Model *Option `json:"model,omitempty"`
 	// Options are what the provider accepts with a request, beyond the model.
 	Options []Option `json:"options,omitempty"`
+	// Fields are the fields of the provider's configuration, besides its
+	// options, described as options are, each with its default: what a
+	// person can set for it, which it reads when it starts.
+	Fields []Option `json:"fields,omitempty"`
 	// Functions are what the provider can be asked through invoke.
 	Functions []Function `json:"functions,omitempty"`
 }
@@ -165,6 +170,10 @@ type Function struct {
 	// constants. A front end may list the functions by it. A provider's
 	// functions are all the provider's and leave it empty.
 	Group string `json:"group,omitempty"`
+	// Lists says the function is there to list the values a parameter of
+	// another function takes, which names it in Values. A front end calls
+	// it for those values, and need not offer it as a command.
+	Lists bool `json:"lists,omitempty"`
 }
 
 // InvokeParams calls a function of the provider.

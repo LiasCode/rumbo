@@ -25,7 +25,12 @@ func TestTheConfigurationGoesOverTheDefaults(t *testing.T) {
 		t.Fatalf("in force = %s", inForce)
 	}
 
-	if _, err := configured(json.RawMessage(`{"theme":3}`)); err == nil {
+	// A color of the 256, written in YAML as a number, is the text it is.
+	if numbered, err := configured(json.RawMessage(`{"color_code":214}`)); err != nil || numbered.Code != "214" {
+		t.Fatalf("a color written as a number = %+v, %v", numbered, err)
+	}
+
+	if _, err := configured(json.RawMessage(`{"theme":true}`)); err == nil {
 		t.Fatal("a theme that is no text was taken")
 	}
 }

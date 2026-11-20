@@ -248,14 +248,14 @@ func (u *ui) commandChoices() []choice {
 		choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
 	}
 
-	for _, function := range u.info.Functions {
+	for _, function := range commands(u.info.Functions) {
 		if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == "/"+function.Name }) {
 			choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
 		}
 	}
 
 	if u.described != nil {
-		for _, function := range u.described.Offers.Functions {
+		for _, function := range commands(u.described.Offers.Functions) {
 			name := "/" + function.Name
 
 			if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == name }) {

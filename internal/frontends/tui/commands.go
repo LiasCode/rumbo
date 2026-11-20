@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/LiasCode/rumbo/internal/frontends/render"
@@ -17,10 +18,9 @@ import (
 // host or the provider described: the front end knows none of them
 // beforehand, and gains a command whenever either of them gains a function.
 const (
-	commandOptions = "/options"
-	commandHelp    = "/help"
-	commandCopy    = "/copy"
-	commandExport  = "/export"
+	commandHelp   = "/help"
+	commandCopy   = "/copy"
+	commandExport = "/export"
 )
 
 // ownCommands are the front end's own, described as functions are, so they
@@ -28,7 +28,6 @@ const (
 // host or the provider of the same name.
 var ownCommands = []protocol.Function{
 	{Name: "help", Description: "Show every command"},
-	{Name: "options", Description: "Show what the provider offers, and the values in force in this session"},
 	{
 		Name:        "copy",
 		Description: "Put the model's last answer in the clipboard, or only its last code block",
@@ -155,20 +154,14 @@ func (u *ui) execute(words []string) (answer, error) {
 	}
 
 	// The host's functions come first: they need no provider to be running.
-	if words[0] != commandOptions {
-		if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
-			return u.call(fromHost, u.info.Functions[index], args)
-		}
+	if index := slices.IndexFunc(u.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
+		return u.call(fromHost, u.info.Functions[index], args)
 	}
 
 	described, err := u.describe()
 
 	if err != nil {
 		return answer{source: fromProvider}, err
-	}
-
-	if words[0] == commandOptions {
-		return answer{source: fromProvider, text: u.offered(described)}, nil
 	}
 
 	if index := slices.IndexFunc(described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
@@ -263,7 +256,7 @@ func (u *ui) learned(described protocol.DescribeResult) {
 var groupTitles = map[string]string{
 	protocol.GroupSystem:   "system: rumbo itself, the same for every session and provider",
 	protocol.GroupSession:  "session: the current session, and the others of this project",
-	protocol.GroupProvider: "providers: which there are, how each is started, and the options it gets",
+	protocol.GroupProvider: "providers: which there are, how each is started, and what is set for each",
 }
 
 // groupTitle names a group of the host's functions, also one this front end
@@ -290,7 +283,7 @@ func (u *ui) help() string {
 	var groups []string
 	members := map[string][]protocol.Function{}
 
-	for _, function := range u.info.Functions {
+	for _, function := range commands(u.info.Functions) {
 		if _, seen := members[function.Group]; !seen {
 			groups = append(groups, function.Group)
 		}
@@ -309,13 +302,12 @@ func (u *ui) help() string {
 	// Only the provider can say what it offers, so it is asked.
 	described, err := u.describe()
 
-	fmt.Fprintf(&out, "\n%s%s  what reaches the model. What it offers changes with the provider.\n%s", styleReset, u.label(fromProvider), styleDim)
-	fmt.Fprintf(&out, "%-28s %s\n", commandOptions, "Show what it offers, and the values in force in this session")
+	fmt.Fprintf(&out, "\n%s%s  what reaches the model. What it offers changes with the provider; /provider-show shows its settings.\n%s", styleReset, u.label(fromProvider), styleDim)
 
 	if err != nil {
 		fmt.Fprintf(&out, "%sIts own commands could not be listed: %s%s\n", u.theme.failure, err, styleDim)
 	} else {
-		for _, function := range described.Offers.Functions {
+		for _, function := range commands(described.Offers.Functions) {
 			fmt.Fprintf(&out, "%s\n", usage(function))
 		}
 	}
@@ -323,9 +315,7 @@ func (u *ui) help() string {
 	fmt.Fprintf(&out, "\n%sthe terminal UI's own\n%s", styleReset, styleDim)
 
 	for _, function := range ownCommands {
-		if "/"+function.Name != commandOptions {
-			fmt.Fprintf(&out, "%s\n", usage(function))
-		}
+		fmt.Fprintf(&out, "%s\n", usage(function))
 	}
 
 	out.WriteString("\n")
@@ -334,6 +324,12 @@ func (u *ui) help() string {
 	out.WriteString("Anything that is not a command is a task.")
 
 	return out.String()
+}
+
+// commands are the functions offered as commands: all but those there to
+// list the values a parameter takes, which the menu offers in its place.
+func commands(functions []protocol.Function) []protocol.Function {
+	return slices.DeleteFunc(slices.Clone(functions), func(function protocol.Function) bool { return function.Lists })
 }
 
 func usage(function protocol.Function) string {
@@ -560,4 +556,34 @@ func list(values []protocol.Value) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// encode turns what the user typed into the JSON value the option's type
+// asks for.
+func encode(option protocol.Option, value string) (json.RawMessage, error) {
+	switch option.Type {
+	case protocol.OptionBoolean:
+		parsed, err := strconv.ParseBool(value)
+
+		if err != nil {
+			return nil, fmt.Errorf("%s is true or false", option.Name)
+		}
+
+		return json.Marshal(parsed)
+
+	case protocol.OptionNumber:
+		parsed, err := strconv.ParseFloat(value, 64)
+
+		if err != nil {
+			return nil, fmt.Errorf("%s is a number", option.Name)
+		}
+
+		return json.Marshal(parsed)
+	}
+
+	if len(option.Enum) > 0 && !slices.Contains(option.Enum, value) {
+		return nil, fmt.Errorf("%s is one of: %s", option.Name, strings.Join(option.Enum, ", "))
+	}
+
+	return json.Marshal(value)
 }

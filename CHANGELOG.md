@@ -5,20 +5,65 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
-Everything rumbo keeps is now in files you can read: what you chose in one
-`config.yaml`, and each session in a directory of its own. A provider has
-one configuration, which holds the values of its options too. Sessions and
-settings stored by 0.5.0 and earlier are not carried over.
+Configuration is one thing to learn. Everything rumbo keeps is in files you
+can read: what you chose in one `config.yaml`, and each session in a
+directory of its own. Every setting is changed the same way, `name=value`,
+is checked before it is kept, and `rumbo config` shows all of it with where
+each value comes from. The model a new session starts with is now each
+provider's own. Sessions and settings stored by 0.5.0 and earlier are not
+carried over.
+
+### Configuration
+
+- Every setting is changed as `name=value`, and an empty value gives it
+  back to its default: `rumbo system set max_turns=90`, `rumbo provider set
+  anthropic effort=high`, `rumbo frontend set tui theme=plain`, and in the
+  terminal UI `/system-set`, `/provider-set`, and `/session-set`, whose
+  menus offer the values each setting takes. Several changes go in one
+  command line, and none is kept unless all are right.
+- **The model is now each provider's own**, and `default_model` is gone:
+  `rumbo provider set anthropic model=claude-opus-5-5`. A new session starts
+  with the default provider and its model, and `rumbo -p chatgpt` starts
+  with chatgpt's, without `-m`. A provider with no model set still opens the
+  terminal UI, where `/use` chooses one; a task is refused until there is
+  one, saying how to choose it. `rumbo provider models <name>` lists the
+  models a provider offers.
+- A value is checked before it is kept. A provider is asked what it has: a
+  name it does not have, such as a misspelled `contxt_window`, a value of
+  another type, or one not among those it lists, such as `api=bogus`, is
+  refused with what it takes, and the provider is started with the change,
+  which is not kept if it does not start. Values are read as the setting's
+  type asks, so `effort=3` is the text "3". The options a session chooses,
+  with `-o` or `/session-set`, are checked the same way. A front end cannot
+  be started without its terminal, so what it is given is checked when it
+  next starts.
+- `rumbo config`, and `/config` in the terminal UI, show what is set and
+  what applies, each value with where it comes from: the session,
+  `config.yaml`, rumbo's default, or how rumbo has a built-in provider. It
+  starts nothing. `rumbo provider show <name>`, and `/provider-show`, start a
+  provider and show each of its settings, its own defaults included, with
+  what each is and the values it takes; in the terminal UI, without a name,
+  the session's provider, with what the session chose over the rest.
+- `rumbo system` shows the system settings; `rumbo system list`, `get`, and
+  `unset`, `rumbo provider config` and `options`, and `rumbo frontend
+  config` say what took their place.
+- The terminal UI has fewer commands: `/system`, `/system-unset`,
+  `/system-keys`, `/session-options`, `/option-values`, `/provider-config`,
+  `/provider-options`, and its own `/options` are gone, into `/config`,
+  `/system-set`, `/session-set`, `/provider-set`, and `/provider-show`. Its
+  status bar says when there is no model yet. A color of its configuration
+  can be written as a number, such as `color_code: 214`.
 
 ### Storage
 
 - What you choose is kept in `~/.config/rumbo/config.yaml`
   (`~/Library/Application Support/rumbo/config.yaml` on macOS): the system
   settings under `system`, and what you chose for each provider and front
-  end under `providers` and `frontends`. It holds only what you set, never a
-  default, and you can edit it. rumbo changes it one value at a time and
-  leaves the rest, your comments included, as you wrote it. A name it does
-  not know there, or a value of the wrong shape, stops it and says the line.
+  end under `providers` and `frontends`, a provider's model beside its
+  configuration. It holds only what you set, never a default, and you can
+  edit it. rumbo changes it one value at a time and leaves the rest, your
+  comments included, as you wrote it. A name it does not know there, or a
+  value of the wrong shape, stops it and says the line.
 - Each session is a directory, `~/.local/share/rumbo/sessions/<id>/`:
   `session.json` says what it is and what it chose, and `entries.jsonl`
   holds its history, one entry to a line, as `rumbo log` prints it.
@@ -33,23 +78,28 @@ settings stored by 0.5.0 and earlier are not carried over.
 ### Providers
 
 - A provider has one configuration, and the value you set for one of its
-  options is a field of it: `rumbo provider config anthropic effort=high`
-  gives every session that effort unless it chooses another with `-o` or
-  `/session-options`. `rumbo provider options` and `/provider-options` are
-  gone, and `/provider-config` offers the values the options take.
+  options is a setting of it like any other: `rumbo provider set anthropic
+  effort=high` gives every session that effort unless it chooses another
+  with `-o` or `/session-set`.
 - Only what you choose for a provider or a front end is kept. Its defaults
   are no longer copied next to it the first time it starts, so a default a
-  new version changes reaches you unless you chose otherwise.
-  `rumbo provider show` prints what you chose and, next to it, the
-  configuration in force with the provider's defaults. An option nobody
-  chose is no longer sent with each request as its empty default.
+  new version changes reaches you unless you chose otherwise. An option
+  nobody chose is no longer sent with each request as its empty default.
 - The built-in providers and front ends are always there, without being
-  registered. `rumbo provider rm openai` removes what you chose for it and
+  registered. `rumbo provider rm openai` removes what you set for it and
   leaves it as rumbo has it; a provider you add under the same name takes
   its place.
-- `/status` and `/session-options` show the options chosen in the session
-  and the provider's configuration under them, each on a line of its own,
-  instead of the two merged.
+
+### Protocols
+
+- A provider can describe the fields of its configuration, as `fields`,
+  the way it describes its options, each with its default. rumbo shows them
+  and checks against them what a person sets. The built-in providers
+  describe theirs.
+- A function of the host can be marked `lists`: it is there to list the
+  values a parameter takes, and a front end need not offer it as a command.
+- The `model` a front end is told of at `initialize` is empty while
+  nothing chose one.
 
 ## 0.5.0 (2026-11-16)
 

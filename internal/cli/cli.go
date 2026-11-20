@@ -33,9 +33,10 @@ Usage:
   rumbo log <session>            print a session's entries as JSON lines
   rumbo request <session> [turn] print the request a turn sent the provider, as it was sent;
                                  without a turn, the last one
-  rumbo system ...               read and write the system settings
-  rumbo provider ...             manage providers and their configuration
-  rumbo frontend ...             manage front ends
+  rumbo config                   what is chosen and what applies, each value with where it comes from
+  rumbo system ...               show and set the system settings
+  rumbo provider ...             add, show, and set providers: their model, configuration, and options
+  rumbo frontend ...             add, show, and set front ends
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
   rumbo version                  print the version
@@ -45,9 +46,9 @@ Flags:
   -r             resume the unfinished run of that session, without a new objective
   -s <session>   continue the given session
   -p <provider>  provider of the session (default: the default_provider setting)
-  -m <model>     model of the session (default: the default_model setting)
+  -m <model>     model of the session (default: the model set for its provider)
   -o <n>=<v>     a provider option of the session, such as -o effort=high; may be
-                 repeated, and an empty value removes it
+                 repeated, and an empty value gives one back to the provider's
   -f <name>      front end for this start (default: tui in a terminal, else plain)
   -single        work in one session at a time; by default the host works in
                  several sessions of the project at once
@@ -101,8 +102,7 @@ func dispatch(args []string) error {
 		case "system":
 			return withStore(args[1:], systemCommands)
 		case "config":
-			// The old name would otherwise reach the model as a task.
-			return errors.New(`"rumbo config" is now "rumbo system", for the system settings; a provider's options are set with "rumbo provider config"`)
+			return withStore(args[1:], configCommand)
 		case "sessions":
 			return withStore(args[1:], sessionCommands)
 		case "skills":
@@ -292,23 +292,23 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, err
 	}
 
-	chosen, err := startChoice(settings, session, *providerName, *model, options)
+	chosen, err := startChoice(database, settings, session, *providerName, *model, options)
 
 	if err != nil {
-		return nil, err
-	}
-
-	if _, err := findProgram(database, store.KindProvider, chosen.provider); err != nil {
-		if session != nil && session.Provider == chosen.provider && *providerName == "" {
-			return nil, fmt.Errorf(`session %s uses the provider %q, which is not registered; register it again, or choose another with -p`, session.ID, chosen.provider)
-		}
-
 		return nil, err
 	}
 
 	// A malformed stored value stops rumbo before a front end starts.
 	if _, err := mergeOptions(chosen.options); err != nil {
 		return nil, fmt.Errorf("the options of the session: %w", err)
+	}
+
+	objective := strings.TrimSpace(strings.Join(flags.Args(), " "))
+
+	// A front end can choose a model before its first task; one given a task
+	// to start with cannot.
+	if chosen.model == "" && (objective != "" || *resume) {
+		return nil, fmt.Errorf(`no model chosen for %[1]s: pass -m, or run "rumbo provider set %[1]s model=<model>"; "rumbo provider models %[1]s" lists them`, chosen.provider)
 	}
 
 	tools := tool.NewSet()
@@ -343,7 +343,7 @@ func newHost(database store.Store, args []string) (*host, error) {
 		Dir:       dir,
 		Provider:  chosen.provider,
 		Model:     chosen.model,
-		Objective: strings.TrimSpace(strings.Join(flags.Args(), " ")),
+		Objective: objective,
 		Resume:    *resume,
 		Functions: describedFunctions(),
 	}
@@ -361,49 +361,59 @@ func newHost(database store.Store, args []string) (*host, error) {
 }
 
 // startChoice is what the session rumbo starts in uses: its own provider,
-// model, and options, or the system's defaults for a session still to be
-// made, with what the command line chose over them.
-func startChoice(defaults config, session *store.Session, providerFlag, modelFlag string, changes optionFlags) (choice, error) {
-	chosen := choice{provider: defaults.DefaultProvider, model: defaults.DefaultModel}
+// model, and options, or, for a session still to be made, the default
+// provider with the model set for it; what the command line chose goes over
+// them. The options it gives are checked against what the provider
+// describes, which starts it.
+func startChoice(database store.Store, defaults config, session *store.Session, providerFlag, modelFlag string, changes optionFlags) (choice, error) {
+	chosen := choice{provider: defaults.DefaultProvider}
 
-	// A session from before providers were stored with it takes the system's.
+	// A session that did not keep its provider takes the system's.
 	if session != nil && session.Provider != "" {
 		chosen = choice{provider: session.Provider, model: session.Model, options: session.Options}
 	}
 
 	// Options are for the provider they were chosen for, so another one
-	// starts without them, and with the default model only when it is the
-	// default provider.
+	// starts without them.
 	if providerFlag != "" && providerFlag != chosen.provider {
 		chosen = choice{provider: providerFlag}
+	}
 
-		if providerFlag == defaults.DefaultProvider {
-			chosen.model = defaults.DefaultModel
+	if chosen.provider == "" {
+		return chosen, fmt.Errorf(`no provider chosen: pass -p, or run "rumbo system set %s=<provider>"`, keyDefaultProvider)
+	}
+
+	program, err := findProgram(database, store.KindProvider, chosen.provider)
+
+	if err != nil {
+		if session != nil && session.Provider == chosen.provider && providerFlag == "" {
+			return chosen, fmt.Errorf(`session %s uses the provider %q, which is not registered; register it again, or choose another with -p`, session.ID, chosen.provider)
 		}
+
+		return chosen, err
+	}
+
+	if chosen.model == "" {
+		chosen.model = program.Model
 	}
 
 	if modelFlag != "" {
 		chosen.model = modelFlag
 	}
 
-	if len(changes) > 0 {
-		options, err := changeObject(chosen.options, changes)
-
-		if err != nil {
-			return chosen, err
-		}
-
-		chosen.options = options
+	if len(changes) == 0 {
+		return chosen, nil
 	}
 
-	switch {
-	case chosen.provider == "":
-		return chosen, fmt.Errorf(`no provider chosen: run "rumbo system set %s <provider>", or pass -p`, keyDefaultProvider)
-	case chosen.model == "":
-		return chosen, fmt.Errorf(`no model chosen for %s: pass -m, or run "rumbo system set %s <model>" for the default provider`, chosen.provider, keyDefaultModel)
+	known, err := learnSettings(program, os.Stderr)
+
+	if err != nil {
+		return chosen, fmt.Errorf("%s did not start, and -o needs it to check the options: %w", chosen.provider, err)
 	}
 
-	return chosen, nil
+	chosen.options, _, err = chooseOptions(chosen.provider, known.offers.Options, chosen.options, changes)
+
+	return chosen, err
 }
 
 // serve connects the front end on r and w and runs its objectives until it

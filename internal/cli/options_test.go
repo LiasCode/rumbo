@@ -5,22 +5,9 @@ import (
 	"testing"
 )
 
-// The command line changes the options chosen in a session one by one, and
-// objects are laid over each other field by field.
-func TestOptionsAreChangedOneByOne(t *testing.T) {
-	var flags optionFlags
-	flags.Set("effort=high")
-	flags.Set("limit=3")
-	flags.Set("note=two words")
-	flags.Set("verbose=")
-
-	session, err := changeObject(json.RawMessage(`{"verbose":true,"web":true}`), flags)
-
-	if err != nil || string(session) != `{"effort":"high","limit":3,"note":"two words","web":true}` {
-		t.Fatalf("session = %s, err = %v", session, err)
-	}
-
-	if merged, err := mergeOptions(json.RawMessage(`{"effort":"low","verbose":false}`), session); err != nil || string(merged) != `{"effort":"high","limit":3,"note":"two words","verbose":false,"web":true}` {
+// Objects are laid over each other field by field, and -o takes name=value.
+func TestOptionsAreLaidOverEachOther(t *testing.T) {
+	if merged, err := mergeOptions(json.RawMessage(`{"effort":"low","verbose":false}`), json.RawMessage(`{"effort":"high","limit":3}`)); err != nil || string(merged) != `{"effort":"high","limit":3,"verbose":false}` {
 		t.Fatalf("merged = %s, err = %v", merged, err)
 	}
 
@@ -32,7 +19,9 @@ func TestOptionsAreChangedOneByOne(t *testing.T) {
 		t.Fatal("options that are not an object were accepted")
 	}
 
-	if flags.Set("no-value") == nil {
-		t.Fatal("a flag without a value was accepted")
+	var flags optionFlags
+
+	if flags.Set("effort=high") != nil || flags.Set("no-value") == nil {
+		t.Fatalf("flags = %v", flags)
 	}
 }

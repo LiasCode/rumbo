@@ -109,15 +109,21 @@ starts, so a stored change applies to the next run.
 Configuration has three levels, kept apart. The system settings are
 rumbo's own, the same everywhere. A session keeps what it chose, which wins
 over them there: its provider, its model, and values of the provider's
-options. A provider has one configuration: what it starts with, and the
-values of its options, which it gets with every request under those a
-session chose. The built-in programs are there without being registered;
-what the user chooses for one is all that is kept of it. What a
-system setting is, what a provider's options are, and what a registered
-program is each have one owner there (`settings.go`, `options.go`,
-`programs.go`). The commands and the host's functions, each named for the
-level it acts on, are two ways into the same code, so configuring from a
-terminal and from a front end cannot drift apart.
+options. A provider has the model a new session that uses it starts with,
+and one configuration: what it starts with, and the values of its options,
+which it gets with every request under those a session chose. The built-in
+programs are there without being registered; what the user chooses for one
+is all that is kept of it. Every level is changed the same way, as
+`name=value`, where an empty value gives a setting back to the level under
+it (`changes.go`), and every value is checked before it is kept: a
+provider's against what the provider describes, and by starting it with
+the change. What a system setting is, what a provider's options are, and
+what a registered program is each have one owner there (`settings.go`,
+`options.go`, `programs.go`), and so has what a person is shown of all of
+it, each value with where it comes from (`view.go`). The commands and the
+host's functions, each named for the level it acts on, are two ways into
+the same code, so configuring from a terminal and from a front end cannot
+drift apart.
 
 ## Rules the design depends on
 

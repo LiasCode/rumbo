@@ -25,7 +25,7 @@ go run ./evals -selftest                           # no model needed
 go run ./evals -model anthropic/claude-opus-5-5    # the whole set
 go run ./evals -model anthropic/claude-opus-5-5 -task scope -runs 3
 go run ./evals -model anthropic/claude-opus-5-5 -out results.jsonl
-go run ./evals -model anthropic/claude-opus-5-5 -set compact_at=3000
+go run ./evals -model anthropic/claude-opus-5-5 -set compact_at=2%
 ```
 
 `-set key=value` applies a rumbo setting to every run. It is how a mechanism

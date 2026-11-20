@@ -26,10 +26,12 @@ const (
 // Program is a provider or a front end as the user registered it: the
 // command that starts it, and the configuration the user chose for it, a
 // JSON object or nothing. Both may be empty for a program rumbo has built
-// in, whose command is rumbo's own.
+// in, whose command is rumbo's own. Model is the model a new session starts
+// with when it uses a provider; a front end has none.
 type Program struct {
 	Name    string
 	Command []string
+	Model   string
 	Config  json.RawMessage
 }
 

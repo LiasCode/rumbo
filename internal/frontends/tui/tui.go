@@ -80,7 +80,7 @@ func Run(r io.Reader, w io.Writer) int {
 	colors, err := themeOf(config, os.Getenv("NO_COLOR"))
 
 	if err = errors.Join(wrong, err); err != nil {
-		fmt.Fprintf(os.Stderr, "rumbo: the terminal UI's configuration: %v\nrumbo frontend config tui <field>=<value> changes it\n", err)
+		fmt.Fprintf(os.Stderr, "rumbo: the terminal UI's configuration: %v\nrumbo frontend set tui <field>=<value> changes it\n", err)
 		return 1
 	}
 
@@ -446,6 +446,11 @@ func (u *ui) status(width int, now time.Time) string {
 	state := u.state(now)
 	model := u.info.Provider + "/" + u.info.Model
 	session, away := "", ""
+
+	// A session can start before its model is chosen, which /use does.
+	if u.info.Model == "" {
+		model = u.info.Provider + ", " + u.theme.warning + "no model" + styleColorOff
+	}
 
 	if u.session != "" {
 		session = "session " + u.session

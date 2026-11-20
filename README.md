@@ -76,8 +76,8 @@ Windows is not supported.
 
 ```sh
 export ANTHROPIC_API_KEY=...                      # or /login in the terminal UI, or `ant auth login`
-rumbo system set default_provider anthropic       # what new sessions start with
-rumbo system set default_model claude-opus-5-5
+rumbo system set default_provider=anthropic       # what new sessions start with
+rumbo provider set anthropic model=claude-opus-5-5  # and the model they start with there
 
 rumbo "add a --json flag to the export command"  # one task, in this directory's project
 rumbo                                            # the terminal UI; /help lists its commands
@@ -85,6 +85,15 @@ rumbo -c "also document it"                      # continue the latest session
 rumbo -r                                         # resume a run that stopped
 rumbo "summarize notes.md" > summary.txt         # piped: plain text out, exit code
 ```
+
+Every setting is changed the same way, as `name=value`, and an empty value
+gives it back to its default: `rumbo system set`, `rumbo provider set`, and
+`rumbo frontend set`, or `/system-set`, `/provider-set`, and `/session-set`
+in the terminal UI. What a provider does not take is refused before it is
+kept: a name it does not have, or a value it does not accept.
+`rumbo config`, or `/config`, shows all of it with where each value comes
+from, and `rumbo provider show <name>` a provider's settings with their
+defaults.
 
 What you set is kept in `~/.config/rumbo/config.yaml`
 (`~/Library/Application Support/rumbo/config.yaml` on macOS). It holds only
@@ -94,9 +103,9 @@ value at a time and leaves your comments:
 ```yaml
 system:
   default_provider: anthropic
-  default_model: claude-opus-5-5
 providers:
   anthropic:
+    model: claude-opus-5-5
     config:
       effort: high   # every session, unless it chooses another with -o
 ```
@@ -110,8 +119,9 @@ works through the built-in `openai` provider:
 
 ```sh
 rumbo provider add -config '{"base_url":"http://localhost:11434/v1"}' local '{self}' provide openai
-rumbo provider config local context_window=32768   # a server cannot say its context size
-rumbo -p local -m qwen3-coder "fix the failing test"   # the session keeps them
+rumbo provider models local                         # the models the server offers
+rumbo provider set local model=qwen3-coder context_window=32768   # a server cannot say its context size
+rumbo -p local "fix the failing test"               # the session keeps its provider and model
 ```
 
 The built-in `openai` provider speaks OpenAI's Responses API, which its
@@ -123,6 +133,7 @@ The built-in `chatgpt` provider uses your ChatGPT plan instead of an API key:
 
 ```sh
 rumbo -p chatgpt      # then /login signs in with ChatGPT, and /use chatgpt lists the plan's models
+rumbo provider set chatgpt model=<model>   # the one new sessions there start with
 ```
 
 Its usage counts against your plan, which you manage in your ChatGPT
@@ -173,9 +184,9 @@ is told of where you are, and says why one is left out.
 
 ## Learn more
 
-- `rumbo help`, `rumbo system`, and `rumbo provider`: the commands, the
-  system settings, and each provider's configuration, which
-  `rumbo provider show <name>` prints with the provider's defaults.
+- `rumbo help`, `rumbo config`, and `rumbo provider show <name>`: the
+  commands, everything that is set with where each value comes from, and a
+  provider's settings with its defaults.
 - [docs/use-cases.md](docs/use-cases.md): everything the host, providers,
   and front ends can do.
 - [docs/architecture.md](docs/architecture.md) and

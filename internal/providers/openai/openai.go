@@ -114,9 +114,27 @@ var description = protocol.Description{
 	Options: []protocol.Option{{
 		Name:        "effort",
 		Type:        protocol.OptionString,
-		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Empty, the effort in the provider's configuration is sent, or else none, and the model's own default applies.",
+		Description: "How much a reasoning model thinks, sent as reasoning_effort. The values depend on the model, such as minimal, low, medium, and high. Empty, none is sent, and the model's own default applies.",
 		Default:     json.RawMessage(`""`),
 	}},
+	Fields: []protocol.Option{
+		{
+			Name: "base_url", Type: protocol.OptionString, Default: json.RawMessage(`"https://api.openai.com/v1"`),
+			Description: "The address of the server's API, up to where /chat/completions would follow, such as http://localhost:11434/v1",
+		},
+		{
+			Name: "api", Type: protocol.OptionString, Enum: []string{apiChat, apiResponses}, Default: json.RawMessage(`"chat"`),
+			Description: "The API it speaks: chat, Chat Completions, which most servers offer; or responses, OpenAI's Responses API, which its reasoning models need to use tools with an effort",
+		},
+		{
+			Name: "api_key_env", Type: protocol.OptionString, Default: json.RawMessage(`"OPENAI_API_KEY"`),
+			Description: "The environment variable the API key is read from; without one there, the key login stored for this server is used",
+		},
+		{
+			Name: "context_window", Type: protocol.OptionNumber, Default: json.RawMessage(`0`),
+			Description: "How many tokens the model's context holds, which a server cannot say; 0 when it is not known",
+		},
+	},
 	Functions: []protocol.Function{
 		{Name: "models", Description: "List the models the server offers"},
 		{Name: "login", Description: "Store an API key for this server, once it is checked to work"},

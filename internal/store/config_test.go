@@ -169,22 +169,40 @@ func TestProgramsAreKeptByKind(t *testing.T) {
 		t.Fatalf("found = %+v, err = %v", found, err)
 	}
 
-	// One rumbo has built in is registered by its configuration alone, and
-	// goes when nothing of it is left.
-	files.PutProgram(KindProvider, Program{Name: "openai", Config: json.RawMessage(`{"effort":"high","nested":{"depth":2}}`)})
+	// One rumbo has built in is registered by what was chosen for it alone:
+	// its model, and its configuration.
+	files.PutProgram(KindProvider, Program{Name: "openai", Model: "gpt-x", Config: json.RawMessage(`{"effort":"high","nested":{"depth":2}}`)})
+
+	if !strings.Contains(written(t, files), "  openai:\n    model: gpt-x\n    config:\n") {
+		t.Fatalf("the model is not written beside the configuration:\n%s", written(t, files))
+	}
 	files.PutProgram(KindProvider, Program{Name: "another", Command: []string{"run"}})
 
 	providers, err := files.Programs(KindProvider)
 
-	if err != nil || len(providers) != 2 || providers[0].Name != "another" || providers[1].Command != nil ||
+	if err != nil || len(providers) != 2 || providers[0].Name != "another" || providers[1].Command != nil || providers[1].Model != "gpt-x" ||
 		string(providers[1].Config) != `{"effort":"high","nested":{"depth":2}}` {
 		t.Fatalf("providers = %+v, err = %v", providers, err)
 	}
 
+	// A model set after the configuration still goes before it.
+	files.PutProgram(KindProvider, Program{Name: "another", Command: []string{"run"}, Model: "big", Config: json.RawMessage(`{"a":1}`)})
+	files.PutProgram(KindProvider, Program{Name: "another", Command: []string{"run"}, Config: json.RawMessage(`{"a":1}`)})
+	files.PutProgram(KindProvider, Program{Name: "another", Command: []string{"run"}, Model: "small", Config: json.RawMessage(`{"a":1}`)})
+
+	if !strings.Contains(written(t, files), "  another:\n    command: [run]\n    model: small\n    config:\n      a: 1\n") {
+		t.Fatalf("the model is not between the command and the configuration:\n%s", written(t, files))
+	}
+
+	files.PutProgram(KindProvider, Program{Name: "another", Command: []string{"run"}})
 	files.PutProgram(KindProvider, Program{Name: "openai", Config: json.RawMessage(`{"nested":{"depth":3}}`)})
 
-	if changed, _ := files.Program(KindProvider, "openai"); string(changed.Config) != `{"nested":{"depth":3}}` {
-		t.Fatalf("after a change, config = %s", changed.Config)
+	if changed, _ := files.Program(KindProvider, "openai"); string(changed.Config) != `{"nested":{"depth":3}}` || changed.Model != "" {
+		t.Fatalf("after a change, openai = %+v", changed)
+	}
+
+	if strings.Contains(written(t, files), "model") {
+		t.Fatalf("a model taken out is still written:\n%s", written(t, files))
 	}
 
 	if err := files.DeleteProgram(KindFrontend, "mine"); err != nil {
@@ -219,7 +237,9 @@ func TestAFileRumboCannotReadSaysWhere(t *testing.T) {
 		"providers:\n  mine:\n    comand: [run]\n":                      `line 3: "comand" is not something rumbo reads of mine`,
 		"providers:\n  mine:\n    command: run --fast\n":                "line 3: the command of mine is a list of words",
 		"providers:\n  mine:\n    config: fast\n":                       "line 3: the config of mine holds fields",
-		"frontends:\n  mine: run\n":                                     "line 2: mine holds a command, a config, or both",
+		"providers:\n  mine:\n    model: [a, b]\n":                      "line 3: the model of mine is one name",
+		"frontends:\n  tui:\n    model: big\n":                          `line 3: "model" is not something rumbo reads of tui; it reads command and config`,
+		"frontends:\n  mine: run\n":                                     "line 2: mine holds its command and config, each on a line of its own",
 		"- system\n":                                                    "line 1: it holds system, providers, and frontends",
 		"system:\n  max_turns: 1\nsystem:\n  max_turns: 2\n":            "line 3",
 		"providers:\n  a: {command: [x]}\n  a: {command: [y]}\n":        "line 3",

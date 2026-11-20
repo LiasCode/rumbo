@@ -85,6 +85,9 @@ The host speaks first.
 
 - `session` is the current session, absent when it is a new one; the first
   `run` that works in it carries its id in its events and its result.
+- `model` is empty when nothing chose one yet: a provider has no model set
+  for it, and the command line gave none. A run is refused until one is
+  chosen, with `use` or with the run's own `model`.
 - `objective` is what the user already wrote on the command line, if anything.
   A front end is expected to run it without asking again.
 - `resume` is `true` when the user asked to continue the session's unfinished
@@ -121,7 +124,8 @@ with a JSON-RPC error, as is one in another session under `-single`.
 Two optional fields choose, for this run, among what the provider offers:
 `model`, and `options`, an object of option values. What is left out keeps
 the value in force in the session, which `describe` reports for the current
-one.
+one. A run in a session without a model, and with none of its own, is
+refused.
 
 The result arrives when the run is over, however it ends:
 
@@ -163,7 +167,7 @@ provider it knows nothing about.
 - `model` and `options` are what a run in the current session uses unless
   it says otherwise: the session's model, and the values the provider's
   configuration gives its options, with those chosen in the session over
-  them. `use` changes the model for the session, and `session-options` the
+  them. `use` changes the model for the session, and `session-set` the
   options.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
@@ -340,8 +344,11 @@ They arrive in `initialize`, as `functions`, each with a `name`, a
 `description`, `params`, and a `group`. A parameter marked `optional` may be
 left out; the table below shows those with a `?`. A function with a
 `confirm` text cannot be undone: a front end shows that text and calls the
-function only after the person agrees. They are called with `invoke` and
-`"target": "host"`:
+function only after the person agrees. A function marked `lists` is there
+to list the values a parameter of another function takes, the one that
+names it in `values`: a front end calls it for that parameter's values, and
+need not offer it as a command of its own. They are called with `invoke`
+and `"target": "host"`:
 
 ```json
 {"jsonrpc":"2.0","id":5,"method":"invoke",
@@ -369,8 +376,9 @@ Parameters are an object of text values. Every answer has the same shape:
   session chooses for itself wins over its settings there.
 - `session`: one session of the project, the current one unless another is
   named.
-- `provider`: the providers, how each is started, and its configuration,
-  which holds the option values it gets with every request.
+- `provider`: the providers, how each is started, and what is set for
+  each: the model a new session starts with, and its configuration, which
+  holds the option values it gets with every request.
 
 A front end should not take a group it does not know for an error; more may
 be added.
@@ -379,10 +387,9 @@ The functions of this version, by group:
 
 | Function | Group | Parameters | What it does |
 |---|---|---|---|
-| `system` | system | | Shows the system settings as they apply to the project, and where each value comes from. |
-| `system-set` | system | `key`, `value` | Stores a system setting. It applies to the runs that start after it; `default_provider`, `default_model`, and `frontend` from the next start. |
-| `system-unset` | system | `key` | Removes a stored system setting, so its default applies. |
-| `system-keys` | system | | Lists the system settings there are. |
+| `config` | system | | Shows what is chosen and what applies, the current session's choice first, then the system settings, the providers, and the front ends, each value with where it comes from: the session, `config.yaml`, rumbo's default, or how rumbo has a built-in program. It starts nothing, so a program's own defaults are not in it. |
+| `system-set` | system | `change` | Changes a system setting, as `name=value`; an empty value gives it back to its default. It is checked first, and applies to the runs that start after it; `default_provider` and `frontend` from the next start. |
+| `system-values` | system | | Lists the changes `system-set` takes. Marked `lists`. |
 | `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
 | `status` | session | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
 | `skills` | session | | Lists the skills the model is told of in the current session's directory, and those left out, with why. |
@@ -391,19 +398,20 @@ The functions of this version, by group:
 | `open` | session | `session` | Makes another session of the project the current one. |
 | `new` | session | | Makes the next task start a new session. |
 | `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it waits for a run working in the session. |
-| `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. |
+| `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. Marked `lists`. |
 | `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `rename` | session | `title` | Gives the current session a title of the person's own. |
 | `prune` | session | `age`, `confirm`? | Lists the project's sessions not used in that long, such as `30d`; with `confirm` as `yes`, deletes them, for good, with their history. Those in use are kept. |
 | `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
-| `session-options` | session | `change`? | Shows the option values chosen in the current session, and the configuration of its provider, which they win over. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
+| `session-set` | session | `change` | Chooses, as `name=value`, a value of one of the provider's options for the current session, which keeps it over the provider's configuration; an empty value gives it back. The provider is asked what it describes, and an option it does not describe, or a value it does not take, is refused. |
+| `session-values` | session | | Lists the changes `session-set` takes: the values of the current provider's options, those in force marked. Marked `lists`. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
 | `providers` | provider | | Lists the providers there are: the built-in ones and those registered. |
 | `provider-models` | provider | `provider`? | Lists the models a provider offers, asking it; without a `provider`, the current session's, with the one it uses marked. The `model` of `use` lists its values with it. |
-| `option-values` | provider | `provider`? | Lists the values the options of a provider take, as `name=value` changes, each option's empty one first, asking it; without a `provider`, the current session's, with the values in force in it marked, and with one, those its configuration gives. The `change` of `session-options` and `provider-config` lists its values with it. |
+| `provider-show` | provider | `provider`? | Starts a provider and shows each of its settings, its model, the fields of its configuration, and its options, with the value that applies and where it comes from, its own defaults included, and what it offers. Without a `provider`, the current session's, with what the session chose over the rest. Also the test that it works. |
+| `provider-set` | provider | `provider`, `change` | Sets, as `name=value`, a provider's model, a field of its configuration, or one of its options; an empty value gives it back to its default. The provider is started to check it: a name it does not describe, a value of another type or not among those it lists, and a configuration it does not start with are refused, and nothing is kept. |
+| `provider-values` | provider | `provider` | Lists the changes `provider-set` takes for a provider: its models, and the values of its fields and options. Marked `lists`. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, which is the test that it works; one that does not start is not registered. |
-| `provider-config` | provider | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`: what it starts with, or the value of one of its options for every session that chooses no other. An empty value removes it, and the provider's default applies. |
-| `provider-show` | provider | `provider` | Starts a provider and shows what was chosen for it, its configuration in force with its defaults, and what it offers. Also the test that it works. |
 | `provider-rm` | provider | `provider` | Removes a provider the user registered, or what they chose for a built-in one, which stays. Asks to be confirmed. |
 
 A front end should read the list from `initialize` and not from this table:
@@ -417,9 +425,10 @@ run in progress keeps the one it started with.
 
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
-`system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
-`skills`, `sessions`, `projects`, `branch-points`, `rename`, `providers`,
-`provider-models`, `option-values`, `provider-add`, and `provider-rm`.
+`config`, `system-set`, `system-values`, `quit`, `status`, `skills`,
+`sessions`, `projects`, `branch-points`, `rename`, `session-values`,
+`providers`, `provider-models`, `provider-show`, `provider-values`,
+`provider-add`, and `provider-rm`.
 
 ## What the host guarantees
 

@@ -65,13 +65,25 @@ the cache holds nothing for the request, and nothing is missed.
 Provider Protocol. It owns the connection to a model and its credentials.
 
 **Description.** What a provider says about itself: how its model is
-chosen, the options it accepts, and the functions it can be asked. The host
-passes it on without interpreting it.
+chosen, the options it accepts, the fields of its configuration, and the
+functions it can be asked. The host passes it on, and checks against it a
+value a person sets, without knowing what any of it means.
 
 **Option.** A value a provider accepts with a request, beyond the model,
 such as how thorough to be. Which options exist is the provider's decision.
 The value a user sets for the provider is a field of its configuration; a
 session can choose another, which it keeps and which wins in it.
+
+**Setting.** Anything a person can set, at any level: a system setting; a
+provider's model, a field of its configuration, or one of its options; a
+field of a front end's configuration; or an option a session chooses. Each
+is changed the same way, as `name=value`, where an empty value gives it back
+to the level under it: the session's to the provider's, the provider's to
+its own default.
+
+**Source.** Where the value of a setting in force comes from: the session
+that chose it, `config.yaml`, rumbo's own default, how rumbo has a built-in
+program, or the program's own default, which only the program knows.
 
 **Configuration file.** `config.yaml`, in rumbo's directory of the user's
 configuration: what the user chose, and nothing else. It holds the system
@@ -79,17 +91,20 @@ settings, the programs the user registered, and what they chose for each
 program. A person can edit it; a default is never written to it.
 
 **System setting.** A setting of rumbo itself, the same everywhere: the
-provider and the model a new session starts with, the front end, the turn
-limit, the output limit, and when to summarize. It applies to the runs that
-start after it is stored. What a session chooses for itself is kept with the
-session and wins there; what a provider takes is kept with the provider.
+provider a new session starts with, the front end, the turn limit, the
+output limit, and when to summarize. It applies to the runs that start
+after it is stored. What a session chooses for itself is kept with the
+session and wins there; what a provider takes is kept with the provider,
+and so is the model a new session that uses it starts with.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
 listing its models, or by the host, such as changing session or quitting. A
 front end learns both from descriptions and knows neither beforehand. A
 function of the host says what it acts on: the system, a session, or the
-providers. A provider's function can talk with the person while it works,
-saying things and asking questions, whose answers may be secret.
+providers, and one there to list the values a parameter takes says so, for
+a front end to offer its values and not it as a command. A provider's
+function can talk with the person while it works, saying things and asking
+questions, whose answers may be secret.
 
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
 provider.
@@ -121,9 +136,10 @@ input. It is read from the sessions, so it keeps nothing of its own.
 
 **Program.** A provider or front end rumbo can start: a name, the command
 that starts it, and its configuration, which for a provider holds the values
-of its options too. The built-in ones are always there; the user registers
-others. Only what the user chose is kept of a configuration: what is not
-chosen is the program's own default, which the program says when it starts.
+of its options too; a provider also has the model a new session that uses it
+starts with. The built-in ones are always there; the user registers others.
+Only what the user chose is kept of a configuration: what is not chosen is
+the program's own default, which the program says when it starts.
 
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
 

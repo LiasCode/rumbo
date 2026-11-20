@@ -166,6 +166,27 @@ func TestTheMenuLearnsTheProvidersCommands(t *testing.T) {
 	}
 }
 
+// A function there to list the values a parameter takes is no command: the
+// menu offers its values instead, and help leaves it out.
+func TestAFunctionThatListsValuesIsNoCommand(t *testing.T) {
+	u := quiet()
+	u.info.Functions = []protocol.Function{
+		{Name: "session-set", Description: "Choose a value", Params: []protocol.Option{{Name: "change", Values: "session-values"}}},
+		{Name: "session-values", Description: "List the changes session-set takes", Lists: true},
+	}
+
+	typing(u, "/session-")
+
+	if shown := u.menu.shown; len(shown) != 1 || shown[0].value != "/session-set" {
+		t.Fatalf("the menu holds %+v", shown)
+	}
+
+	// Help lists the commands commands gives it.
+	if listed := commands(u.info.Functions); len(listed) != 1 || listed[0].Name != "session-set" {
+		t.Fatalf("the commands are %+v", listed)
+	}
+}
+
 // A command brought back from the history opens no menu, so Up goes on
 // further back; typing opens it again.
 func TestARecalledCommandLeavesTheArrowsToTheHistory(t *testing.T) {
@@ -242,13 +263,13 @@ func TestValuesAreAskedWithWhatCameBefore(t *testing.T) {
 // A name= taken from the menu waits for its value.
 func TestANameIsTakenToGoOnWithItsValue(t *testing.T) {
 	u := quiet()
-	u.input.set("/session-options eff")
-	u.menu = &menu{head: "/session-options ", choices: []choice{{value: "effort="}, {value: "effort=high"}}}
+	u.input.set("/session-set eff")
+	u.menu = &menu{head: "/session-set ", choices: []choice{{value: "effort="}, {value: "effort=high"}}}
 	u.menu.filter("eff")
 
 	u.press(key{r: '\r'})
 
-	if got := u.input.String(); got != "/session-options effort=" {
+	if got := u.input.String(); got != "/session-set effort=" {
 		t.Fatalf("taken: %q", got)
 	}
 }

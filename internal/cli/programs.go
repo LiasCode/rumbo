@@ -69,21 +69,35 @@ func builtin(kind, name string) (store.Program, bool) {
 // user registered, or the one rumbo has built in, with what the user chose
 // for it over what it is built in with.
 func findProgram(database store.Store, kind, name string) (store.Program, error) {
-	chosen, err := database.Program(kind, name)
+	chosen, registered, err := chosenProgram(database, kind, name)
 
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err != nil {
 		return store.Program{}, err
 	}
 
-	registered := err == nil
+	return startedWith(kind, name, chosen, registered)
+}
+
+// chosenProgram returns what the user chose for a program, and whether they
+// chose anything: a built-in nothing was chosen for is in no file.
+func chosenProgram(database store.Store, kind, name string) (store.Program, bool, error) {
+	chosen, err := database.Program(kind, name)
+
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Program{Name: name}, false, nil
+	}
+
+	return chosen, err == nil, err
+}
+
+// startedWith is a program as it is started, given what the user chose for
+// it.
+func startedWith(kind, name string, chosen store.Program, registered bool) (store.Program, error) {
 	base, built := builtin(kind, name)
 
 	switch {
 	case !registered && !built:
 		return store.Program{}, fmt.Errorf(`%s %q is not registered; see "rumbo %s list"`, kindNames[kind], name, kind)
-
-	case !registered:
-		return base, nil
 
 	// One registered under the name of a built-in takes its place.
 	case len(chosen.Command) > 0:
@@ -93,11 +107,38 @@ func findProgram(database store.Store, kind, name string) (store.Program, error)
 		return store.Program{}, fmt.Errorf("%s %q has no command in %s", kindNames[kind], name, configFile)
 	}
 
-	if base.Config, err = mergeOptions(base.Config, chosen.Config); err != nil {
+	config, err := mergeOptions(base.Config, chosen.Config)
+
+	if err != nil {
 		return store.Program{}, fmt.Errorf("the configuration of %s: %w", name, err)
 	}
 
+	base.Config, base.Model = config, chosen.Model
+
 	return base, nil
+}
+
+// builtinFields are the fields of a program's configuration as rumbo has it
+// built in, which is nothing for a program registered in its place.
+func builtinFields(kind string, chosen store.Program) map[string]json.RawMessage {
+	base, built := builtin(kind, chosen.Name)
+
+	if !built || len(chosen.Command) > 0 {
+		return nil
+	}
+
+	return objectFields(base.Config)
+}
+
+// objectFields reads a JSON object by its fields; anything else has none.
+func objectFields(object json.RawMessage) map[string]json.RawMessage {
+	fields := map[string]json.RawMessage{}
+
+	if len(object) > 0 {
+		_ = json.Unmarshal(object, &fields)
+	}
+
+	return fields
 }
 
 // listPrograms returns the programs of a kind there are, built in and
@@ -185,44 +226,225 @@ func checkProgram(name string, command []string, config json.RawMessage) error {
 	return nil
 }
 
-// configureProgram changes fields of what the user chose for a program and
-// leaves the rest. Each change is name=value, read as applyChanges does; an
-// empty value takes the field out, so the program's default applies. It
-// returns the program as it is started from then on.
-func configureProgram(database store.Store, kind, name string, changes []string) (store.Program, error) {
-	if _, err := findProgram(database, kind, name); err != nil {
-		return store.Program{}, err
+// settingModel is the model a new session starts with when it uses a
+// provider. It is set as a provider's fields are, but kept beside its
+// configuration: the host reads it, not the provider.
+const settingModel = "model"
+
+// setProgram changes what is chosen for a program: for a provider, its
+// model, a field of its configuration, or one of its options; for a front
+// end, a field of its configuration. Each change is name=value, where an
+// empty value gives the setting back to its default. A provider is started
+// first, for what it says of its settings, and then with the changes, which
+// is the test that it takes them: when it does not, nothing is stored. A
+// front end needs the terminal to start, so what it is given is checked when
+// it next starts. It returns a line saying each change.
+func setProgram(database store.Store, kind, name string, written []string, diagnostics io.Writer) ([]string, error) {
+	changes, err := parseChanges(written)
+
+	if err != nil {
+		return nil, err
 	}
 
-	// A built-in nothing was chosen for yet is registered nowhere.
-	chosen, err := database.Program(kind, name)
+	chosen, registered, err := chosenProgram(database, kind, name)
 
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return store.Program{}, err
+	if err != nil {
+		return nil, err
 	}
 
-	chosen.Name = name
+	current, err := startedWith(kind, name, chosen, registered)
 
-	if chosen.Config, err = changeObject(chosen.Config, changes); err != nil {
-		return store.Program{}, err
+	if err != nil {
+		return nil, err
+	}
+
+	// A provider that does not start as it is takes the changes as they are
+	// written, which may be what makes it start.
+	var known *settingsOf
+
+	if kind == store.KindProvider {
+		known, _ = learnSettings(current, diagnostics)
+	}
+
+	fields := objectFields(chosen.Config)
+	configured := false
+	said := make([]string, len(changes))
+
+	for index, each := range changes {
+		if each.name == settingModel && kind == store.KindProvider {
+			if each.back() && chosen.Model == "" {
+				return nil, fmt.Errorf("%s has no model set in %s, so there is nothing to give back", name, configFile)
+			}
+
+			chosen.Model = each.value
+			said[index] = settingModel + " = " + each.value + "; a new session that uses " + name + " starts with it"
+
+			if each.back() {
+				said[index] = settingModel + ": taken out; a new session that uses " + name + " has to be given one"
+			}
+
+			continue
+		}
+
+		configured = true
+
+		if each.back() {
+			if _, found := fields[each.name]; !found {
+				return nil, nothingToGiveBack(kind, chosen, each.name)
+			}
+
+			delete(fields, each.name)
+			said[index] = each.name + ": given back to its default"
+
+			continue
+		}
+
+		described, err := known.setting(name, each.name)
+
+		if err != nil {
+			return nil, err
+		}
+
+		value, err := encodeValue(described, each.value)
+
+		if err != nil {
+			return nil, err
+		}
+
+		fields[each.name] = value
+		said[index] = each.name + " = " + shownValue(value)
+	}
+
+	chosen.Name, chosen.Config = name, nil
+
+	if len(fields) > 0 {
+		chosen.Config, _ = json.Marshal(fields)
+	}
+
+	if configured && kind == store.KindProvider {
+		next, err := startedWith(kind, name, chosen, true)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if err := tryStart(next, diagnostics); err != nil {
+			return nil, fmt.Errorf("%s did not start with that, so nothing was changed: %w", name, err)
+		}
 	}
 
 	// A built-in with nothing chosen for it has nothing to keep.
-	if len(chosen.Command) == 0 && len(chosen.Config) == 0 {
-		err = database.DeleteProgram(kind, name)
-
-		if errors.Is(err, store.ErrNotFound) {
-			err = nil
+	if _, built := builtin(kind, name); built && len(chosen.Command) == 0 && chosen.Model == "" && len(chosen.Config) == 0 {
+		if err := database.DeleteProgram(kind, name); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, err
 		}
-	} else {
-		err = database.PutProgram(kind, chosen)
+
+		return said, nil
 	}
+
+	return said, database.PutProgram(kind, chosen)
+}
+
+// nothingToGiveBack says why a field that is not set for a program cannot
+// be given back.
+func nothingToGiveBack(kind string, chosen store.Program, name string) error {
+	text := fmt.Sprintf("%s is not set for %s in %s, so there is nothing to give back", name, chosen.Name, configFile)
+
+	if value, found := builtinFields(kind, chosen)[name]; found {
+		text += fmt.Sprintf("; %s is how rumbo has it built in, and setting it changes that", shownValue(value))
+	}
+
+	return errors.New(text)
+}
+
+// settingsOf is what a provider says of its settings when it starts: the
+// fields of its configuration and its options, as it describes them, and
+// its configuration in force, with a default for every field.
+type settingsOf struct {
+	offers  protocol.Description
+	inForce map[string]json.RawMessage
+}
+
+// learnSettings starts a provider for what it says of its settings.
+func learnSettings(program store.Program, diagnostics io.Writer) (*settingsOf, error) {
+	command, err := programCommand(program.Command)
 
 	if err != nil {
-		return store.Program{}, err
+		return nil, err
 	}
 
-	return findProgram(database, kind, name)
+	process, err := provider.Start(context.Background(), command, program.Config, diagnostics)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer process.Close()
+
+	return &settingsOf{offers: process.Description(), inForce: objectFields(process.Config())}, nil
+}
+
+// setting returns what describes the setting called name: a field or an
+// option the provider describes, or else a field its configuration in force
+// holds, by the value it has. Without anything known of the provider, any
+// name is taken, as it is written.
+func (known *settingsOf) setting(provider, name string) (protocol.Option, error) {
+	if known == nil {
+		return protocol.Option{Name: name}, nil
+	}
+
+	for _, described := range [][]protocol.Option{known.offers.Fields, known.offers.Options} {
+		if index := slices.IndexFunc(described, func(option protocol.Option) bool { return option.Name == name }); index >= 0 {
+			return described[index], nil
+		}
+	}
+
+	if value, found := known.inForce[name]; found {
+		return typeOf(name, value), nil
+	}
+
+	return protocol.Option{}, fmt.Errorf("%s has no setting %q; its settings are %s", provider, name, strings.Join(known.names(), ", "))
+}
+
+// names are the settings a provider has: its model, the fields of its
+// configuration, and its options.
+func (known *settingsOf) names() []string {
+	names := []string{settingModel}
+
+	for _, described := range [][]protocol.Option{known.offers.Fields, known.offers.Options} {
+		for _, option := range described {
+			names = append(names, option.Name)
+		}
+	}
+
+	var others []string
+
+	for name := range known.inForce {
+		if !slices.Contains(names, name) {
+			others = append(others, name)
+		}
+	}
+
+	slices.Sort(others)
+
+	return append(names, others...)
+}
+
+// tryStart starts a provider and stops it, which is the test that it starts.
+func tryStart(program store.Program, diagnostics io.Writer) error {
+	command, err := programCommand(program.Command)
+
+	if err != nil {
+		return err
+	}
+
+	process, err := provider.Start(context.Background(), command, program.Config, diagnostics)
+
+	if err != nil {
+		return err
+	}
+
+	return process.Close()
 }
 
 // removeProgram takes out what the user registered under name, and says what
@@ -266,44 +488,6 @@ func programCommand(command []string) ([]string, error) {
 	return resolved, nil
 }
 
-// inspectProvider starts a registered provider, asks what it offers, and
-// stops it. It is also the test that the program speaks the protocol.
-func inspectProvider(database store.Store, name string, diagnostics io.Writer) (string, error) {
-	program, err := findProgram(database, store.KindProvider, name)
-
-	if err != nil {
-		return "", err
-	}
-
-	command, err := programCommand(program.Command)
-
-	if err != nil {
-		return "", err
-	}
-
-	process, err := provider.Start(context.Background(), command, program.Config, diagnostics)
-
-	if err != nil {
-		return "", err
-	}
-
-	defer process.Close()
-
-	described := describeProgram(program)
-
-	// Only the program knows the defaults of what was not chosen for it.
-	if inForce := process.Config(); len(inForce) > 0 {
-		described += fmt.Sprintf("\nin force, with its defaults: %s", inForce)
-	}
-
-	return described + "\n" + describeOffers(process.Description()), nil
-}
-
-// describeProgram says how a program is started, and what was chosen for it.
-func describeProgram(program store.Program) string {
-	return fmt.Sprintf("name: %s\ncommand: %s\nconfiguration: %s", program.Name, strings.Join(program.Command, " "), shown(program.Config))
-}
-
 // shown is a JSON object as a person reads it, an empty one when nothing is
 // in it.
 func shown(object json.RawMessage) string {
@@ -312,55 +496,4 @@ func shown(object json.RawMessage) string {
 	}
 
 	return string(object)
-}
-
-// describeOffers renders what a provider says about itself.
-func describeOffers(offers protocol.Description) string {
-	var out strings.Builder
-
-	out.WriteString("it speaks the protocol")
-
-	if offers.Model != nil {
-		fmt.Fprintf(&out, "\nmodel: %s", describeOption(*offers.Model))
-	}
-
-	if len(offers.Options) == 0 {
-		out.WriteString("\noptions: none described")
-	}
-
-	for _, option := range offers.Options {
-		fmt.Fprintf(&out, "\noption %s: %s", option.Name, describeOption(option))
-	}
-
-	if len(offers.Functions) == 0 {
-		out.WriteString("\nfunctions: none described")
-	}
-
-	for _, function := range offers.Functions {
-		fmt.Fprintf(&out, "\nfunction %s: %s", function.Name, function.Description)
-	}
-
-	return out.String()
-}
-
-func describeOption(option protocol.Option) string {
-	parts := []string{option.Type}
-
-	if len(option.Enum) > 0 {
-		parts = append(parts, "one of "+strings.Join(option.Enum, ", "))
-	}
-
-	if option.Values != "" {
-		parts = append(parts, "values from the function "+option.Values)
-	}
-
-	if len(option.Default) > 0 {
-		parts = append(parts, "default "+string(option.Default))
-	}
-
-	if option.Description != "" {
-		parts = append(parts, option.Description)
-	}
-
-	return strings.Join(parts, "; ")
 }

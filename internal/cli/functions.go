@@ -52,47 +52,38 @@ var chosenProvider = protocol.Option{
 	Description: "without it, the current session's",
 }
 
+// changeParam is the name=value change the functions that set something
+// take; values names the function that lists the changes it takes.
+func changeParam(values string) protocol.Option {
+	return protocol.Option{Name: "change", Type: protocol.OptionString, Values: values, Description: "name=value; " + emptyGivesBack}
+}
+
 // hostFunctions are listed to the front end in this order, by what they act
 // on: the system, a session, and the providers.
 var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
-			Name:        "system",
-			Description: "Show the system settings as they apply here, and where each value comes from",
+			Name:        "config",
+			Description: "Show what is chosen and what applies here, this session first, each value with where it comes from",
 			Group:       protocol.GroupSystem,
 		},
 		duringRun: true,
-		call:      (*host).showSettings,
+		call:      (*host).showConfig,
 	},
 	{
 		Function: protocol.Function{
 			Name:        "system-set",
-			Description: "Store a system setting, which a session's own choice wins over",
-			Params: []protocol.Option{
-				{Name: "key", Type: protocol.OptionString, Values: "system-keys"},
-				{Name: "value", Type: protocol.OptionString},
-			},
-			Group: protocol.GroupSystem,
+			Description: "Change a system setting, which a session's own choice wins over",
+			Params:      []protocol.Option{changeParam("system-values")},
+			Group:       protocol.GroupSystem,
 		},
 		duringRun: true,
-		call:      (*host).storeSetting,
+		call:      (*host).systemSet,
 	},
 	{
-		Function: protocol.Function{
-			Name:        "system-unset",
-			Description: "Remove a stored system setting, so its default applies",
-			Params: []protocol.Option{
-				{Name: "key", Type: protocol.OptionString, Values: "system-keys"},
-			},
-			Group: protocol.GroupSystem,
-		},
+		Function:  protocol.Function{Name: "system-values", Description: "List the changes system-set takes", Group: protocol.GroupSystem, Lists: true},
 		duringRun: true,
-		call:      (*host).removeSetting,
-	},
-	{
-		Function:  protocol.Function{Name: "system-keys", Description: "List the system settings there are", Group: protocol.GroupSystem},
-		duringRun: true,
-		call:      (*host).settingKeys,
+		call:      (*host).systemValues,
 	},
 	{
 		Function:  protocol.Function{Name: "quit", Description: "Stop the providers and exit; runs in progress are cancelled", Group: protocol.GroupSystem},
@@ -159,7 +150,7 @@ var hostFunctions = []hostFunction{
 		call: (*host).branchSession,
 	},
 	{
-		Function:  protocol.Function{Name: "branch-points", Description: "List your messages in this session, which a branch can start before", Group: protocol.GroupSession},
+		Function:  protocol.Function{Name: "branch-points", Description: "List your messages in this session, which a branch can start before", Group: protocol.GroupSession, Lists: true},
 		duringRun: true,
 		call:      (*host).branchPoints,
 	},
@@ -215,12 +206,19 @@ var hostFunctions = []hostFunction{
 	},
 	{
 		Function: protocol.Function{
-			Name:        "session-options",
-			Description: "Show or change the option values chosen in this session, which it keeps, over its provider's configuration",
-			Params:      []protocol.Option{{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "name=value; an empty value removes it", Optional: true}},
+			Name:        "session-set",
+			Description: "Choose a value of one of the provider's options for this session, which keeps it over the provider's own",
+			Params:      []protocol.Option{changeParam("session-values")},
 			Group:       protocol.GroupSession,
 		},
-		call: (*host).sessionOptions,
+		slow: true,
+		call: (*host).sessionSet,
+	},
+	{
+		Function:  protocol.Function{Name: "session-values", Description: "List the changes session-set takes", Group: protocol.GroupSession, Lists: true},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).sessionValues,
 	},
 	{
 		Function: protocol.Function{
@@ -250,14 +248,39 @@ var hostFunctions = []hostFunction{
 	},
 	{
 		Function: protocol.Function{
-			Name:        "option-values",
-			Description: "List the values the options of a provider take, as name=value, asking it",
+			Name:        "provider-show",
+			Description: "Start a provider and show each of its settings, with where its value comes from, and what it offers",
 			Params:      []protocol.Option{chosenProvider},
 			Group:       protocol.GroupProvider,
 		},
 		duringRun: true,
 		slow:      true,
-		call:      (*host).optionValues,
+		call:      (*host).providerShow,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-set",
+			Description: "Set a provider's model, a field of its configuration, or one of its options, which it is started to check",
+			Params: []protocol.Option{
+				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
+				changeParam("provider-values"),
+			},
+			Group: protocol.GroupProvider,
+		},
+		slow: true,
+		call: (*host).providerSet,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "provider-values",
+			Description: "List the changes provider-set takes",
+			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
+			Group:       protocol.GroupProvider,
+			Lists:       true,
+		},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).providerValues,
 	},
 	{
 		Function: protocol.Function{
@@ -275,30 +298,8 @@ var hostFunctions = []hostFunction{
 	},
 	{
 		Function: protocol.Function{
-			Name:        "provider-config",
-			Description: "Change a field of a provider's configuration, its options included; an empty value gives it back to its default",
-			Params: []protocol.Option{
-				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
-				{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "field=value"},
-			},
-			Group: protocol.GroupProvider,
-		},
-		call: (*host).configureProvider,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "provider-show",
-			Description: "Start a provider and show what it offers; also the test that it works",
-			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
-			Group:       protocol.GroupProvider,
-		},
-		slow: true,
-		call: (*host).inspect,
-	},
-	{
-		Function: protocol.Function{
 			Name:        "provider-rm",
-			Description: "Remove a provider you registered, or what you chose for a built-in one",
+			Description: "Remove a provider you registered, or what you set for a built-in one",
 			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
 			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched, and a built-in provider stays, as rumbo has it.",
 			Group:       protocol.GroupProvider,
@@ -998,46 +999,52 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 	return protocol.HostResult{Text: text}, nil
 }
 
-// sessionOptions shows the option values chosen in the current session,
-// after changing one when a change is given, and the configuration of its
-// provider, which they win over. The session
-// keeps what is chosen in it, as it keeps its model; a run in progress
-// keeps the options it started with.
-func (h *host) sessionOptions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+// sessionSet changes a value of an option chosen in the current session,
+// checked against what its provider describes, which is started for it. The
+// session keeps what is chosen in it, as it keeps its model, over its
+// provider's configuration; a run in progress keeps the options it started
+// with.
+func (h *host) sessionSet(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	target := h.current
-	text := ""
+	chosen := target.choice
+	h.mu.Unlock()
 
-	if params["change"] != "" {
-		changed := target.choice
-		options, err := changeObject(changed.options, []string{params["change"]})
-
-		if err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		changed.options = options
-
-		if err := h.choose(target, changed); err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		text = "kept for the session the next task starts; it applies to its tasks\n"
-
-		if target.session != nil {
-			text = "stored with this session; it applies to the tasks that start from now on\n"
-		}
-	}
-
-	described, err := h.describeChoice(target.choice)
+	described, _, err := h.offers(ctx, chosen.provider)
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: text + described}, nil
+	options, said, err := chooseOptions(chosen.provider, described.Options, chosen.options, []string{params["change"]})
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// The provider was asked without the lock, and the session may have
+	// moved to another one meanwhile.
+	if target.provider != chosen.provider {
+		return protocol.HostResult{}, fmt.Errorf("%s changed provider meanwhile, to %s; choose its options again", target.name(), target.provider)
+	}
+
+	changed := target.choice
+	changed.options = options
+
+	if err := h.choose(target, changed); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	applies := "kept for the session the next task starts"
+
+	if target.session != nil {
+		applies = "kept with this session; it applies to the tasks that start from now on"
+	}
+
+	return protocol.HostResult{Text: strings.Join(said, "\n") + "\n" + applies}, nil
 }
 
 // choose makes chosen what a place uses, and what its session keeps. A new
@@ -1083,49 +1090,38 @@ func (h *host) describeChoice(chosen choice) (string, error) {
 	return fmt.Sprintf("options chosen in the session: %s\nconfiguration of %s, under them: %s", options, chosen.provider, shown(program.Config)), nil
 }
 
-func (h *host) showSettings(context.Context, map[string]string) (protocol.HostResult, error) {
-	settings, err := effectiveSettings(h.database)
+// showConfig shows what is chosen and what applies, the current session's
+// choice first, since it wins there.
+func (h *host) showConfig(context.Context, map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	layer := sessionLayer{title: "this session, which is new", choice: h.current.choice}
+
+	if h.current.session != nil {
+		layer.title = "this session, " + h.current.session.ID
+	}
+
+	h.mu.Unlock()
+
+	text, err := describeConfig(h.database, &layer, "provider-show")
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: "system settings:\n" + describeSettings(settings)}, nil
-}
-
-func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostResult, error) {
-	var result protocol.HostResult
-
-	for _, spec := range settingSpecs {
-		result.Values = append(result.Values, protocol.Value{Value: spec.key, Description: spec.help})
-	}
-
-	return result, nil
-}
-
-// storeSetting stores a system setting. Runs read the settings when they
-// start, so what is stored applies to the next one, but for what rumbo
-// reads when it starts.
-func (h *host) storeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	if err := setSetting(h.database, params["key"], params["value"]); err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	spec, _ := findSetting(params["key"])
-	text := fmt.Sprintf("system setting %s = %s, stored; %s", params["key"], params["value"], spec.applies())
-
 	return protocol.HostResult{Text: text}, nil
 }
 
-func (h *host) removeSetting(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	if err := unsetSetting(h.database, params["key"]); err != nil {
+// systemSet changes a system setting. Runs read the settings when they
+// start, so what is set applies to the next one, but for what rumbo reads
+// when it starts.
+func (h *host) systemSet(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	said, err := setSettings(h.database, []string{params["change"]})
+
+	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	spec, _ := findSetting(params["key"])
-	text := fmt.Sprintf("system setting %s is no longer stored; %s", params["key"], spec.applies())
-
-	return protocol.HostResult{Text: text}, nil
+	return protocol.HostResult{Text: strings.Join(said, "\n")}, nil
 }
 
 func (h *host) registerProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
@@ -1133,43 +1129,55 @@ func (h *host) registerProvider(_ context.Context, params map[string]string) (pr
 		return protocol.HostResult{}, err
 	}
 
-	text := fmt.Sprintf("registered the provider %s, which started; provider-show says its defaults and what it offers", params["name"])
+	text := fmt.Sprintf("registered the provider %s, which started; provider-show says its settings and what it offers", params["name"])
 
 	return protocol.HostResult{Text: text}, nil
 }
 
-func (h *host) configureProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	program, err := configureProgram(h.database, store.KindProvider, params["provider"], []string{params["change"]})
+// providerSet changes a setting of a provider, which is started to check
+// it. A provider reads its configuration when it starts, so its processes
+// are replaced; one busy with a request stops when the request ends. A run
+// reads the provider's options and model when it starts.
+func (h *host) providerSet(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	name := params["provider"]
+	said, err := setProgram(h.database, store.KindProvider, name, []string{params["change"]}, h.conn.Log())
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	text := fmt.Sprintf("configuration of %s: %s", program.Name, shown(program.Config))
+	text := strings.Join(said, "\n") + "\nkept in " + configFile + "; it applies to the runs that start from now on"
 
-	// A provider reads its configuration when it starts, so its processes
-	// are replaced; one busy with a request stops when the request ends.
-	// Its options are read from it when a run starts.
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.drop(program.Name) {
-		text += "\nits processes were stopped, so the change applies to the next request"
-	} else {
-		text += "\nit applies to the runs that start from now on, in the sessions that choose no other value"
+	if h.drop(name) {
+		text += ", and its processes were stopped to take it"
 	}
 
 	return protocol.HostResult{Text: text}, nil
 }
 
-func (h *host) inspect(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	described, err := inspectProvider(h.database, params["provider"], h.conn.Log())
+// providerShow starts a provider and shows its settings: the one named, or
+// the current session's, with what the session chose over the rest.
+func (h *host) providerShow(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.mu.Lock()
+	chosen := h.current.choice
+	h.mu.Unlock()
+
+	name := params["provider"]
+
+	if name == "" {
+		name = chosen.provider
+	}
+
+	text, err := showProvider(h.database, name, &chosen, h.conn.Log())
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: described}, nil
+	return protocol.HostResult{Text: text}, nil
 }
 
 func (h *host) unregisterProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {

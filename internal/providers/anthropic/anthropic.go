@@ -130,8 +130,12 @@ var description = protocol.Description{
 		Name:        "effort",
 		Type:        protocol.OptionString,
 		Enum:        []string{"low", "medium", "high", "xhigh", "max"},
-		Description: "How much the model thinks and how thorough it is. Empty, the effort in the provider's configuration applies, or else the model's own default.",
+		Description: "How much the model thinks and how thorough it is. Empty, the model's own default applies.",
 		Default:     json.RawMessage(`""`),
+	}},
+	Fields: []protocol.Option{{
+		Name: "base_url", Type: protocol.OptionString, Default: json.RawMessage(`""`),
+		Description: "The address of the Claude API; empty, ANTHROPIC_BASE_URL, or else Anthropic's own",
 	}},
 	Functions: []protocol.Function{
 		{Name: "models", Description: "List the models this account can use"},

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/LiasCode/rumbo/internal/agent"
 	"github.com/LiasCode/rumbo/internal/frontends/plain"
@@ -79,20 +80,50 @@ var programHelp = map[string]string{
 }
 
 func programUsage(kind string) string {
-	options := ""
+	var out strings.Builder
 
-	if kind == store.KindProvider {
-		options = " A provider's options are fields\nof its configuration too: effort=high gives every session that chooses no other\nthat effort."
+	// A line without a command goes on with what the one before says.
+	line := func(command, about string) {
+		written := "rumbo " + kind + " " + command
+
+		if command == "" {
+			written = ""
+		}
+
+		fmt.Fprintln(&out, strings.TrimRight(fmt.Sprintf("  %-50s %s", written, about), " "))
 	}
 
-	return fmt.Sprintf(
-		"usage:\n  rumbo %[1]s list\n  rumbo %[1]s add [-config <json>] <name> <command> [args...]\n  rumbo %[1]s config <name> <field>=<value>...   change its configuration; an empty value gives a field\n                                                 back to its default\n  rumbo %[1]s show <name>                     how it is started and what was chosen for it; a provider\n                                                 is started, and says its defaults and what it offers\n  rumbo %[1]s rm <name>                       remove one you added, or what you chose for a built-in\n\n%[2]s\n\"{self}\" as the command stands for the rumbo executable.\nOnly what you choose is kept, in %[4]s; what you do not is the\n%[1]s's own default.%[3]s",
-		kind, programHelp[kind], options, configFile,
-	)
+	out.WriteString("usage:\n")
+	line("list", "the "+kindNames[kind]+"s there are, built in and yours")
+
+	if kind == store.KindProvider {
+		line("show <name>", "start it, and say each setting, where its value comes from,")
+		line("", "and what it offers")
+		line("models <name>", "the models it offers, asking it")
+		line("set <name> <setting>=<value>...", "its model, a field of its configuration, or one of its")
+		line("", "options; an empty value gives one back to its default")
+	} else {
+		line("show <name>", "how it is started, and what is set for it")
+		line("set <name> <field>=<value>...", "a field of its configuration, checked when it starts;")
+		line("", "an empty value gives one back to its default")
+	}
+
+	line("add [-config <json>] <name> <command>...", "")
+	line("rm <name>", "remove one you added, or what you set for a built-in one")
+
+	fmt.Fprintf(&out, "\n%s\n\"{self}\" as the command stands for the rumbo executable.\n", programHelp[kind])
+	fmt.Fprintf(&out, "What you set is kept in %s; what you do not is the %s's own default.", configFile, kindNames[kind])
+
+	return out.String()
 }
 
-// programCommands returns the list, add, and rm commands for one kind of
-// registered program.
+// retiredCommands are the subcommands there were, and what took their place.
+var retiredCommands = map[string]string{
+	"config":  "set",
+	"options": "set",
+}
+
+// programCommands returns the commands for one kind of program.
 func programCommands(kind string) func(database store.Store, args []string) error {
 	return func(database store.Store, args []string) error {
 		return manageProgram(database, kind, args)
@@ -108,17 +139,7 @@ func manageProgram(database store.Store, kind string, args []string) error {
 
 	switch args[0] {
 	case "list":
-		programs, err := listPrograms(database, kind)
-
-		if err != nil {
-			return err
-		}
-
-		for _, program := range programs {
-			fmt.Printf("%s\t%s\t%s\n", program.Name, strings.Join(program.Command, " "), shown(program.Config))
-		}
-
-		return nil
+		return printPrograms(database, kind)
 
 	case "add":
 		flags := flag.NewFlagSet(kind+" add", flag.ContinueOnError)
@@ -140,18 +161,24 @@ func manageProgram(database store.Store, kind string, args []string) error {
 
 		return registerProvider(database, rest[0], rest[1:], json.RawMessage(*config), os.Stderr)
 
-	case "config":
+	case "set":
 		if len(args) < 3 {
 			return errors.New(help)
 		}
 
-		program, err := configureProgram(database, kind, args[1], args[2:])
+		said, err := setProgram(database, kind, args[1], args[2:], os.Stderr)
 
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(shown(program.Config))
+		applies := "to the runs that start from now on"
+
+		if kind == store.KindFrontend {
+			applies = "from the next start of rumbo, which is when the front end checks it"
+		}
+
+		fmt.Printf("%s\nkept in %s; it applies %s\n", strings.Join(said, "\n"), configFile, applies)
 
 		return nil
 
@@ -161,13 +188,13 @@ func manageProgram(database store.Store, kind string, args []string) error {
 		}
 
 		if kind == store.KindProvider {
-			described, err := inspectProvider(database, args[1], os.Stderr)
+			shown, err := showProvider(database, args[1], nil, os.Stderr)
 
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(described)
+			fmt.Println(shown)
 
 			return nil
 		}
@@ -178,7 +205,22 @@ func manageProgram(database store.Store, kind string, args []string) error {
 			return err
 		}
 
-		fmt.Println(describeProgram(program))
+		fmt.Printf("%s: %s\nconfiguration: %s\n", program.Name, strings.Join(program.Command, " "), shown(program.Config))
+
+		return nil
+
+	case "models":
+		if kind != store.KindProvider || len(args) != 2 {
+			return errors.New(help)
+		}
+
+		listed, err := listModels(database, args[1], os.Stderr)
+
+		if err != nil {
+			return err
+		}
+
+		fmt.Println(listed)
 
 		return nil
 
@@ -196,14 +238,42 @@ func manageProgram(database store.Store, kind string, args []string) error {
 		fmt.Println(removed)
 
 		return nil
+	}
 
-	case "options":
-		if kind == store.KindProvider {
-			return errors.New(`"rumbo provider options" is now "rumbo provider config": a provider's options are fields of its configuration`)
-		}
+	if instead, retired := retiredCommands[args[0]]; retired {
+		return fmt.Errorf(`"rumbo %s %s" is now "rumbo %s %s <name> <setting>=<value>", which sets anything of a %s`, kind, args[0], kind, instead, kindNames[kind])
 	}
 
 	return errors.New(help)
+}
+
+// printPrograms lists the programs of a kind there are: how each is
+// started, and a provider's model.
+func printPrograms(database store.Store, kind string) error {
+	programs, err := listPrograms(database, kind)
+
+	if err != nil {
+		return err
+	}
+
+	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+	for _, program := range programs {
+		started := strings.Join(program.Command, " ")
+
+		if _, built := builtin(kind, program.Name); built && program.Command[0] == selfPlaceholder {
+			started = sourceBuiltin
+		}
+
+		if program.Model == "" {
+			fmt.Fprintf(out, "%s\t%s\n", program.Name, started)
+			continue
+		}
+
+		fmt.Fprintf(out, "%s\t%s\tmodel %s\n", program.Name, started, program.Model)
+	}
+
+	return out.Flush()
 }
 
 func systemUsage() string {
@@ -214,48 +284,68 @@ func systemUsage() string {
 	}
 
 	return "usage:\n" +
-		"  rumbo system list                every system setting, and where its value comes from\n" +
-		"  rumbo system get <key>           the value stored\n" +
-		"  rumbo system set <key> <value>\n" +
-		"  rumbo system unset <key>\n\n" +
+		"  rumbo system                           every system setting, its value, and where it comes from\n" +
+		"  rumbo system set <name>=<value>...     an empty value gives one back to its default\n\n" +
 		"System settings are rumbo's own, the same everywhere. What a session chooses\n" +
-		"for itself, with -p, -m, -o, use, or session-options, wins over them there.\n" +
-		"A provider's options are set with \"rumbo provider config\".\n" +
-		"What you set is kept in " + kept + ", which you can edit.\n\nsystem settings:\n" + settingsHelp()
+		"for itself, with -p, -m, -o, use, or session-set, wins over them there.\n" +
+		"What you set is kept in " + kept + ", which you can edit;\n" +
+		"\"rumbo config\" shows all of it, the providers' and the front ends' too.\n\nsystem settings:\n" + settingsHelp()
 }
 
 func systemCommands(database store.Store, args []string) error {
 	switch {
-	case len(args) == 1 && args[0] == "list":
+	case len(args) == 0:
 		settings, err := effectiveSettings(database)
 
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(describeSettings(settings))
+		out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		writeSettings(out, settings, "")
 
-		return nil
+		return out.Flush()
 
-	case len(args) == 2 && args[0] == "get":
-		value, err := storedSetting(database, args[1])
+	case args[0] == "set" && len(args) == 3 && !strings.Contains(args[1], "="):
+		return fmt.Errorf(`set takes name=value now: "rumbo system set %s=%s"`, args[1], args[2])
+
+	case args[0] == "set" && len(args) > 1:
+		said, err := setSettings(database, args[1:])
 
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(value)
+		fmt.Println(strings.Join(said, "\n"))
 
 		return nil
 
-	case len(args) == 3 && args[0] == "set":
-		return setSetting(database, args[1], args[2])
+	case args[0] == "list" || args[0] == "get":
+		return fmt.Errorf(`"rumbo system %s" is now "rumbo system", which shows every setting`, args[0])
 
-	case len(args) == 2 && args[0] == "unset":
-		return unsetSetting(database, args[1])
+	case args[0] == "unset":
+		return errors.New(`"rumbo system unset <name>" is now "rumbo system set <name>=": an empty value gives a setting back to its default`)
 	}
 
 	return errors.New(systemUsage())
+}
+
+// configCommand shows what is chosen and what applies, without starting
+// anything.
+func configCommand(database store.Store, args []string) error {
+	if len(args) > 0 {
+		return errors.New(`"rumbo config" takes nothing: it shows what is chosen and what applies. "rumbo system set", "rumbo provider set", and "rumbo frontend set" change it`)
+	}
+
+	shown, err := describeConfig(database, nil, `"rumbo provider show <name>"`)
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(shown)
+
+	return nil
 }
 
 // printRequest writes what the provider was sent for a turn of a session,

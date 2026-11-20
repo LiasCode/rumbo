@@ -13,11 +13,10 @@ import (
 )
 
 // config is what rumbo reads from the system settings when it starts: the
-// front end, and the provider and model a new session starts with.
+// front end, and the provider a new session starts with.
 type config struct {
 	Frontend        string
 	DefaultProvider string
-	DefaultModel    string
 }
 
 // limits are the system settings a run reads when it starts, so a change
@@ -109,15 +108,13 @@ func loadConfig(settings store.Store, frontendFlag string) (config, error) {
 		return loaded, err
 	}
 
-	for key, into := range map[string]*string{keyDefaultProvider: &loaded.DefaultProvider, keyDefaultModel: &loaded.DefaultModel} {
-		chosen, err := effectiveSetting(settings, key)
+	provider, err := effectiveSetting(settings, keyDefaultProvider)
 
-		if err != nil {
-			return loaded, err
-		}
-
-		*into = chosen.Value
+	if err != nil {
+		return loaded, err
 	}
+
+	loaded.DefaultProvider = provider.Value
 
 	if loaded.Frontend == "" {
 		chosen, err := effectiveSetting(settings, keyFrontend)

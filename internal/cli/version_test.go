@@ -39,8 +39,8 @@ func TestDispatchRefusesAMistypedCommand(t *testing.T) {
 		t.Fatalf("dispatch(versoin) = %v", err)
 	}
 
-	// The command's old name is not sent to the model either.
-	if err := dispatch([]string{"config", "set", "model", "anthropic/x"}); err == nil || !strings.Contains(err.Error(), `now "rumbo system"`) {
+	// What looks like the command's old use is not sent to the model either.
+	if err := dispatch([]string{"config", "set", "model", "anthropic/x"}); err == nil || !strings.Contains(err.Error(), `"rumbo config" takes nothing`) {
 		t.Fatalf("dispatch(config ...) = %v", err)
 	}
 }

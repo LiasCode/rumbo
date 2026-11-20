@@ -92,6 +92,9 @@ func (h *host) accept(params protocol.RunParams, run *frontend.Run) (frontend.Wo
 
 	case params.Resume && target.session == nil:
 		return nil, errors.New("there is no session to resume")
+
+	case target.model == "" && params.Model == "":
+		return nil, fmt.Errorf("no model chosen for %[1]s: choose one with use, or set the one %[1]s starts with: provider-set %[1]s model=<model>", target.provider)
 	}
 
 	if err := h.hold(target); err != nil {

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -46,11 +47,17 @@ func TestTheModelsOfAProviderAreAskedOfIt(t *testing.T) {
 	t.Cleanup(h.close)
 
 	call(t, h, "use", `{"provider":"mine","model":"gpt-b"}`)
+	call(t, h, "provider-set", `{"provider":"mine","change":"model=gpt-a"}`)
 
 	listed := call(t, h, "provider-models", "")
 
-	if got := shownValues(listed.Values); got != "gpt-a: | gpt-b:in use in this session" {
+	if got := shownValues(listed.Values); got != "gpt-a:the one mine starts with | gpt-b:in use in this session" {
 		t.Fatalf("models = %q", got)
+	}
+
+	// The command line lists them too, without a host.
+	if got, err := listModels(h.database, "mine", io.Discard); err != nil || got != "gpt-a  the one mine starts with\ngpt-b" {
+		t.Fatalf("listModels = %q, err = %v", got, err)
 	}
 
 	if named := call(t, h, "provider-models", `{"provider":"mine"}`); len(named.Values) != 2 {
@@ -70,28 +77,34 @@ func TestTheModelsOfAProviderAreAskedOfIt(t *testing.T) {
 	}
 }
 
-// The values of a provider's options come as name=value changes, each
-// option's empty one first, with those in force marked: the session's, or
-// those the configuration of a provider named gives.
-func TestTheValuesOfOptionsAreListedAsChanges(t *testing.T) {
+// The values a setting takes come as name=value changes, with those in
+// force marked, after the empty value of each one chosen at that level: the
+// session's options, or a provider's settings.
+func TestTheValuesOfSettingsAreListedAsChanges(t *testing.T) {
 	h := testHost(t)
-	h.database.PutProgram(store.KindProvider, store.Program{Name: "claude", Command: []string{selfPlaceholder, "provide", "anthropic"}})
+	withClaude(t, h.database, "")
 	t.Cleanup(h.close)
 
 	call(t, h, "use", `{"provider":"claude","model":"claude-opus-5-5"}`)
-	call(t, h, "session-options", `{"change":"effort=low"}`)
-	call(t, h, "provider-config", `{"provider":"claude","change":"effort=high"}`)
+	call(t, h, "provider-set", `{"provider":"claude","change":"effort=high"}`)
 
-	session := "effort=:empty: removes it | effort=low:in force | effort=medium: | effort=high: | effort=xhigh: | effort=max:"
+	efforts := " | effort=low: | effort=medium: | effort=high:in force | effort=xhigh: | effort=max:"
 
-	if got := shownValues(call(t, h, "option-values", "").Values); got != session {
+	if got := shownValues(call(t, h, "session-values", "").Values); got != strings.TrimPrefix(efforts, " | ") {
+		t.Fatalf("the session's, with nothing chosen = %q", got)
+	}
+
+	call(t, h, "session-set", `{"change":"effort=low"}`)
+
+	session := "effort=:empty: gives it back | effort=low:in force | effort=medium: | effort=high: | effort=xhigh: | effort=max:"
+
+	if got := shownValues(call(t, h, "session-values", "").Values); got != session {
 		t.Fatalf("the session's = %q, want %q", got, session)
 	}
 
-	stored := "effort=:empty: removes it | effort=low: | effort=medium: | effort=high:in force | effort=xhigh: | effort=max:"
-
-	if got := shownValues(call(t, h, "option-values", `{"provider":"claude"}`).Values); got != stored {
-		t.Fatalf("the provider's = %q, want %q", got, stored)
+	// The models need the server, which is not there; the rest is listed.
+	if got := shownValues(call(t, h, "provider-values", `{"provider":"claude"}`).Values); got != "base_url=:in force: http://127.0.0.1:9, empty gives it back | effort=:empty: gives it back"+efforts {
+		t.Fatalf("the provider's = %q", got)
 	}
 }
 

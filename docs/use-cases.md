@@ -41,7 +41,13 @@ nothing and knows no model API.
   from the front end to the provider, and nowhere else.
 - Check a setting when it is stored, and refuse to start with one that is
   missing, malformed, or misspelled in the configuration file instead of
-  guessing, saying where in the file.
+  guessing, saying where in the file. A setting of a provider, or an option
+  a session chooses, is checked against what the provider describes, and a
+  provider's configuration by starting the provider with it, before it is
+  kept.
+- Take every change to a setting the same way, at every level, as
+  `name=value`, where an empty value gives the setting back to the level
+  under it.
 - Keep everything it stores in files a person can read: what the user
   chose in `config.yaml`, and each session in a directory of its own.
 - Write to `config.yaml` only what the user chose, never a default, and
@@ -127,8 +133,12 @@ nothing and knows no model API.
 - Keep each session's provider and model, and the values of the provider's
   options chosen in it, from one start to the next, over the system
   settings. `-p`, `-m`, and `-o` choose them for the session, as `use` and
-  `session-options` do. A session that changes provider leaves its options
-  behind.
+  `session-set` do. A new session starts with the default provider and the
+  model set for it, and a session that changes provider takes the model set
+  for the new one and leaves its options behind.
+- Start without a model, when the provider has none set and the command
+  line gives none, so the person can choose one in the front end; a run is
+  refused until there is one, saying how to choose it.
 - Keep a session where a person can read it, in
   `~/.local/share/rumbo/sessions/<id>/`: `session.json`, what it is and what
   it chose, and `entries.jsonl`, its entries, one to a line. A line a
@@ -144,21 +154,26 @@ nothing and knows no model API.
 
 **Providers**
 
-- Register, configure, show, and remove providers. A provider is started
+- Register, set, show, and remove providers. A provider is started
   when it is added, which is the test that it works. The built-in
   `anthropic`, `openai`, and `chatgpt` are there without being registered,
   and cannot be removed; one registered under the name of a built-in takes
   its place. `{self}` stands for rumbo's own executable in a command.
-- Keep of each provider and front end only what the user chose for it. What
-  is not chosen is the program's own default, so one a new version changes
-  applies to everyone who chose nothing else.
-- Start a provider and show what was chosen for it, its configuration in
-  force with its defaults, and what it offers, which is also the test that
-  it works.
-- List the models a provider offers and the values its options take,
-  asking it, so a front end can offer them as choices: the models after
-  the provider `use` names, and the `name=value` changes of
-  `session-options` and `provider-config`, with those in force marked.
+- Keep of each provider and front end only what the user chose for it,
+  and for a provider the model new sessions start with. What is not chosen
+  is the program's own default, so one a new version changes applies to
+  everyone who chose nothing else.
+- Start a provider and show each of its settings, its model, the fields of
+  its configuration, and its options, with the value that applies and where
+  it comes from, its own defaults included, and what it offers, which is
+  also the test that it works (`rumbo provider show`, `provider-show`).
+- Show everything that is set and what applies, each value with where it
+  comes from, without starting anything (`rumbo config`, `config`).
+- List the models a provider offers (`rumbo provider models`,
+  `provider-models`) and the values its settings take, asking it, so a
+  front end can offer them as choices: the models after the provider `use`
+  names, and the `name=value` changes of `system-set`, `session-set`, and
+  `provider-set`, with those in force marked.
 - Keep as many processes of a provider as the requests running at once need,
   and replace one that died.
 - Change the provider and the model of a session for its next runs, while a
@@ -185,12 +200,15 @@ nothing and knows no model API.
   being registered.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
-  `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
-  session: `status`, `skills`, `sessions`, `projects`, `open`, `new`,
-  `branch`, `branch-points`, `delete`, `rename`, `prune`, `use`,
-  `session-options`, and `compact`. For
-  the providers: `providers`, `provider-models`, `option-values`,
-  `provider-add`, `provider-config`, `provider-show`, and `provider-rm`.
+  `config`, `system-set`, and `quit`. For a session: `status`, `skills`,
+  `sessions`, `projects`, `open`, `new`, `branch`, `delete`, `rename`,
+  `prune`, `use`, `session-set`, and `compact`. For the providers:
+  `providers`, `provider-models`, `provider-show`, `provider-set`,
+  `provider-add`, and `provider-rm`.
+- Mark the functions that are there to list the values a parameter takes,
+  so a front end offers their values and not them as commands:
+  `system-values`, `branch-points`, `session-values`, and
+  `provider-values`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
@@ -203,14 +221,14 @@ nothing and knows no model API.
 **System settings**
 
 - Store the system settings, rumbo's own and the same everywhere: the
-  provider and the model a new session starts with, the front end, the turn
-  limit, the output limit, and the share of the model's context at which to
+  provider a new session starts with, the front end, the turn limit, the
+  output limit, and the share of the model's context at which to
   summarize. List them with where each value in force comes from
-  (`rumbo system list`).
+  (`rumbo system`).
 - Apply a stored system setting, or a provider's option, to the runs that
   start after it is stored, without starting again, whether a command
-  stored it or a person wrote it in the file. The default provider and
-  model, and the front end, apply from the next start.
+  stored it or a person wrote it in the file. The default provider and the
+  front end apply from the next start.
 
 ### Must not
 
@@ -396,10 +414,11 @@ speaks the Agent Frontend Protocol with the host.
 - Enter sends a task. During a run it tells the run what was typed, which
   shows once the model has it, and goes back to the input if the run ended
   first.
-- Its commands are the functions the host and the provider describe, and
-  its own, which come before one of theirs of the same name: `/options`,
-  `/help`, `/copy`, and `/export`. `/help` lists the host's by what they
-  act on: the system, the session, and the providers.
+- Its commands are the functions the host and the provider describe, but
+  for those there to list a parameter's values, and its own, which come
+  before one of theirs of the same name: `/help`, `/copy`, and `/export`.
+  `/help` lists the host's by what they act on: the system, the session,
+  and the providers.
 - `/copy` puts the model's last answer in the clipboard, and `/copy code`
   only its last code block, with OSC 52, so it also works over ssh, in the
   terminals that take it; in tmux, with `set-clipboard on`.
@@ -416,8 +435,9 @@ speaks the Agent Frontend Protocol with the host.
   a command that needs nothing more sends it, and on one that still needs
   something opens the menu of what it takes next, or says what that is:
   `/open` lists the sessions, and `/use openai` the models of `openai`.
-  After `/session-options `, the menu offers the values of the provider's
-  options as `name=value`, with those in force marked.
+  After `/session-set `, `/provider-set <provider> `, and `/system-set `,
+  the menu offers the changes each takes as `name=value`, with those in
+  force marked.
 - Answers, errors, and diagnostics are marked `[host]` or `[provider
   <name>]`, by where they come from.
 - `/new` or `/open` during a run leaves the run working in the background.
@@ -443,8 +463,9 @@ speaks the Agent Frontend Protocol with the host.
   Ctrl-D deletes under the cursor, and Ctrl-W, Ctrl-U, and Ctrl-K delete a
   word back, to the start of the line, and to its end.
 - The status bar shows what is happening, with the time a run has worked,
-  the provider and the model, the session, and the runs in the
-  background; and, on the right, how full the context is, as a bar that
+  the provider and the model, or that there is no model yet, the session,
+  and the runs in the background; and, on the right, how full the context
+  is, as a bar that
   turns yellow past half and red past four fifths, and the tokens the
   session has spent. What does not fit leaves, the least needed first.
 - A run in the background that ends says so, with what it took and how to
@@ -456,8 +477,9 @@ speaks the Agent Frontend Protocol with the host.
   shows them unless `NO_COLOR` is set, `color`, or `plain`, which shows
   none; and `color_host`, `color_provider`, `color_code`, `color_success`,
   `color_failure`, `color_warning`, and `color_progress` each take a name,
-  such as `cyan` or `bright-blue`, a number of the 256 colors, `#rrggbb`,
-  or `default`. It says the configuration in force, with its defaults,
+  such as `cyan` or `bright-blue`, a number of the 256 colors, written as
+  text or as a number, `#rrggbb`, or `default`. It says the configuration
+  in force, with its defaults,
   and one it cannot use stops it with what is wrong, before it takes the
   terminal.
 - It gives the terminal back as it found it, when it quits or the host ends,

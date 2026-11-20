@@ -24,6 +24,7 @@ import (
 //	providers:
 //	  local:
 //	    command: ["{self}", provide, openai]
+//	    model: qwen3-coder
 //	    config:
 //	      base_url: http://localhost:11434/v1
 //	frontends:
@@ -35,6 +36,7 @@ const (
 	sectionSystem = "system"
 
 	fieldCommand = "command"
+	fieldModel   = "model"
 	fieldConfig  = "config"
 )
 
@@ -99,6 +101,25 @@ func put(mapping *yaml.Node, key string, value *yaml.Node) {
 	}
 
 	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
+}
+
+// putBefore sets the value of key in a mapping as put does, and a key that
+// is new goes before the key named, when the mapping has it, so a program's
+// settings read in the order a person expects.
+func putBefore(mapping *yaml.Node, key string, value *yaml.Node, before string) {
+	if lookup(mapping, key) != nil {
+		put(mapping, key, value)
+		return
+	}
+
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		if mapping.Content[index].Value == before {
+			mapping.Content = slices.Insert(mapping.Content, index, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
+			return
+		}
+	}
+
+	put(mapping, key, value)
 }
 
 // remove takes key out of a mapping, and reports whether it was there.
@@ -210,7 +231,7 @@ func (f *Files) check(root *yaml.Node) error {
 
 		case sections[KindProvider], sections[KindFrontend]:
 			for at := 0; at+1 < len(value.Content); at += 2 {
-				if err := f.checkProgram(value.Content[at].Value, actual(value.Content[at+1])); err != nil {
+				if err := f.checkProgram(key.Value, value.Content[at].Value, actual(value.Content[at+1])); err != nil {
 					return err
 				}
 			}
@@ -223,13 +244,23 @@ func (f *Files) check(root *yaml.Node) error {
 	return nil
 }
 
-func (f *Files) checkProgram(name string, entry *yaml.Node) error {
+// checkProgram checks what a section of the file holds of one program. A
+// provider has a model too.
+func (f *Files) checkProgram(section, name string, entry *yaml.Node) error {
+	fields := []string{fieldCommand, fieldConfig}
+
+	if section == sections[KindProvider] {
+		fields = []string{fieldCommand, fieldModel, fieldConfig}
+	}
+
+	known := strings.Join(fields[:len(fields)-1], ", ") + " and " + fields[len(fields)-1]
+
 	if isNull(entry) {
 		return nil
 	}
 
 	if entry.Kind != yaml.MappingNode {
-		return f.wrong(entry, "%s holds a %s, a %s, or both", name, fieldCommand, fieldConfig)
+		return f.wrong(entry, "%s holds its %s, each on a line of its own", name, known)
 	}
 
 	if err := f.checkKeys(entry); err != nil {
@@ -249,6 +280,11 @@ func (f *Files) checkProgram(name string, entry *yaml.Node) error {
 				return f.wrong(value, "the command of %s is a list of words, such as [my-program, --flag]", name)
 			}
 
+		case key.Value == fieldModel && slices.Contains(fields, fieldModel):
+			if value.Kind != yaml.ScalarNode {
+				return f.wrong(value, "the model of %s is one name", name)
+			}
+
 		case key.Value == fieldConfig:
 			if value.Kind != yaml.MappingNode {
 				return f.wrong(value, "the config of %s holds fields with their values, one to a line", name)
@@ -259,7 +295,7 @@ func (f *Files) checkProgram(name string, entry *yaml.Node) error {
 			}
 
 		default:
-			return f.wrong(key, "%q is not something rumbo reads of %s; it reads %s and %s", key.Value, name, fieldCommand, fieldConfig)
+			return f.wrong(key, "%q is not something rumbo reads of %s; it reads %s", key.Value, name, known)
 		}
 	}
 
@@ -467,6 +503,10 @@ func (f *Files) Programs(kind string) ([]Program, error) {
 			}
 		}
 
+		if model := lookup(entry, fieldModel); model != nil && !isNull(model) {
+			program.Model = model.Value
+		}
+
 		if config := lookup(entry, fieldConfig); config != nil {
 			if program.Config, err = configOf(config); err != nil {
 				return nil, f.wrong(config, "the config of %s: %v", program.Name, err)
@@ -516,7 +556,15 @@ func (f *Files) PutProgram(kind string, program Program) error {
 				words.Content = append(words.Content, text(word))
 			}
 
-			put(entry, fieldCommand, words)
+			putBefore(entry, fieldCommand, words, fieldModel)
+		}
+
+		switch written := lookup(entry, fieldModel); {
+		case program.Model == "":
+			remove(entry, fieldModel)
+
+		case written == nil || written.Value != program.Model:
+			putBefore(entry, fieldModel, text(program.Model), fieldConfig)
 		}
 
 		if len(desired) == 0 {

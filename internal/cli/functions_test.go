@@ -21,11 +21,36 @@ func testHost(t *testing.T) *host {
 
 	database := store.Open(filepath.Join(t.TempDir(), configFile), t.TempDir())
 
-	database.PutProgram(store.KindProvider, store.Program{Name: "first", Command: []string{"first-provider"}})
+	database.PutProgram(store.KindProvider, store.Program{Name: "first", Command: []string{"first-provider"}, Model: "small"})
 	database.PutProgram(store.KindProvider, store.Program{Name: "second", Command: []string{"second-provider"}, Config: json.RawMessage(`{"depth":2,"base_url":"http://second"}`)})
 
 	return hostOn(t, database)
 }
+
+// withClaude registers claude, a provider the test binary serves as the
+// built-in anthropic, which describes one option, effort, with the values it
+// takes. Unless config says otherwise, it reaches a closed port on this
+// machine, so nothing a test does reaches Anthropic, whatever credentials
+// the machine has.
+func withClaude(t *testing.T, database store.Store, config string) {
+	t.Helper()
+
+	merged, err := mergeOptions(json.RawMessage(`{"base_url":"http://127.0.0.1:9"}`), json.RawMessage(config))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	program := store.Program{Name: "claude", Command: []string{selfPlaceholder, "provide", "anthropic"}, Config: merged}
+
+	if err := database.PutProgram(store.KindProvider, program); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// effort is what claude says of its options, for working out the values in
+// force without starting it.
+var effort = protocol.Description{Options: []protocol.Option{{Name: "effort", Type: protocol.OptionString}}}
 
 // depth is what a provider says of itself when it takes one option, depth,
 // which is what tells it from the rest of the provider's configuration.
@@ -42,7 +67,7 @@ func hostOn(t *testing.T, database store.Store) *host {
 		database: database,
 		root:     "/repo",
 		tools:    tools,
-		settings: config{DefaultProvider: "first", DefaultModel: "small"},
+		settings: config{DefaultProvider: "first"},
 		current: &place{
 			choice: choice{provider: "first", model: "small"},
 			dir:    "/repo",
@@ -396,27 +421,31 @@ func TestSessionsKeepTheirProviderAcrossStarts(t *testing.T) {
 }
 
 // A session keeps the options chosen in it, as it keeps its model, and goes
-// without them when it changes to another provider.
+// without them when it changes to another provider. What is chosen is
+// checked against what the provider describes.
 func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 	h := testHost(t)
-	call(t, h, "use", `{"provider":"second","model":"large"}`)
+	withClaude(t, h.database, `{"effort":"high"}`)
+	call(t, h, "use", `{"provider":"claude","model":"claude-x"}`)
 
-	// Chosen before the session is made, they wait for it. The session's
-	// are over those of the provider's configuration, and each level shows.
-	chosen := call(t, h, "session-options", `{"change":"depth=5"}`)
-
-	for _, said := range []string{
-		"kept for the session the next task starts",
-		`options chosen in the session: {"depth":5}`,
-		`configuration of second, under them: {"base_url":"http://second","depth":2}`,
-	} {
-		if !strings.Contains(chosen.Text, said) {
-			t.Fatalf("session-options = %q, missing %q", chosen.Text, said)
-		}
+	// Chosen before the session is made, they wait for it, over those of
+	// the provider's configuration.
+	if chosen := call(t, h, "session-set", `{"change":"effort=low"}`); chosen.Text != "effort = low\nkept for the session the next task starts" {
+		t.Fatalf("session-set = %q", chosen.Text)
 	}
 
-	if options, _ := h.inForce(h.current.choice, depth); string(options) != `{"depth":5}` {
+	if options, _ := h.inForce(h.current.choice, effort); string(options) != `{"effort":"low"}` {
 		t.Fatalf("options in force = %s", options)
+	}
+
+	for change, wrong := range map[string]string{
+		"effrt=low":   `claude has no option "effrt"; its options are effort`,
+		"effort=huge": `effort is one of low, medium, high, xhigh, max, not "huge"`,
+		"effort":      `"effort" is not name=value`,
+	} {
+		if err := refused(t, h, "session-set", `{"change":"`+change+`"}`); !strings.Contains(err, wrong) {
+			t.Errorf("session-set %s: %s, want %q", change, err, wrong)
+		}
 	}
 
 	made, err := h.made(h.current, "first task")
@@ -425,9 +454,11 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	call(t, h, "session-options", `{"change":"web=true"}`)
+	if chosen := call(t, h, "session-set", `{"change":"effort=max"}`); !strings.Contains(chosen.Text, "kept with this session") {
+		t.Fatalf("session-set in a session = %q", chosen.Text)
+	}
 
-	if stored, _ := h.database.Session(made.ID); string(stored.Options) != `{"depth":5,"web":true}` {
+	if stored, _ := h.database.Session(made.ID); string(stored.Options) != `{"effort":"max"}` {
 		t.Fatalf("stored options = %s", stored.Options)
 	}
 
@@ -436,15 +467,26 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 	later := hostOn(t, h.database)
 	call(t, later, "open", `{"session":"`+made.ID+`"}`)
 
-	if shown := call(t, later, "session-options", ""); !strings.Contains(shown.Text, `chosen in the session: {"depth":5,"web":true}`) {
-		t.Fatalf("after a restart: %q", shown.Text)
+	for _, said := range []string{
+		`options chosen in the session: {"effort":"max"}`,
+		`configuration of claude, under them: {"base_url":"http://127.0.0.1:9","effort":"high"}`,
+	} {
+		if status := call(t, later, "status", ""); !strings.Contains(status.Text, said) {
+			t.Fatalf("status after a restart = %q, missing %q", status.Text, said)
+		}
+	}
+
+	// An empty value gives one back to the provider's, and only one chosen.
+	if back := call(t, later, "session-set", `{"change":"effort="}`); !strings.HasPrefix(back.Text, "effort: given back to claude's") || later.current.options != nil {
+		t.Fatalf("session-set effort= = %q, options %s", back.Text, later.current.options)
+	}
+
+	if err := refused(t, later, "session-set", `{"change":"effort="}`); !strings.Contains(err, "not chosen in the session") {
+		t.Fatalf("giving back what is not chosen: %s", err)
 	}
 
 	// Another provider does not get them.
-	if status := call(t, later, "status", ""); !strings.Contains(status.Text, `options chosen in the session: {"depth":5,"web":true}`) {
-		t.Fatalf("status = %q", status.Text)
-	}
-
+	call(t, later, "session-set", `{"change":"effort=low"}`)
 	used := call(t, later, "use", `{"provider":"first","model":"small"}`)
 
 	if !strings.Contains(used.Text, "were for another provider and are dropped") || later.current.options != nil {
@@ -456,41 +498,47 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 	}
 }
 
-// What is stored applies to the next run, without starting rumbo again;
-// what rumbo reads when it starts says so.
+// What is set applies to the next run, without starting rumbo again; what
+// rumbo reads when it starts says so.
 func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 	h := testHost(t)
+	withClaude(t, h.database, "")
+	call(t, h, "use", `{"provider":"claude","model":"claude-x"}`)
 
-	stored := call(t, h, "system-set", `{"key":"max_turns","value":"7"}`)
-	call(t, h, "provider-config", `{"provider":"first","change":"depth=3"}`)
+	stored := call(t, h, "system-set", `{"change":"max_turns=7"}`)
 
-	options, err := h.inForce(h.current.choice, depth)
+	if stored.Text != "max_turns = 7, to the runs that start from now on" {
+		t.Fatalf("system-set max_turns = %q", stored.Text)
+	}
 
-	if err != nil || string(options) != `{"depth":3}` {
+	if set := call(t, h, "provider-set", `{"provider":"claude","change":"effort=low"}`); set.Text != "effort = low\nkept in config.yaml; it applies to the runs that start from now on" {
+		t.Fatalf("provider-set = %q", set.Text)
+	}
+
+	options, err := h.inForce(h.current.choice, effort)
+
+	if err != nil || string(options) != `{"effort":"low"}` {
 		t.Fatalf("options in force = %s, err = %v", options, err)
 	}
 
 	worker, err := h.agent(nil, h.current.choice, options, h.current.tools, nil)
 
-	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"depth":3}` {
+	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"effort":"low"}` {
 		t.Fatalf("worker = %+v, err = %v", worker, err)
 	}
 
-	if !strings.Contains(stored.Text, "applies to the runs that start from now on") {
-		t.Fatalf("system-set max_turns = %q", stored.Text)
-	}
-
-	if model := call(t, h, "system-set", `{"key":"default_model","value":"large"}`); !strings.Contains(model.Text, "from the next start of rumbo") {
-		t.Fatalf("system-set model = %q", model.Text)
+	if provider := call(t, h, "system-set", `{"change":"default_provider=claude"}`); !strings.Contains(provider.Text, "from the next start of rumbo") {
+		t.Fatalf("system-set default_provider = %q", provider.Text)
 	}
 }
 
 // Continuing a session from the command line starts with its provider,
-// unless -m chooses another for that start.
+// unless -m chooses another for that start. A new session starts with the
+// provider's own model.
 func TestContinuingASessionUsesItsProvider(t *testing.T) {
 	h := testHost(t)
-	setSetting(h.database, keyDefaultProvider, "first")
-	setSetting(h.database, keyDefaultModel, "small")
+	withClaude(t, h.database, "")
+	setSettings(h.database, []string{"default_provider=first"})
 
 	_, root, err := workingProject()
 
@@ -498,32 +546,46 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A new session takes the default provider's model.
+	fresh, err := newHost(h.database, nil)
+
+	if err != nil || fresh.current.provider != "first" || fresh.current.model != "small" {
+		t.Fatalf("a new session: %+v, err = %v", fresh, err)
+	}
+
+	fresh.close()
+
 	session, _ := h.database.CreateSession(root, root, "continued")
-	h.database.SetSessionModel(session.ID, "second", "large")
+	h.database.SetSessionModel(session.ID, "claude", "large")
 
 	continued, err := newHost(h.database, []string{"-s", session.ID})
 
-	if err != nil || continued.current.provider != "second" || continued.current.model != "large" {
+	if err != nil || continued.current.provider != "claude" || continued.current.model != "large" {
 		t.Fatalf("continued: %+v, err = %v", continued, err)
 	}
 
 	continued.close()
 
-	// What the command line chooses is the session's from then on.
-	chosen, err := newHost(h.database, []string{"-s", session.ID, "-m", "org/huge", "-o", "depth=4"})
+	// What the command line chooses is the session's from then on, and an
+	// option is checked against what the provider describes.
+	chosen, err := newHost(h.database, []string{"-s", session.ID, "-m", "org/huge", "-o", "effort=high"})
 
-	if err != nil || chosen.current.provider != "second" || chosen.current.model != "org/huge" {
+	if err != nil || chosen.current.provider != "claude" || chosen.current.model != "org/huge" {
 		t.Fatalf("with -m: %+v, err = %v", chosen, err)
 	}
 
 	chosen.close()
 
-	if stored, _ := h.database.Session(session.ID); stored.Provider != "second" || stored.Model != "org/huge" || string(stored.Options) != `{"depth":4}` {
+	if stored, _ := h.database.Session(session.ID); stored.Provider != "claude" || stored.Model != "org/huge" || string(stored.Options) != `{"effort":"high"}` {
 		t.Fatalf("the session keeps %s/%s %s", stored.Provider, stored.Model, stored.Options)
 	}
 
+	if _, err := newHost(h.database, []string{"-s", session.ID, "-o", "effrt=high"}); err == nil || !strings.Contains(err.Error(), `claude has no option "effrt"`) {
+		t.Fatalf("-o with an option the provider does not describe: err = %v", err)
+	}
+
 	// Another provider starts without the options chosen for the one
-	// before, and with the default model when it is the default provider.
+	// before, and with its own model.
 	switched, err := newHost(h.database, []string{"-s", session.ID, "-p", "first"})
 
 	if err != nil {
@@ -536,8 +598,22 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 
 	switched.close()
 
-	if _, err := newHost(h.database, []string{"-p", "second"}); err == nil || !strings.Contains(err.Error(), "no model chosen for second") {
-		t.Fatalf("another provider without -m: err = %v", err)
+	// One without a model of its own starts all the same, for the front end
+	// to choose one; it is a run that needs one.
+	modelless, err := newHost(h.database, []string{"-p", "second"})
+
+	if err != nil || modelless.current.model != "" {
+		t.Fatalf("a provider without a model: %+v, err = %v", modelless, err)
+	}
+
+	if _, err := modelless.accept(protocol.RunParams{Objective: "go"}, nil); err == nil || !strings.Contains(err.Error(), "no model chosen for second: choose one with use") {
+		t.Fatalf("a run without a model: err = %v", err)
+	}
+
+	modelless.close()
+
+	if _, err := newHost(h.database, []string{"-p", "second", "fix it"}); err == nil || !strings.Contains(err.Error(), `run "rumbo provider set second model=<model>"`) {
+		t.Fatalf("a task for a provider without a model: err = %v", err)
 	}
 
 	h.database.SetSessionModel(session.ID, "gone", "x")

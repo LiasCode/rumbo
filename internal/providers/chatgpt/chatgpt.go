@@ -88,8 +88,12 @@ var description = protocol.Description{
 	Options: []protocol.Option{{
 		Name:        "effort",
 		Type:        protocol.OptionString,
-		Description: "How much a reasoning model thinks, such as low, medium, and high, as the model names them. Empty, the effort in the provider's configuration applies, or else the model's own default.",
+		Description: "How much a reasoning model thinks, such as low, medium, and high, as the model names them. Empty, the model's own default applies.",
 		Default:     json.RawMessage(`""`),
+	}},
+	Fields: []protocol.Option{{
+		Name: "context_window", Type: protocol.OptionNumber, Default: json.RawMessage(`0`),
+		Description: "How many tokens the model's context holds, which the plan's list of models does not say; 0 when it is not known",
 	}},
 	Functions: []protocol.Function{
 		{Name: "models", Description: "List the models your ChatGPT plan can use"},

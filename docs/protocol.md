@@ -42,7 +42,7 @@ host                                   provider
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol":1,"config":{}}}
 ```
 
-`config` is what the user chose for the provider (`rumbo provider config`,
+`config` is what the user chose for the provider (`rumbo provider set`,
 or its `config` in rumbo's `config.yaml`), as JSON. Its meaning is the
 provider's own. A value the user set for one of the provider's options is a
 field of it too, under the option's name; the host sends it in the `options`
@@ -189,9 +189,12 @@ Answer with `{}` and exit.
 
 ## Describing the provider
 
-A provider can say what may be chosen and asked of it. The host understands
-none of it: it hands the description to the front end, sends the chosen
-values back with every `complete`, and relays `invoke`. That is how a front
+A provider can say what may be chosen and asked of it. The host knows
+nothing of what it means: it hands the description to the front end, sends
+the chosen values back with every `complete`, and relays `invoke`. It does
+read the description for one thing, to check a value a person sets before
+keeping it: a name the provider does not describe is refused, and a value is
+read as its `type` says and must be one of its `enum`. That is how a front
 end offers a provider's settings without knowing the provider, and how a
 provider adds a setting without anything else changing.
 
@@ -204,6 +207,9 @@ The description travels in the `initialize` result. Every part is optional.
    {"name": "effort", "type": "string", "enum": ["low", "high"], "default": "low",
     "description": "How thorough the model is"},
    {"name": "web", "type": "boolean", "description": "Let the model search the web"}],
+ "fields": [
+   {"name": "base_url", "type": "string", "default": "https://example",
+    "description": "Where the server listens"}],
  "functions": [
    {"name": "models", "description": "List the available models"}]}
 ```
@@ -225,7 +231,18 @@ without a validator.
 
 **`model`** describes the model the same way, without a `name`. The model is
 not an option: it stays the `model` field of `complete`, because every
-provider has one and the host records it with each answer.
+provider has one and the host records it with each answer. The model a new
+session starts with is kept by the host, with what the person set for the
+provider, and is not part of its `config`.
+
+**`fields`** describe the fields of the provider's `config` besides its
+options, the same way, each with its `default`: what a person can set for
+the provider, which it reads when it starts. A person sets a field and an
+option alike, and the host checks both against what describes them. A
+field the provider does not describe can still be set when the `config` in
+force names it, and is read as the value it has there; one neither names is
+refused. The host also starts the provider with the changed `config` before
+keeping it, so a value the provider refuses at `initialize` is not kept.
 
 **A function** has a `name`, a `description`, and `params`, a list of options
 describing its arguments. What it does and returns is the provider's own. A
