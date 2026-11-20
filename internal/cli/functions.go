@@ -1007,16 +1007,10 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 func (h *host) sessionSet(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
 	target := h.current
-	chosen := target.choice
+	provider := target.provider
 	h.mu.Unlock()
 
-	described, _, err := h.offers(ctx, chosen.provider)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	options, said, err := chooseOptions(chosen.provider, described.Options, chosen.options, []string{params["change"]})
+	described, _, err := h.offers(ctx, provider)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -1027,8 +1021,17 @@ func (h *host) sessionSet(ctx context.Context, params map[string]string) (protoc
 
 	// The provider was asked without the lock, and the session may have
 	// moved to another one meanwhile.
-	if target.provider != chosen.provider {
+	if target.provider != provider {
 		return protocol.HostResult{}, fmt.Errorf("%s changed provider meanwhile, to %s; choose its options again", target.name(), target.provider)
+	}
+
+	// The change goes over what the session has now, not what it had when
+	// this call began: a front end sends one change after another, and
+	// this function is answered in the background, so they may overlap.
+	options, said, err := chooseOptions(provider, described.Options, target.options, []string{params["change"]})
+
+	if err != nil {
+		return protocol.HostResult{}, err
 	}
 
 	changed := target.choice
@@ -1139,6 +1142,11 @@ func (h *host) registerProvider(_ context.Context, params map[string]string) (pr
 // are replaced; one busy with a request stops when the request ends. A run
 // reads the provider's options and model when it starts.
 func (h *host) providerSet(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	// It is answered in the background, and reads what is kept to change
+	// it: one call at a time, so two do not lose each other's change.
+	h.setting.Lock()
+	defer h.setting.Unlock()
+
 	name := params["provider"]
 	said, err := setProgram(h.database, store.KindProvider, name, []string{params["change"]}, h.conn.Log())
 

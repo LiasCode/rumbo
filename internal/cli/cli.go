@@ -217,6 +217,10 @@ type host struct {
 	// the host. Each session has tools of its own besides.
 	tools *tool.Set
 
+	// setting keeps the functions answered in the background that change
+	// what is kept one at a time.
+	setting sync.Mutex
+
 	// mu guards what follows, and the places in it but for their tools:
 	// runs change them from their own goroutines, and so do the functions
 	// answered in the background.

@@ -25,6 +25,19 @@ func shownValues(values []protocol.Value) string {
 	return strings.Join(shown, " | ")
 }
 
+// markedValues is a list of values as value:mark pairs, the mark being what
+// comes first in a value's description, before what describes it.
+func markedValues(values []protocol.Value) string {
+	var shown []string
+
+	for _, value := range values {
+		mark, _, _ := strings.Cut(value.Description, "; ")
+		shown = append(shown, value.Value+":"+mark)
+	}
+
+	return strings.Join(shown, " | ")
+}
+
 // The models of a provider come from the provider, which lists them with a
 // function of its own, and the one the session uses is marked; another
 // provider can be asked by name.
@@ -51,8 +64,14 @@ func TestTheModelsOfAProviderAreAskedOfIt(t *testing.T) {
 
 	listed := call(t, h, "provider-models", "")
 
-	if got := shownValues(listed.Values); got != "gpt-a:the one mine starts with | gpt-b:in use in this session" {
+	// A mark goes in the description, so a label stays the name a person
+	// knows a model by.
+	if got := markedValues(listed.Values); got != "gpt-a:the one mine starts with | gpt-b:in use in this session" {
 		t.Fatalf("models = %q", got)
+	}
+
+	if got := shownValues(listed.Values); got != "gpt-a: | gpt-b:" {
+		t.Fatalf("labels = %q", got)
 	}
 
 	// The command line lists them too, without a host.
@@ -90,7 +109,7 @@ func TestTheValuesOfSettingsAreListedAsChanges(t *testing.T) {
 
 	efforts := " | effort=low: | effort=medium: | effort=high:in force | effort=xhigh: | effort=max:"
 
-	if got := shownValues(call(t, h, "session-values", "").Values); got != strings.TrimPrefix(efforts, " | ") {
+	if got := markedValues(call(t, h, "session-values", "").Values); got != strings.TrimPrefix(efforts, " | ") {
 		t.Fatalf("the session's, with nothing chosen = %q", got)
 	}
 
@@ -98,13 +117,20 @@ func TestTheValuesOfSettingsAreListedAsChanges(t *testing.T) {
 
 	session := "effort=:empty: gives it back | effort=low:in force | effort=medium: | effort=high: | effort=xhigh: | effort=max:"
 
-	if got := shownValues(call(t, h, "session-values", "").Values); got != session {
+	if got := markedValues(call(t, h, "session-values", "").Values); got != session {
 		t.Fatalf("the session's = %q, want %q", got, session)
 	}
 
 	// The models need the server, which is not there; the rest is listed.
-	if got := shownValues(call(t, h, "provider-values", `{"provider":"claude"}`).Values); got != "base_url=:in force: http://127.0.0.1:9, empty gives it back | effort=:empty: gives it back"+efforts {
+	if got := markedValues(call(t, h, "provider-values", `{"provider":"claude"}`).Values); got != "base_url=:in force: http://127.0.0.1:9 | effort=:empty: gives it back"+efforts {
 		t.Fatalf("the provider's = %q", got)
+	}
+
+	// No mark is a label, which a front end may show in place of the value.
+	for _, value := range call(t, h, "provider-values", `{"provider":"claude"}`).Values {
+		if value.Label != "" {
+			t.Errorf("%s is labelled %q", value.Value, value.Label)
+		}
 	}
 }
 

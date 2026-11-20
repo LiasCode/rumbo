@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/LiasCode/rumbo/internal/provider"
@@ -16,7 +17,9 @@ import (
 // What a setting can be set to is listed here, so a front end can offer it
 // as a choice: the models of a provider, which only it knows; and, as the
 // name=value changes system-set, session-set, and provider-set take, the
-// values of each setting at that level, with the one in force marked.
+// values of each setting at that level, with the one in force marked. A
+// mark goes in a value's description: its label is the name a person knows
+// it by, which a front end may show in place of the value.
 
 // providerModels lists the models a provider offers: the one named, or the
 // current session's, with the one this session uses, and the one the
@@ -55,12 +58,12 @@ func (h *host) providerModels(ctx context.Context, params map[string]string) (pr
 	}
 
 	for index, value := range values {
-		if name == chosen.provider && value.Value == chosen.model {
-			values[index].Label = marked(values[index].Label, "in use in this session")
+		if value.Value == program.Model {
+			values[index].Description = remark(values[index].Description, "the one "+name+" starts with")
 		}
 
-		if value.Value == program.Model {
-			values[index].Label = marked(values[index].Label, "the one "+name+" starts with")
+		if name == chosen.provider && value.Value == chosen.model {
+			values[index].Description = remark(values[index].Description, "in use in this session")
 		}
 	}
 
@@ -110,10 +113,11 @@ func listModels(database store.Store, name string, diagnostics io.Writer) (strin
 
 	for index, value := range values {
 		if value.Value == program.Model {
-			value.Label = marked(value.Label, "the one "+name+" starts with")
+			value.Description = remark(value.Description, "the one "+name+" starts with")
 		}
 
-		lines[index] = strings.TrimSpace(strings.Join([]string{value.Value, value.Label, value.Description}, "  "))
+		parts := slices.DeleteFunc([]string{value.Value, value.Label, value.Description}, func(part string) bool { return part == "" })
+		lines[index] = strings.Join(parts, "  ")
 	}
 
 	return strings.Join(lines, "\n"), nil
@@ -155,7 +159,7 @@ func (h *host) systemValues(context.Context, map[string]string) (protocol.HostRe
 			value := protocol.Value{Value: spec.key + "=", Description: spec.help}
 
 			if set {
-				value.Label = "in force: " + current + "; " + back
+				value.Description = remark(value.Description, "in force: "+current+"; "+back)
 			}
 
 			values = append(values, value)
@@ -164,14 +168,14 @@ func (h *host) systemValues(context.Context, map[string]string) (protocol.HostRe
 		}
 
 		if set {
-			values = append(values, protocol.Value{Value: spec.key + "=", Label: back})
+			values = append(values, protocol.Value{Value: spec.key + "=", Description: back})
 		}
 
 		for _, program := range named {
 			value := protocol.Value{Value: spec.key + "=" + program.Name, Description: spec.help}
 
 			if set && current == program.Name {
-				value.Label = "in force"
+				value.Description = remark(value.Description, "in force")
 			}
 
 			values = append(values, value)
@@ -245,7 +249,7 @@ func (h *host) providerValues(ctx context.Context, params map[string]string) (pr
 	var values []protocol.Value
 
 	if chosen.Model != "" {
-		values = append(values, protocol.Value{Value: settingModel + "=", Label: "empty: takes it out"})
+		values = append(values, protocol.Value{Value: settingModel + "=", Description: "empty: takes it out"})
 	}
 
 	// The models need the provider to reach its server, which may not
@@ -256,7 +260,7 @@ func (h *host) providerValues(ctx context.Context, params map[string]string) (pr
 				value := protocol.Value{Value: settingModel + "=" + model.Value, Label: model.Label, Description: model.Description}
 
 				if model.Value == chosen.Model {
-					value.Label = marked(value.Label, "in force")
+					value.Description = remark(value.Description, "in force")
 				}
 
 				values = append(values, value)
@@ -295,12 +299,12 @@ func settingValues(ctx context.Context, pool *provider.Pool, settings []protocol
 		if len(choices) == 0 {
 			value := protocol.Value{Value: setting.Name + "=", Description: setting.Description}
 
-			if raw, found := inForce[setting.Name]; found {
-				value.Label = "in force: " + shownValue(raw)
+			if isChosen {
+				value.Description = remark(value.Description, "empty gives it back")
 			}
 
-			if isChosen {
-				value.Label = marked(value.Label, "empty gives it back")
+			if raw, found := inForce[setting.Name]; found {
+				value.Description = remark(value.Description, "in force: "+shownValue(raw))
 			}
 
 			values = append(values, value)
@@ -309,14 +313,14 @@ func settingValues(ctx context.Context, pool *provider.Pool, settings []protocol
 		}
 
 		if isChosen {
-			values = append(values, protocol.Value{Value: setting.Name + "=", Label: "empty: gives it back", Description: setting.Description})
+			values = append(values, protocol.Value{Value: setting.Name + "=", Description: remark(setting.Description, "empty: gives it back")})
 		}
 
 		for _, choice := range choices {
 			value := protocol.Value{Value: setting.Name + "=" + choice.Value, Label: choice.Label, Description: choice.Description}
 
 			if raw, found := inForce[setting.Name]; found && plainValue(raw) == choice.Value {
-				value.Label = marked(value.Label, "in force")
+				value.Description = remark(value.Description, "in force")
 			}
 
 			values = append(values, value)
@@ -399,11 +403,11 @@ func plainValue(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// marked adds a mark to a label.
-func marked(label, mark string) string {
-	if label == "" {
+// remark puts a mark before a value's description.
+func remark(description, mark string) string {
+	if description == "" {
 		return mark
 	}
 
-	return label + ", " + mark
+	return mark + "; " + description
 }

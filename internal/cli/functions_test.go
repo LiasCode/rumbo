@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -495,6 +496,29 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 
 	if stored, _ := later.database.Session(made.ID); stored.Options != nil {
 		t.Fatalf("options left stored = %s", stored.Options)
+	}
+}
+
+// A front end sends one change after another, and session-set is answered
+// in the background, so two can overlap: each goes over what the session has
+// then, and neither is lost.
+func TestOverlappingChangesOfASessionAreAllKept(t *testing.T) {
+	h := testHost(t)
+	h.database.PutProgram(store.KindProvider, store.Program{Name: "two", Command: []string{selfPlaceholder, "provide", "two-options"}})
+	call(t, h, "use", `{"provider":"two","model":"any"}`)
+
+	// Nothing of the provider runs yet, so each call starts a process of
+	// its own, which is slow: the two are under way at once.
+	var both sync.WaitGroup
+
+	for _, change := range []string{"effort=high", "note=hey"} {
+		both.Go(func() { call(t, h, "session-set", `{"change":"`+change+`"}`) })
+	}
+
+	both.Wait()
+
+	if string(h.current.options) != `{"effort":"high","note":"hey"}` {
+		t.Fatalf("the session kept %s", h.current.options)
 	}
 }
 
