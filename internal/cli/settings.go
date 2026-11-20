@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -15,8 +14,10 @@ import (
 // default to, what values they take, and how the value in force is found.
 // System settings are rumbo's own, the same whatever the session and the
 // provider, and what a session chooses for itself is kept with it and wins
-// there. The command line and the host's functions both go through this
-// file, so a setting behaves the same whoever changes it.
+// there. Those the user chose are under system in the configuration file;
+// the others have their default, or none. The command line and the host's
+// functions both go through this file, so a setting behaves the same
+// whoever changes it.
 
 // System setting keys.
 const (
@@ -27,14 +28,6 @@ const (
 	keyMaxTokens       = "max_tokens"
 	keyCompactAt       = "compact_at"
 )
-
-// legacyModel is the setting that held both the provider and the model, as
-// "provider/model", before they were two.
-const legacyModel = "model"
-
-// internalPrefix starts the keys rumbo keeps for itself. They are not
-// settings a user reads or writes.
-const internalPrefix = "_"
 
 // Where a value in force comes from.
 const (
@@ -64,8 +57,8 @@ var settingSpecs = []settingSpec{
 }
 
 func checkProvider(database store.Store, value string) error {
-	if _, err := database.Program(store.KindProvider, value); err != nil {
-		return fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, value)
+	if _, err := findProgram(database, store.KindProvider, value); err != nil {
+		return err
 	}
 
 	return nil
@@ -82,8 +75,8 @@ func checkModel(_ store.Store, value string) error {
 }
 
 func checkFrontend(database store.Store, value string) error {
-	if _, err := database.Program(store.KindFrontend, value); err != nil {
-		return fmt.Errorf(`front end %q is not registered; see "rumbo frontend list"`, value)
+	if _, err := findProgram(database, store.KindFrontend, value); err != nil {
+		return err
 	}
 
 	return nil
@@ -143,14 +136,6 @@ func findSetting(key string) (settingSpec, error) {
 		}
 	}
 
-	if key == legacyModel {
-		return settingSpec{}, fmt.Errorf("%s is now two settings: %s and %s", legacyModel, keyDefaultProvider, keyDefaultModel)
-	}
-
-	if provider, found := strings.CutPrefix(key, optionsPrefix); found && provider != "" {
-		return settingSpec{}, fmt.Errorf(`%s is not a system setting: a provider's options are its own; change them with provider-options, or "rumbo provider options %s <name>=<value>"`, key, provider)
-	}
-
 	return settingSpec{}, fmt.Errorf("there is no system setting %q. The system settings are:\n%s", key, settingsHelp())
 }
 
@@ -175,7 +160,25 @@ func setSetting(database store.Store, key, value string) error {
 		return err
 	}
 
-	return database.SetSetting(store.GlobalScope, key, value)
+	return database.SetSetting(key, value)
+}
+
+// checkStored refuses a name under system in the configuration file that
+// is no system setting, which is how a misspelled one shows.
+func checkStored(database store.Store) error {
+	stored, err := database.Settings()
+
+	if err != nil {
+		return err
+	}
+
+	for key := range stored {
+		if _, err := findSetting(key); err != nil {
+			return fmt.Errorf("%s, under system: %w", configFile, err)
+		}
+	}
+
+	return nil
 }
 
 // storedSetting returns the value stored for a system setting.
@@ -184,7 +187,7 @@ func storedSetting(database store.Store, key string) (string, error) {
 		return "", err
 	}
 
-	value, found, err := database.Setting(store.GlobalScope, key)
+	value, found, err := database.Setting(key)
 
 	if err == nil && !found {
 		err = fmt.Errorf("%s is not set", key)
@@ -199,7 +202,7 @@ func unsetSetting(database store.Store, key string) error {
 		return err
 	}
 
-	if err := database.DeleteSetting(store.GlobalScope, key); errors.Is(err, store.ErrNotFound) {
+	if err := database.DeleteSetting(key); errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("%s is not set", key)
 	} else if err != nil {
 		return err
@@ -229,7 +232,7 @@ type effective struct {
 // effectiveSetting finds the value in force: the stored one, else the
 // default.
 func effectiveSetting(database store.Store, key string) (effective, error) {
-	value, found, err := database.Setting(store.GlobalScope, key)
+	value, found, err := database.Setting(key)
 
 	if err != nil {
 		return effective{}, err
@@ -248,8 +251,13 @@ func effectiveSetting(database store.Store, key string) (effective, error) {
 	return effective{Key: key, Source: sourceUnset}, nil
 }
 
-// effectiveSettings returns every system setting as it applies.
+// effectiveSettings returns every system setting as it applies. A name
+// in the file that is no setting is said, not left out.
 func effectiveSettings(database store.Store) ([]effective, error) {
+	if err := checkStored(database); err != nil {
+		return nil, err
+	}
+
 	settings := make([]effective, len(settingSpecs))
 
 	for index, spec := range settingSpecs {
@@ -265,31 +273,9 @@ func effectiveSettings(database store.Store) ([]effective, error) {
 	return settings, nil
 }
 
-// ignoredSettings are the values stored for one project, which rumbo kept
-// before its settings became the same everywhere. They are left where they
-// are and no longer read.
-func ignoredSettings(database store.Store) ([]store.Setting, error) {
-	stored, err := database.Settings()
-
-	if err != nil {
-		return nil, err
-	}
-
-	var ignored []store.Setting
-
-	for _, setting := range stored {
-		if setting.Scope != store.GlobalScope && !strings.HasPrefix(setting.Key, internalPrefix) {
-			ignored = append(ignored, setting)
-		}
-	}
-
-	return ignored, nil
-}
-
-// describeSettings renders settings for a person, and the values stored for
-// one project that are no longer read, so they do not go unnoticed.
-func describeSettings(settings []effective, ignored []store.Setting) string {
-	lines := make([]string, 0, len(settings)+len(ignored)+1)
+// describeSettings renders settings for a person.
+func describeSettings(settings []effective) string {
+	lines := make([]string, 0, len(settings))
 
 	for _, setting := range settings {
 		if setting.Source == sourceUnset {
@@ -300,105 +286,5 @@ func describeSettings(settings []effective, ignored []store.Setting) string {
 		lines = append(lines, fmt.Sprintf("%-20s %s  (%s)", setting.Key, setting.Value, setting.Source))
 	}
 
-	if len(ignored) > 0 {
-		lines = append(lines, "stored for one project, and no longer read; settings are the same everywhere now:")
-	}
-
-	for _, setting := range ignored {
-		lines = append(lines, fmt.Sprintf("  %s = %s  (%s)", setting.Key, setting.Value, setting.Scope))
-	}
-
 	return strings.Join(lines, "\n")
-}
-
-// keyUpgraded records how far the settings stored by an earlier version
-// were carried over to the ones that replace them, as the number of the
-// last step taken.
-const keyUpgraded = internalPrefix + "settings_upgraded"
-
-// upgrades carry what an earlier version stored over to what replaces it,
-// each once, in order. What was stored stays as it was, unread.
-var upgrades = []func(database store.Store) error{
-	// 1: the model, which held the provider too, becomes the default
-	// provider and model.
-	func(database store.Store) error {
-		model, found, err := database.Setting(store.GlobalScope, legacyModel)
-
-		if err != nil {
-			return err
-		}
-
-		_, chosen, err := database.Setting(store.GlobalScope, keyDefaultProvider)
-
-		if err != nil {
-			return err
-		}
-
-		provider, name, split := strings.Cut(model, "/")
-
-		if !found || !split || chosen {
-			return nil
-		}
-
-		for key, value := range map[string]string{keyDefaultProvider: provider, keyDefaultModel: name} {
-			if err := database.SetSetting(store.GlobalScope, key, value); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	},
-
-	// 2: a provider's options, a setting of their own, are kept with its
-	// registration.
-	func(database store.Store) error {
-		programs, err := database.Programs(store.KindProvider)
-
-		if err != nil {
-			return err
-		}
-
-		for _, program := range programs {
-			options, found, err := database.Setting(store.GlobalScope, optionsPrefix+program.Name)
-
-			if err != nil {
-				return err
-			}
-
-			if !found || len(program.Options) > 0 {
-				continue
-			}
-
-			program.Options = json.RawMessage(options)
-
-			if err := database.PutProgram(store.KindProvider, program); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	},
-}
-
-// upgradeSettings takes the upgrades not taken yet.
-func upgradeSettings(database store.Store) error {
-	value, _, err := database.Setting(store.GlobalScope, keyUpgraded)
-
-	if err != nil {
-		return err
-	}
-
-	done, _ := strconv.Atoi(value)
-
-	for step := done; step < len(upgrades); step++ {
-		if err := upgrades[step](database); err != nil {
-			return err
-		}
-
-		if err := database.SetSetting(store.GlobalScope, keyUpgraded, strconv.Itoa(step+1)); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

@@ -32,7 +32,7 @@ type place struct {
 
 // choice is the provider a session uses, its model, and the values of the
 // provider's options chosen in it. What a run gets is worked out when it
-// starts, with the values stored for the provider under these.
+// starts, with the values in the provider's configuration under these.
 type choice struct {
 	provider string
 	model    string
@@ -149,8 +149,18 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		chosen.model = params.Model
 	}
 
+	options, err := h.inForce(chosen, pool.Description())
+
+	if err != nil {
+		return id, err
+	}
+
 	// What the run does not choose keeps the value in force in the session.
-	worker, err := h.agent(pool, chosen, params.Options, target.tools, run)
+	if options, err = mergeOptions(options, params.Options); err != nil {
+		return id, err
+	}
+
+	worker, err := h.agent(pool, chosen, options, target.tools, run)
 
 	if err != nil {
 		return id, err
@@ -174,22 +184,12 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 
 // agent builds the loop for one piece of work in a session, with the
 // settings as they stand when it starts: a change to them applies to the
-// work that starts after it. extra are option values the work chose for
-// itself, over the others.
-func (h *host) agent(pool *provider.Pool, chosen choice, extra json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
+// work that starts after it. options are the option values the work gets
+// with every request.
+func (h *host) agent(pool *provider.Pool, chosen choice, options json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
 	settings, err := loadLimits(h.database)
 
 	if err != nil {
-		return nil, err
-	}
-
-	options, err := h.inForce(chosen)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if options, err = mergeOptions(options, extra); err != nil {
 		return nil, err
 	}
 
@@ -210,10 +210,18 @@ func (h *host) agent(pool *provider.Pool, chosen choice, extra json.RawMessage, 
 	}, nil
 }
 
-// inForce returns the option values a run with chosen gets, as the
-// settings stand now.
-func (h *host) inForce(chosen choice) (json.RawMessage, error) {
-	return optionsInForce(h.database, chosen.provider, chosen.options)
+// inForce returns the option values a run with chosen gets, as its
+// provider's configuration stands now. described is what the provider says
+// it offers, which is what tells its options from the rest of its
+// configuration.
+func (h *host) inForce(chosen choice, described protocol.Description) (json.RawMessage, error) {
+	program, err := findProgram(h.database, store.KindProvider, chosen.provider)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return optionsInForce(program.Config, described.Options, chosen.options)
 }
 
 // keep stores what a place chose in its session, which keeps it from one
@@ -446,10 +454,10 @@ func (h *host) pool(name string) (*provider.Pool, error) {
 		return pool, nil
 	}
 
-	program, err := h.database.Program(store.KindProvider, name)
+	program, err := findProgram(h.database, store.KindProvider, name)
 
 	if err != nil {
-		return nil, fmt.Errorf("provider %q is not registered", name)
+		return nil, err
 	}
 
 	command, err := programCommand(program.Command)
@@ -458,15 +466,7 @@ func (h *host) pool(name string) (*provider.Pool, error) {
 		return nil, err
 	}
 
-	// The first process says the provider's defaults, which its
-	// registration keeps for what it does not hold yet.
-	log := h.conn.Log()
-
-	pool := provider.NewPool(command, program.Config, log, func(config json.RawMessage, described protocol.Description) {
-		if _, err := adopt(h.database, store.KindProvider, name, config, described); err != nil {
-			fmt.Fprintf(log, "the defaults of the provider %s were not stored: %v\n", name, err)
-		}
-	})
+	pool := provider.NewPool(command, program.Config, h.conn.Log())
 	h.pools[name] = pool
 
 	return pool, nil

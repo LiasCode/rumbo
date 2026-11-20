@@ -37,10 +37,11 @@ on the model: with `claude-haiku-5-5`, only `follow-instructions` did.
 A real run calls the model and costs tokens. Model output varies between
 runs: use `-runs` before reading much into a single pass or failure.
 
-Each run gets a fresh copy of the task's project and a database of its own,
-and ignores the machine's global instructions and skills, so results depend
-only on the task and the code. A provider you registered is carried over
-from your own database.
+Each run gets a fresh copy of the task's project, and a configuration and
+sessions of its own, and ignores the machine's global instructions and
+skills, so results depend only on the task and the code. A provider you
+registered, or what you chose for a built-in one, is carried over from your
+own `config.yaml`.
 
 ## Reading the report
 
@@ -55,8 +56,8 @@ from your own database.
 
 The working directory of a failed run is kept, and its path printed. It holds
 the project as the agent left it (`repo/`), the answer (`output.txt`), the
-progress (`progress.txt`), and the session (`eval.db`, readable with
-`RUMBO_DB=<path> rumbo log <session>`).
+progress (`progress.txt`), what was chosen for the run (`config.yaml`), and
+the session (`data/sessions/<session>/entries.jsonl`, one entry to a line).
 
 ## Adding a task
 

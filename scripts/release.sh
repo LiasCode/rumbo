@@ -29,7 +29,7 @@ for platform in $platforms; do
 
 	mkdir "$stage/$name"
 
-	# SQLite is pure Go here, so every platform builds without cgo.
+	# Nothing here needs cgo, so every platform builds without it.
 	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
 		-ldflags "-s -w -X $module/internal/cli.version=$version" \
 		-o "$stage/$name/rumbo" ./cmd/rumbo

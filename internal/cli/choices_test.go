@@ -72,7 +72,7 @@ func TestTheModelsOfAProviderAreAskedOfIt(t *testing.T) {
 
 // The values of a provider's options come as name=value changes, each
 // option's empty one first, with those in force marked: the session's, or
-// those stored for a provider named.
+// those the configuration of a provider named gives.
 func TestTheValuesOfOptionsAreListedAsChanges(t *testing.T) {
 	h := testHost(t)
 	h.database.PutProgram(store.KindProvider, store.Program{Name: "claude", Command: []string{selfPlaceholder, "provide", "anthropic"}})
@@ -80,7 +80,7 @@ func TestTheValuesOfOptionsAreListedAsChanges(t *testing.T) {
 
 	call(t, h, "use", `{"provider":"claude","model":"claude-opus-5-5"}`)
 	call(t, h, "session-options", `{"change":"effort=low"}`)
-	call(t, h, "provider-options", `{"provider":"claude","change":"effort=high"}`)
+	call(t, h, "provider-config", `{"provider":"claude","change":"effort=high"}`)
 
 	session := "effort=:empty: removes it | effort=low:in force | effort=medium: | effort=high: | effort=xhigh: | effort=max:"
 

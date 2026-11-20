@@ -99,7 +99,7 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 		return protocol.InitializeResult{}, fmt.Errorf("invalid config: api is %s or %s, not %q", apiChat, apiResponses, h.config.API)
 	}
 
-	// Every field is said, given or not, so the host can keep each with
+	// Every field is said, given or not, so a person can see each with
 	// its value.
 	config, _ := json.Marshal(h.config)
 

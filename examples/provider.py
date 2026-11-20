@@ -81,9 +81,9 @@ for line in sys.stdin:
     method = frame.get("method")
 
     if method == "initialize":
-        # `params.config` holds this provider's settings as registered in rumbo.
-        # The answer gives them back with a default for every field left out,
-        # which rumbo keeps with the registration; this toy has none. The
+        # `params.config` holds what the user chose for this provider in rumbo.
+        # The answer gives it back with a default for every field left out,
+        # which rumbo shows to a person who asks; this toy has none. The
         # functions it lists become commands in any front end.
         config = frame["params"].get("config") or {}
         functions = [{"name": "greet", "description": "Ask your name, and greet you"}]

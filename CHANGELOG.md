@@ -5,6 +5,52 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+Everything rumbo keeps is now in files you can read: what you chose in one
+`config.yaml`, and each session in a directory of its own. A provider has
+one configuration, which holds the values of its options too. Sessions and
+settings stored by 0.5.0 and earlier are not carried over.
+
+### Storage
+
+- What you choose is kept in `~/.config/rumbo/config.yaml`
+  (`~/Library/Application Support/rumbo/config.yaml` on macOS): the system
+  settings under `system`, and what you chose for each provider and front
+  end under `providers` and `frontends`. It holds only what you set, never a
+  default, and you can edit it. rumbo changes it one value at a time and
+  leaves the rest, your comments included, as you wrote it. A name it does
+  not know there, or a value of the wrong shape, stops it and says the line.
+- Each session is a directory, `~/.local/share/rumbo/sessions/<id>/`:
+  `session.json` says what it is and what it chose, and `entries.jsonl`
+  holds its history, one entry to a line, as `rumbo log` prints it.
+- **Sessions and settings from 0.5.0 and earlier are not read.** rumbo no
+  longer uses SQLite, and `~/.local/share/rumbo/rumbo.db` is left where it
+  is, untouched. Set your defaults and register your own providers again.
+  To keep the record of an earlier session, print it with the version that
+  made it: `rumbo log <session>`.
+- `RUMBO_DB` is gone. `RUMBO_CONFIG` names the configuration file, and
+  `RUMBO_DATA` the directory the sessions are kept in.
+
+### Providers
+
+- A provider has one configuration, and the value you set for one of its
+  options is a field of it: `rumbo provider config anthropic effort=high`
+  gives every session that effort unless it chooses another with `-o` or
+  `/session-options`. `rumbo provider options` and `/provider-options` are
+  gone, and `/provider-config` offers the values the options take.
+- Only what you choose for a provider or a front end is kept. Its defaults
+  are no longer copied next to it the first time it starts, so a default a
+  new version changes reaches you unless you chose otherwise.
+  `rumbo provider show` prints what you chose and, next to it, the
+  configuration in force with the provider's defaults. An option nobody
+  chose is no longer sent with each request as its empty default.
+- The built-in providers and front ends are always there, without being
+  registered. `rumbo provider rm openai` removes what you chose for it and
+  leaves it as rumbo has it; a provider you add under the same name takes
+  its place.
+- `/status` and `/session-options` show the options chosen in the session
+  and the provider's configuration under them, each on a line of its own,
+  instead of the two merged.
+
 ## 0.5.0 (2026-11-16)
 
 The model is told of your skills. rumbo says how each session stands,

@@ -30,7 +30,8 @@ func TestMistypedCommandsAreNotTasks(t *testing.T) {
 // The guard answers before anything is opened, and -- lets the word through
 // as a task.
 func TestDispatchRefusesAMistypedCommand(t *testing.T) {
-	t.Setenv("RUMBO_DB", t.TempDir()+"/never-opened.db")
+	t.Setenv("RUMBO_CONFIG", t.TempDir()+"/never-read.yaml")
+	t.Setenv("RUMBO_DATA", t.TempDir())
 
 	err := dispatch([]string{"versoin"})
 

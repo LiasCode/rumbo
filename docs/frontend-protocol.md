@@ -89,8 +89,9 @@ The host speaks first.
   A front end is expected to run it without asking again.
 - `resume` is `true` when the user asked to continue the session's unfinished
   run (`rumbo -r`). A front end is expected to send a `run` with `resume`.
-- `config` is the JSON registered with the front end (`rumbo frontend add
-  -config`). Its meaning is the front end's own.
+- `config` is what the user chose for the front end (`rumbo frontend
+  config`, or its `config` in rumbo's `config.yaml`), as JSON. Its meaning is
+  the front end's own.
 - `functions` are what the host itself can be asked, whatever the provider.
   See [Functions of the host](#functions-of-the-host).
 
@@ -98,9 +99,7 @@ Result: `{"protocol":1,"name":"my-frontend","config":{}}`.
 
 `config` in the result is the start configuration in force: the one given,
 with the front end's own default for every field it was not given. The host
-keeps with the registration each field it does not hold yet, the first time
-it starts the front end, and never changes one it holds. A front end that
-leaves `config` out, or that started the host itself, is kept as it is.
+stores none of it: only what the user chose is kept.
 
 ### `run` (request, front end to host)
 
@@ -162,9 +161,10 @@ provider it knows nothing about.
 ```
 
 - `model` and `options` are what a run in the current session uses unless
-  it says otherwise: the session's model, and the provider's stored options
-  with those chosen in the session over them. `use` changes the model for
-  the session, and `session-options` the options.
+  it says otherwise: the session's model, and the values the provider's
+  configuration gives its options, with those chosen in the session over
+  them. `use` changes the model for the session, and `session-options` the
+  options.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
   Any part of it may be absent.
@@ -369,8 +369,8 @@ Parameters are an object of text values. Every answer has the same shape:
   session chooses for itself wins over its settings there.
 - `session`: one session of the project, the current one unless another is
   named.
-- `provider`: the registered providers, how each is started, and the
-  option values each gets with every request.
+- `provider`: the providers, how each is started, and its configuration,
+  which holds the option values it gets with every request.
 
 A front end should not take a group it does not know for an error; more may
 be added.
@@ -396,16 +396,15 @@ The functions of this version, by group:
 | `rename` | session | `title` | Gives the current session a title of the person's own. |
 | `prune` | session | `age`, `confirm`? | Lists the project's sessions not used in that long, such as `30d`; with `confirm` as `yes`, deletes them, for good, with their history. Those in use are kept. |
 | `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
-| `session-options` | session | `change`? | Shows the option values a run in the current session gets. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
+| `session-options` | session | `change`? | Shows the option values chosen in the current session, and the configuration of its provider, which they win over. With a `change`, as `name=value`, first changes one chosen in the session, which keeps it; an empty value removes it. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
-| `providers` | provider | | Lists the registered providers. |
+| `providers` | provider | | Lists the providers there are: the built-in ones and those registered. |
 | `provider-models` | provider | `provider`? | Lists the models a provider offers, asking it; without a `provider`, the current session's, with the one it uses marked. The `model` of `use` lists its values with it. |
-| `option-values` | provider | `provider`? | Lists the values the options of a provider take, as `name=value` changes, each option's empty one first, asking it; without a `provider`, the current session's, with the values in force in it marked, and with one, those stored for it. The `change` of `session-options` and `provider-options` lists its values with it. |
-| `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, and kept with the defaults it says; one that does not start is not registered. |
-| `provider-config` | provider | `provider`, `change` | Changes one field of a provider's start configuration, as `field=value`. An empty value removes it, and the provider's default comes back the next time it starts. |
-| `provider-options` | provider | `provider`, `change`? | Shows the option values stored for the provider, which a session's own win over. With a `change`, as `name=value`, first stores it; an empty value removes it. It applies to the runs that start after it. |
-| `provider-show` | provider | `provider` | Starts a provider and shows what it offers. Also the test that it works. |
-| `provider-rm` | provider | `provider` | Removes a registered provider. Asks to be confirmed. |
+| `option-values` | provider | `provider`? | Lists the values the options of a provider take, as `name=value` changes, each option's empty one first, asking it; without a `provider`, the current session's, with the values in force in it marked, and with one, those its configuration gives. The `change` of `session-options` and `provider-config` lists its values with it. |
+| `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, which is the test that it works; one that does not start is not registered. |
+| `provider-config` | provider | `provider`, `change` | Changes one field of a provider's configuration, as `field=value`: what it starts with, or the value of one of its options for every session that chooses no other. An empty value removes it, and the provider's default applies. |
+| `provider-show` | provider | `provider` | Starts a provider and shows what was chosen for it, its configuration in force with its defaults, and what it offers. Also the test that it works. |
+| `provider-rm` | provider | `provider` | Removes a provider the user registered, or what they chose for a built-in one, which stays. Asks to be confirmed. |
 
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
@@ -420,8 +419,7 @@ Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but
 `system`, `system-set`, `system-unset`, `system-keys`, `quit`, `status`,
 `skills`, `sessions`, `projects`, `branch-points`, `rename`, `providers`,
-`provider-models`, `option-values`, `provider-add`, `provider-options`, and
-`provider-rm`.
+`provider-models`, `option-values`, `provider-add`, and `provider-rm`.
 
 ## What the host guarantees
 

@@ -15,32 +15,28 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// This file owns the registered programs, providers and front ends: adding
-// one, changing its configuration, asking a provider what it offers, and
-// keeping the defaults a program gives. The command line and the host's
-// functions both go through it.
+// This file owns the programs rumbo starts, providers and front ends: the
+// ones it has built in and the ones the user registers, adding one, changing
+// its configuration, and asking a provider what it offers. The command line
+// and the host's functions both go through it.
 //
-// Every field of a program's configuration, and every option of a provider,
-// has a value in its registration: the one the user gave, or else the
-// program's own default, which the host stores the first time the program
-// says it.
+// A program's configuration holds what the user chose for it, and nothing
+// else. What is not chosen is the program's own default, which only the
+// program knows, and says when it starts.
 
 // selfPlaceholder in a registered command stands for the rumbo executable, so
 // built-in programs keep working wherever the binary is installed.
 const selfPlaceholder = "{self}"
 
-// keySeeded holds the built-in programs already registered once, so one the
-// user removes stays removed.
-const keySeeded = internalPrefix + "builtins"
-
 // builtins are the programs served by the rumbo executable itself, by kind,
-// with the subcommand that serves them.
+// with the subcommand that serves them. They are there without being
+// registered.
 var builtins = []struct {
 	kind       string
 	subcommand string
 	names      []string
-	// configs are what a built-in is registered with, by name, when it is
-	// more than its defaults.
+	// configs are what a built-in starts with, by name, when it is more
+	// than its defaults. What the user chooses for it goes over them.
 	configs map[string]json.RawMessage
 }{
 	{store.KindProvider, "provide", []string{"anthropic", "openai", "chatgpt"}, map[string]json.RawMessage{
@@ -52,49 +48,92 @@ var builtins = []struct {
 	{store.KindFrontend, "attach", []string{"tui", "plain"}, nil},
 }
 
-// seedBuiltins registers each built-in program the first time this database
-// meets it.
-func seedBuiltins(database store.Store) error {
-	var seeded []string
+// kindNames are what a person calls each kind of program.
+var kindNames = map[string]string{
+	store.KindProvider: "provider",
+	store.KindFrontend: "front end",
+}
 
-	if value, found, err := database.Setting(store.GlobalScope, keySeeded); err != nil {
-		return err
-	} else if found {
-		_ = json.Unmarshal([]byte(value), &seeded)
-	}
-
-	changed := false
-
-	for _, builtin := range builtins {
-		for _, name := range builtin.names {
-			id := builtin.kind + "/" + name
-
-			if slices.Contains(seeded, id) {
-				continue
-			}
-
-			// One that is already there was put by an earlier version, or by
-			// the user, and is left as it is.
-			if _, err := database.Program(builtin.kind, name); errors.Is(err, store.ErrNotFound) {
-				program := store.Program{Name: name, Command: []string{selfPlaceholder, builtin.subcommand, name}, Config: builtin.configs[name]}
-
-				if err := database.PutProgram(builtin.kind, program); err != nil {
-					return err
-				}
-			}
-
-			seeded = append(seeded, id)
-			changed = true
+// builtin returns the program of a kind that rumbo has built in under name.
+func builtin(kind, name string) (store.Program, bool) {
+	for _, group := range builtins {
+		if group.kind == kind && slices.Contains(group.names, name) {
+			return store.Program{Name: name, Command: []string{selfPlaceholder, group.subcommand, name}, Config: group.configs[name]}, true
 		}
 	}
 
-	if !changed {
-		return nil
+	return store.Program{}, false
+}
+
+// findProgram returns the program called name as it is started: the one the
+// user registered, or the one rumbo has built in, with what the user chose
+// for it over what it is built in with.
+func findProgram(database store.Store, kind, name string) (store.Program, error) {
+	chosen, err := database.Program(kind, name)
+
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.Program{}, err
 	}
 
-	raw, _ := json.Marshal(seeded)
+	registered := err == nil
+	base, built := builtin(kind, name)
 
-	return database.SetSetting(store.GlobalScope, keySeeded, string(raw))
+	switch {
+	case !registered && !built:
+		return store.Program{}, fmt.Errorf(`%s %q is not registered; see "rumbo %s list"`, kindNames[kind], name, kind)
+
+	case !registered:
+		return base, nil
+
+	// One registered under the name of a built-in takes its place.
+	case len(chosen.Command) > 0:
+		return chosen, nil
+
+	case !built:
+		return store.Program{}, fmt.Errorf("%s %q has no command in %s", kindNames[kind], name, configFile)
+	}
+
+	if base.Config, err = mergeOptions(base.Config, chosen.Config); err != nil {
+		return store.Program{}, fmt.Errorf("the configuration of %s: %w", name, err)
+	}
+
+	return base, nil
+}
+
+// listPrograms returns the programs of a kind there are, built in and
+// registered, by name, each as it is started.
+func listPrograms(database store.Store, kind string) ([]store.Program, error) {
+	registered, err := database.Programs(kind)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+
+	for _, group := range builtins {
+		if group.kind == kind {
+			names = append(names, group.names...)
+		}
+	}
+
+	for _, program := range registered {
+		if !slices.Contains(names, program.Name) {
+			names = append(names, program.Name)
+		}
+	}
+
+	slices.Sort(names)
+
+	programs := make([]store.Program, len(names))
+
+	for index, name := range names {
+		if programs[index], err = findProgram(database, kind, name); err != nil {
+			return nil, err
+		}
+	}
+
+	return programs, nil
 }
 
 // registerProgram adds a program, or replaces the one with that name.
@@ -106,34 +145,28 @@ func registerProgram(database store.Store, kind, name string, command []string, 
 	return database.PutProgram(kind, store.Program{Name: name, Command: command, Config: config})
 }
 
-// registerProvider registers a provider after starting it, which is also
-// the test that it works, and stores the defaults it gives. One that does
-// not start is not registered. It returns the options the provider gives no
-// default for.
-func registerProvider(database store.Store, name string, command []string, config json.RawMessage, diagnostics io.Writer) ([]string, error) {
+// registerProvider registers a provider after starting it, which is the
+// test that it works. One that does not start is not registered.
+func registerProvider(database store.Store, name string, command []string, config json.RawMessage, diagnostics io.Writer) error {
 	if err := checkProgram(name, command, config); err != nil {
-		return nil, err
+		return err
 	}
 
 	argv, err := programCommand(command)
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	process, err := provider.Start(context.Background(), argv, config, diagnostics)
 
 	if err != nil {
-		return nil, fmt.Errorf("provider %q was not registered: %w", name, err)
+		return fmt.Errorf("provider %q was not registered: %w", name, err)
 	}
 
 	defer process.Close()
 
-	if err := database.PutProgram(store.KindProvider, store.Program{Name: name, Command: command, Config: config}); err != nil {
-		return nil, err
-	}
-
-	return adopt(database, store.KindProvider, name, process.Config(), process.Description())
+	return database.PutProgram(store.KindProvider, store.Program{Name: name, Command: command, Config: config})
 }
 
 func checkProgram(name string, command []string, config json.RawMessage) error {
@@ -152,90 +185,67 @@ func checkProgram(name string, command []string, config json.RawMessage) error {
 	return nil
 }
 
-// adopt stores what a program said about itself, for what its registration
-// does not hold yet: the default of each field of its configuration, and of
-// each option a provider describes. What is stored stays. It returns the
-// options described without a default, which the provider decides itself.
-func adopt(database store.Store, kind, name string, config json.RawMessage, described protocol.Description) ([]string, error) {
-	program, err := database.Program(kind, name)
-
-	if err != nil {
-		return nil, err
+// configureProgram changes fields of what the user chose for a program and
+// leaves the rest. Each change is name=value, read as applyChanges does; an
+// empty value takes the field out, so the program's default applies. It
+// returns the program as it is started from then on.
+func configureProgram(database store.Store, kind, name string, changes []string) (store.Program, error) {
+	if _, err := findProgram(database, kind, name); err != nil {
+		return store.Program{}, err
 	}
 
-	stored, err := mergeOptions(program.Config)
+	// A built-in nothing was chosen for yet is registered nowhere.
+	chosen, err := database.Program(kind, name)
 
-	if err != nil {
-		return nil, fmt.Errorf("the configuration of %s: %w", name, err)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.Program{}, err
 	}
 
-	merged, err := mergeOptions(config, stored)
+	chosen.Name = name
 
-	if err != nil {
-		return nil, fmt.Errorf("the configuration %s says is in force: %w", name, err)
+	if chosen.Config, err = changeObject(chosen.Config, changes); err != nil {
+		return store.Program{}, err
 	}
 
-	defaults := map[string]json.RawMessage{}
-	var undecided []string
+	// A built-in with nothing chosen for it has nothing to keep.
+	if len(chosen.Command) == 0 && len(chosen.Config) == 0 {
+		err = database.DeleteProgram(kind, name)
 
-	for _, option := range described.Options {
-		if len(option.Default) == 0 {
-			undecided = append(undecided, option.Name)
-			continue
+		if errors.Is(err, store.ErrNotFound) {
+			err = nil
 		}
-
-		defaults[option.Name] = option.Default
+	} else {
+		err = database.PutProgram(kind, chosen)
 	}
-
-	chosen, err := mergeOptions(program.Options)
 
 	if err != nil {
-		return nil, fmt.Errorf("the options of %s: %w", name, err)
+		return store.Program{}, err
 	}
 
-	options := chosen
-
-	if len(defaults) > 0 {
-		raw, _ := json.Marshal(defaults)
-
-		if options, err = mergeOptions(raw, chosen); err != nil {
-			return nil, err
-		}
-	}
-
-	if string(merged) == string(stored) && string(options) == string(chosen) {
-		return undecided, nil
-	}
-
-	program.Config, program.Options = merged, options
-
-	return undecided, database.PutProgram(kind, program)
+	return findProgram(database, kind, name)
 }
 
-// configureProgram changes fields of a program's configuration and leaves
-// the rest. Each change is name=value, read as applyChanges does.
-func configureProgram(database store.Store, kind, name string, changes []string) (store.Program, error) {
-	program, err := database.Program(kind, name)
+// removeProgram takes out what the user registered under name, and says what
+// that leaves. A built-in is there all the same, as rumbo has it.
+func removeProgram(database store.Store, kind, name string) (string, error) {
+	_, built := builtin(kind, name)
+	err := database.DeleteProgram(kind, name)
 
-	if err != nil {
-		return program, fmt.Errorf("%s %q is not registered", kind, name)
+	switch {
+	case errors.Is(err, store.ErrNotFound) && built:
+		return "", fmt.Errorf("%s %q is built in, with nothing of yours to remove; it is always there", kindNames[kind], name)
+
+	case errors.Is(err, store.ErrNotFound):
+		return "", fmt.Errorf("%s %q is not registered", kindNames[kind], name)
+
+	case err != nil:
+		return "", err
+
+	case built:
+		return fmt.Sprintf("removed what was yours of the %s %s, which is built in and is as rumbo has it again", kindNames[kind], name), nil
 	}
 
-	fields := map[string]json.RawMessage{}
-
-	if len(program.Config) > 0 {
-		if err := json.Unmarshal(program.Config, &fields); err != nil {
-			return program, fmt.Errorf("its stored configuration is not an object: %w", err)
-		}
-	}
-
-	if err := applyChanges(fields, changes); err != nil {
-		return program, err
-	}
-
-	program.Config, _ = json.Marshal(fields)
-
-	return program, database.PutProgram(kind, program)
+	return fmt.Sprintf("removed the %s %s", kindNames[kind], name), nil
 }
 
 // programCommand resolves the placeholders of a registered command.
@@ -259,10 +269,10 @@ func programCommand(command []string) ([]string, error) {
 // inspectProvider starts a registered provider, asks what it offers, and
 // stops it. It is also the test that the program speaks the protocol.
 func inspectProvider(database store.Store, name string, diagnostics io.Writer) (string, error) {
-	program, err := database.Program(store.KindProvider, name)
+	program, err := findProgram(database, store.KindProvider, name)
 
 	if err != nil {
-		return "", fmt.Errorf("provider %q is not registered", name)
+		return "", err
 	}
 
 	command, err := programCommand(program.Command)
@@ -279,34 +289,29 @@ func inspectProvider(database store.Store, name string, diagnostics io.Writer) (
 
 	defer process.Close()
 
-	if _, err := adopt(database, store.KindProvider, name, process.Config(), process.Description()); err != nil {
-		return "", err
+	described := describeProgram(program)
+
+	// Only the program knows the defaults of what was not chosen for it.
+	if inForce := process.Config(); len(inForce) > 0 {
+		described += fmt.Sprintf("\nin force, with its defaults: %s", inForce)
 	}
 
-	if program, err = database.Program(store.KindProvider, name); err != nil {
-		return "", err
-	}
-
-	return describeProgram(program) + "\n" + describeOffers(process.Description()), nil
+	return described + "\n" + describeOffers(process.Description()), nil
 }
 
+// describeProgram says how a program is started, and what was chosen for it.
 func describeProgram(program store.Program) string {
-	described := fmt.Sprintf("name: %s\ncommand: %s\nconfiguration: %s", program.Name, strings.Join(program.Command, " "), program.Config)
-
-	if len(program.Options) > 0 {
-		described += fmt.Sprintf("\noptions: %s", program.Options)
-	}
-
-	return described
+	return fmt.Sprintf("name: %s\ncommand: %s\nconfiguration: %s", program.Name, strings.Join(program.Command, " "), shown(program.Config))
 }
 
-// undecidedNote says which options a provider gives no default for, if any.
-func undecidedNote(name string, undecided []string) string {
-	if len(undecided) == 0 {
-		return ""
+// shown is a JSON object as a person reads it, an empty one when nothing is
+// in it.
+func shown(object json.RawMessage) string {
+	if len(object) == 0 {
+		return "{}"
 	}
 
-	return fmt.Sprintf("; %s gives no default for %s, so it decides them itself", name, strings.Join(undecided, ", "))
+	return string(object)
 }
 
 // describeOffers renders what a provider says about itself.

@@ -40,9 +40,14 @@ nothing and knows no model API.
 - Record nothing a provider's function asks or is told. A secret answer goes
   from the front end to the provider, and nowhere else.
 - Check a setting when it is stored, and refuse to start with one that is
-  missing or malformed instead of guessing.
+  missing, malformed, or misspelled in the configuration file instead of
+  guessing, saying where in the file.
+- Keep everything it stores in files a person can read: what the user
+  chose in `config.yaml`, and each session in a directory of its own.
+- Write to `config.yaml` only what the user chose, never a default, and
+  leave what it does not change there as the person wrote it.
 - Keep the protocols compatible: what it adds is optional.
-- Keep stored data working: changes to the schema only add.
+- Keep stored data working: what a file holds only grows.
 
 ### Can
 
@@ -124,6 +129,10 @@ nothing and knows no model API.
   settings. `-p`, `-m`, and `-o` choose them for the session, as `use` and
   `session-options` do. A session that changes provider leaves its options
   behind.
+- Keep a session where a person can read it, in
+  `~/.local/share/rumbo/sessions/<id>/`: `session.json`, what it is and what
+  it chose, and `entries.jsonl`, its entries, one to a line. A line a
+  process died writing is no entry.
 - Print a session's whole record (`rumbo log`), and the exact request any
   of its turns sent the provider, rebuilt from it (`rumbo request`).
 - Record with each response the output limit its request set, how long the
@@ -137,27 +146,26 @@ nothing and knows no model API.
 
 - Register, configure, show, and remove providers. A provider is started
   when it is added, which is the test that it works. The built-in
-  `anthropic`, `openai`, and `chatgpt` are registered the first time
-  rumbo meets each of them: one a new version brings at its next start,
-  and one the user removed stays removed. `{self}` stands for rumbo's
-  own executable in a command.
-- Keep with each registered provider and front end a value for every field
-  of its configuration, and for every option of a provider: the one the
-  user gave, or else the program's own default, stored the first time the
-  program says it.
-- Start a provider and show what it offers, which is also the test that it
-  works.
+  `anthropic`, `openai`, and `chatgpt` are there without being registered,
+  and cannot be removed; one registered under the name of a built-in takes
+  its place. `{self}` stands for rumbo's own executable in a command.
+- Keep of each provider and front end only what the user chose for it. What
+  is not chosen is the program's own default, so one a new version changes
+  applies to everyone who chose nothing else.
+- Start a provider and show what was chosen for it, its configuration in
+  force with its defaults, and what it offers, which is also the test that
+  it works.
 - List the models a provider offers and the values its options take,
   asking it, so a front end can offer them as choices: the models after
   the provider `use` names, and the `name=value` changes of
-  `session-options` and `provider-options`, with those in force marked.
+  `session-options` and `provider-config`, with those in force marked.
 - Keep as many processes of a provider as the requests running at once need,
   and replace one that died.
 - Change the provider and the model of a session for its next runs, while a
   run in progress keeps the ones it started with.
-- Store the option values each provider gets with every request, apart
-  from its configuration. A run gets those, the ones chosen in its session
-  over them, and those its front end chose for it over both.
+- Keep the values of a provider's options in its configuration, with the
+  rest of it. A run gets those with every request, the ones chosen in its
+  session over them, and those its front end chose for it over both.
 - Pass a provider's description to the front end, send the chosen options
   with every request, and relay calls to its functions, understanding none of
   them.
@@ -172,8 +180,9 @@ nothing and knows no model API.
 - Start a registered front end and give it the terminal, or be started by
   one (`rumbo serve`). Without `-f` or the `frontend` setting it starts `tui`
   in a terminal and `plain` elsewhere.
-- Register, show, and remove front ends, and serve the built-in `tui` and
-  `plain` itself (`rumbo attach <name>`).
+- Register, configure, show, and remove front ends, and serve the built-in
+  `tui` and `plain` itself (`rumbo attach <name>`), which are there without
+  being registered.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
   `system`, `system-set`, `system-unset`, `system-keys`, and `quit`. For a
@@ -181,8 +190,7 @@ nothing and knows no model API.
   `branch`, `branch-points`, `delete`, `rename`, `prune`, `use`,
   `session-options`, and `compact`. For
   the providers: `providers`, `provider-models`, `option-values`,
-  `provider-add`, `provider-config`, `provider-options`, `provider-show`,
-  and `provider-rm`.
+  `provider-add`, `provider-config`, `provider-show`, and `provider-rm`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
@@ -198,11 +206,11 @@ nothing and knows no model API.
   provider and the model a new session starts with, the front end, the turn
   limit, the output limit, and the share of the model's context at which to
   summarize. List them with where each value in force comes from
-  (`rumbo system`), and the values an earlier version stored for one
-  project, which are no longer read.
+  (`rumbo system list`).
 - Apply a stored system setting, or a provider's option, to the runs that
-  start after it is stored, without starting again. The default provider
-  and model, and the front end, apply from the next start.
+  start after it is stored, without starting again, whether a command
+  stored it or a person wrote it in the file. The default provider and
+  model, and the front end, apply from the next start.
 
 ### Must not
 
@@ -226,9 +234,8 @@ the Agent Provider Protocol on its stdin and stdout.
 ### Must
 
 - Answer `initialize` with protocol version 1, its name, and its
-  configuration in force, with a default for every field it was not given.
-- Give a default for every option it describes. It may be empty when that
-  means the model decides.
+  configuration in force, with a default for every field it was not given,
+  for a person to see.
 - Answer `complete` with the next assistant message, why it stopped (it
   ended, it calls tools, the output limit cut it, or the model refused), and
   what it cost. Every request carries the whole conversation.
@@ -255,16 +262,19 @@ the Agent Provider Protocol on its stdin and stdout.
 - Stream the visible text of a response while it is produced.
 - Report how many tokens the model's context holds, so the host summarizes
   before it fills.
-- Describe how its model is chosen, the options it accepts, and the
-  functions it offers. The host and the front ends offer them without
-  knowing them.
+- Describe how its model is chosen, the options it accepts, each with its
+  default, and the functions it offers. The host and the front ends offer
+  them without knowing them.
 - Offer functions, such as listing its models. One that cannot be undone
   asks to be confirmed, and one that an option names returns the values the
   option accepts.
 - Talk with the person while a function works: say things, and ask
   questions, marking an answer secret when it is one, such as the code a
   sign-in gives. The function takes as long as the person does.
-- Read the configuration registered with it.
+- Read what the user chose for it, its configuration, which holds the
+  values they set for its options too; the host sends those with every
+  request as well, so a provider that reads its options only there gets
+  them.
 - Keep what it needs to continue a conversation, such as signed reasoning,
   in opaque blocks the host returns unchanged.
 - Cache the start of requests, which the host keeps stable, and report how
@@ -447,9 +457,9 @@ speaks the Agent Frontend Protocol with the host.
   none; and `color_host`, `color_provider`, `color_code`, `color_success`,
   `color_failure`, `color_warning`, and `color_progress` each take a name,
   such as `cyan` or `bright-blue`, a number of the 256 colors, `#rrggbb`,
-  or `default`. It says the configuration in force, with its defaults, to
-  be kept with its registration, and one it cannot use stops it with what
-  is wrong, before it takes the terminal.
+  or `default`. It says the configuration in force, with its defaults,
+  and one it cannot use stops it with what is wrong, before it takes the
+  terminal.
 - It gives the terminal back as it found it, when it quits or the host ends,
   and leaves under the conversation the command that continues its
   session, `rumbo -s <session>`.

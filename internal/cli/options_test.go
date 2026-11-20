@@ -2,30 +2,12 @@ package cli
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
-
-	"github.com/LiasCode/rumbo/internal/store"
 )
 
-// A session's options are laid over the provider's, and the command line
-// changes the session's one by one.
-func TestOptionsAreLayeredFromProviderToSession(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer database.Close()
-
-	database.PutProgram(store.KindProvider, store.Program{Name: "anthropic", Command: []string{"run"}, Options: json.RawMessage(`{"effort":"low","verbose":false}`)})
-	database.PutProgram(store.KindProvider, store.Program{Name: "other", Command: []string{"run"}, Options: json.RawMessage(`{"effort":"max"}`)})
-
-	if stored, err := storedOptions(database, "anthropic"); err != nil || string(stored) != `{"effort":"low","verbose":false}` {
-		t.Fatalf("stored = %s, err = %v", stored, err)
-	}
-
+// The command line changes the options chosen in a session one by one, and
+// objects are laid over each other field by field.
+func TestOptionsAreChangedOneByOne(t *testing.T) {
 	var flags optionFlags
 	flags.Set("effort=high")
 	flags.Set("limit=3")
@@ -38,8 +20,8 @@ func TestOptionsAreLayeredFromProviderToSession(t *testing.T) {
 		t.Fatalf("session = %s, err = %v", session, err)
 	}
 
-	if inForce, err := optionsInForce(database, "anthropic", session); err != nil || string(inForce) != `{"effort":"high","limit":3,"note":"two words","verbose":false,"web":true}` {
-		t.Fatalf("in force = %s, err = %v", inForce, err)
+	if merged, err := mergeOptions(json.RawMessage(`{"effort":"low","verbose":false}`), session); err != nil || string(merged) != `{"effort":"high","limit":3,"note":"two words","verbose":false,"web":true}` {
+		t.Fatalf("merged = %s, err = %v", merged, err)
 	}
 
 	if none, _ := mergeOptions(nil, nil); none != nil {

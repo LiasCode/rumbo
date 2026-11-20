@@ -216,7 +216,7 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "session-options",
-			Description: "Show or change the option values chosen in this session, which it keeps",
+			Description: "Show or change the option values chosen in this session, which it keeps, over its provider's configuration",
 			Params:      []protocol.Option{{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "name=value; an empty value removes it", Optional: true}},
 			Group:       protocol.GroupSession,
 		},
@@ -233,7 +233,7 @@ var hostFunctions = []hostFunction{
 		call: (*host).compactNow,
 	},
 	{
-		Function:  protocol.Function{Name: "providers", Description: "List the registered providers", Group: protocol.GroupProvider},
+		Function:  protocol.Function{Name: "providers", Description: "List the providers there are, built in and registered", Group: protocol.GroupProvider},
 		duringRun: true,
 		call:      (*host).listProviders,
 	},
@@ -262,7 +262,7 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "provider-add",
-			Description: "Register a provider: a name and the command that starts it, which is started to store its defaults",
+			Description: "Register a provider: a name and the command that starts it, which is started to see that it works",
 			Params: []protocol.Option{
 				{Name: "name", Type: protocol.OptionString},
 				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
@@ -276,27 +276,14 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "provider-config",
-			Description: "Change a field of a provider's start configuration; an empty value gives it back to the provider's default",
+			Description: "Change a field of a provider's configuration, its options included; an empty value gives it back to its default",
 			Params: []protocol.Option{
 				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
-				{Name: "change", Type: protocol.OptionString, Description: "field=value"},
+				{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "field=value"},
 			},
 			Group: protocol.GroupProvider,
 		},
 		call: (*host).configureProvider,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "provider-options",
-			Description: "Show or change the option values a provider gets with every request",
-			Params: []protocol.Option{
-				{Name: "provider", Type: protocol.OptionString, Values: "providers"},
-				{Name: "change", Type: protocol.OptionString, Values: "option-values", Description: "name=value", Optional: true},
-			},
-			Group: protocol.GroupProvider,
-		},
-		duringRun: true,
-		call:      (*host).providerOptions,
 	},
 	{
 		Function: protocol.Function{
@@ -311,9 +298,9 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "provider-rm",
-			Description: "Remove a registered provider",
+			Description: "Remove a provider you registered, or what you chose for a built-in one",
 			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
-			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched.",
+			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched, and a built-in provider stays, as rumbo has it.",
 			Group:       protocol.GroupProvider,
 		},
 		duringRun: true,
@@ -954,7 +941,7 @@ func (h *host) background(previous *place) string {
 }
 
 func (h *host) listProviders(context.Context, map[string]string) (protocol.HostResult, error) {
-	programs, err := h.database.Programs(store.KindProvider)
+	programs, err := listPrograms(h.database, store.KindProvider)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -976,8 +963,8 @@ func (h *host) listProviders(context.Context, map[string]string) (protocol.HostR
 func (h *host) useProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	name := params["provider"]
 
-	if _, err := h.database.Program(store.KindProvider, name); err != nil {
-		return protocol.HostResult{}, fmt.Errorf("provider %q is not registered", name)
+	if _, err := findProgram(h.database, store.KindProvider, name); err != nil {
+		return protocol.HostResult{}, err
 	}
 
 	h.mu.Lock()
@@ -1011,8 +998,9 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 	return protocol.HostResult{Text: text}, nil
 }
 
-// sessionOptions shows the option values a run in the current session
-// gets, after changing one chosen in it when a change is given. The session
+// sessionOptions shows the option values chosen in the current session,
+// after changing one when a change is given, and the configuration of its
+// provider, which they win over. The session
 // keeps what is chosen in it, as it keeps its model; a run in progress
 // keeps the options it started with.
 func (h *host) sessionOptions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
@@ -1075,26 +1063,24 @@ func (h *host) choose(target *place, chosen choice) error {
 	return nil
 }
 
-// describeChoice says which option values a run with chosen gets, and
-// which of them were chosen in the session.
+// describeChoice says what a run with chosen gets beyond its model, one
+// level to a line: the option values chosen in the session, and under them
+// the configuration of its provider. What neither holds is the provider's
+// own default, which only the provider knows.
 func (h *host) describeChoice(chosen choice) (string, error) {
-	options, err := h.inForce(chosen)
+	program, err := findProgram(h.database, store.KindProvider, chosen.provider)
 
 	if err != nil {
 		return "", err
 	}
 
-	text := "options in force: none; the provider uses its own defaults"
-
-	if len(options) > 0 {
-		text = fmt.Sprintf("options in force: %s", options)
-	}
+	options := "none"
 
 	if len(chosen.options) > 0 {
-		text += fmt.Sprintf("\nchosen in the session: %s", chosen.options)
+		options = string(chosen.options)
 	}
 
-	return text, nil
+	return fmt.Sprintf("options chosen in the session: %s\nconfiguration of %s, under them: %s", options, chosen.provider, shown(program.Config)), nil
 }
 
 func (h *host) showSettings(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -1104,13 +1090,7 @@ func (h *host) showSettings(context.Context, map[string]string) (protocol.HostRe
 		return protocol.HostResult{}, err
 	}
 
-	ignored, err := ignoredSettings(h.database)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	return protocol.HostResult{Text: "system settings:\n" + describeSettings(settings, ignored)}, nil
+	return protocol.HostResult{Text: "system settings:\n" + describeSettings(settings)}, nil
 }
 
 func (h *host) settingKeys(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -1149,39 +1129,13 @@ func (h *host) removeSetting(_ context.Context, params map[string]string) (proto
 }
 
 func (h *host) registerProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	undecided, err := registerProvider(h.database, params["name"], strings.Fields(params["command"]), nil, h.conn.Log())
-
-	if err != nil {
+	if err := registerProvider(h.database, params["name"], strings.Fields(params["command"]), nil, h.conn.Log()); err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	text := fmt.Sprintf("registered the provider %s, which started, with its defaults%s; provider-show says what it offers", params["name"], undecidedNote(params["name"], undecided))
+	text := fmt.Sprintf("registered the provider %s, which started; provider-show says its defaults and what it offers", params["name"])
 
 	return protocol.HostResult{Text: text}, nil
-}
-
-// providerOptions shows the option values a provider gets here, after
-// changing one when it is given. Runs read them when they start, so a
-// change applies to the next one.
-func (h *host) providerOptions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	name := params["provider"]
-	text := ""
-
-	if params["change"] != "" {
-		if err := changeOptions(h.database, name, []string{params["change"]}); err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		text = "stored; it applies to the runs that start from now on, in the sessions that choose none of their own\n"
-	}
-
-	described, err := describeOptions(h.database, name)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	return protocol.HostResult{Text: text + described}, nil
 }
 
 func (h *host) configureProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
@@ -1191,15 +1145,18 @@ func (h *host) configureProvider(_ context.Context, params map[string]string) (p
 		return protocol.HostResult{}, err
 	}
 
-	text := fmt.Sprintf("configuration of %s: %s", program.Name, program.Config)
+	text := fmt.Sprintf("configuration of %s: %s", program.Name, shown(program.Config))
 
 	// A provider reads its configuration when it starts, so its processes
 	// are replaced; one busy with a request stops when the request ends.
+	// Its options are read from it when a run starts.
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if h.drop(program.Name) {
 		text += "\nits processes were stopped, so the change applies to the next request"
+	} else {
+		text += "\nit applies to the runs that start from now on, in the sessions that choose no other value"
 	}
 
 	return protocol.HostResult{Text: text}, nil
@@ -1224,11 +1181,13 @@ func (h *host) unregisterProvider(_ context.Context, params map[string]string) (
 		return protocol.HostResult{}, fmt.Errorf("%s is the provider in use; change to another one first", params["provider"])
 	}
 
-	if err := h.database.DeleteProgram(store.KindProvider, params["provider"]); err != nil {
-		return protocol.HostResult{}, fmt.Errorf("provider %q is not registered", params["provider"])
+	removed, err := removeProgram(h.database, store.KindProvider, params["provider"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: "removed the provider " + params["provider"]}, nil
+	return protocol.HostResult{Text: removed}, nil
 }
 
 // compactNow replaces a session's conversation with a summary. The session

@@ -66,7 +66,7 @@ type options struct {
 	settings settings
 }
 
-// settings are key=value pairs applied to every run's database, to measure
+// settings are key=value pairs applied to every run's configuration, to measure
 // the same tasks under a different configuration.
 type settings []string
 
@@ -223,7 +223,7 @@ func evaluate(task, binary, scratch string, attempt int, opts options, provider 
 
 	env := environment(task, workdir)
 
-	if err := configure(filepath.Join(workdir, "eval.db"), provider, opts.settings); err != nil {
+	if err := configure(kept(workdir), provider, opts.settings); err != nil {
 		return outcome, err
 	}
 
@@ -251,7 +251,7 @@ func evaluate(task, binary, scratch string, attempt int, opts options, provider 
 	outcome.Seconds = time.Since(started).Seconds()
 	outcome.ExitCode = exitCode(err)
 
-	if err := measure(&outcome, filepath.Join(workdir, "eval.db")); err != nil {
+	if err := measure(&outcome, kept(workdir)); err != nil {
 		return outcome, err
 	}
 
@@ -303,12 +303,28 @@ func prepare(task, workdir string) (string, error) {
 	return repo, nil
 }
 
-// environment isolates a run from the machine: its own database, and no
-// global instructions or skills, so results depend only on the task and the
-// code.
+// configPath and dataDir are where a run keeps what rumbo stores: what was
+// chosen for it, and its sessions.
+func configPath(workdir string) string {
+	return filepath.Join(workdir, "config.yaml")
+}
+
+func dataDir(workdir string) string {
+	return filepath.Join(workdir, "data")
+}
+
+// kept opens what a run keeps.
+func kept(workdir string) store.Store {
+	return store.Open(configPath(workdir), dataDir(workdir))
+}
+
+// environment isolates a run from the machine: its own configuration and
+// sessions, and no global instructions or skills, so results depend only on
+// the task and the code.
 func environment(task, workdir string) []string {
 	return append(os.Environ(),
-		"RUMBO_DB="+filepath.Join(workdir, "eval.db"),
+		"RUMBO_CONFIG="+configPath(workdir),
+		"RUMBO_DATA="+dataDir(workdir),
 		"XDG_CONFIG_HOME="+filepath.Join(workdir, "config"),
 		"RUMBO_EVAL_TASK="+task,
 		"RUMBO_EVAL_OUTPUT="+filepath.Join(workdir, "output.txt"),
@@ -316,25 +332,18 @@ func environment(task, workdir string) []string {
 }
 
 // registeredProvider looks the model's provider up in the user's own
-// database. Runs use a fresh database, which knows only the built-in
-// providers, so one the user registered has to be carried over.
+// configuration. Runs use a fresh one, which knows only the built-in
+// providers as rumbo has them, so what the user registered, or chose for a
+// built-in one, has to be carried over.
 func registeredProvider(model string) (*store.Program, error) {
 	name, _, _ := strings.Cut(model, "/")
-	path, err := cli.DatabasePath()
+	path, err := cli.ConfigPath()
 
 	if err != nil || !exists(path) {
 		return nil, err
 	}
 
-	opened, err := store.Open(path)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer opened.Close()
-
-	program, err := opened.Program(store.KindProvider, name)
+	program, err := store.Open(path, "").Program(store.KindProvider, name)
 
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
@@ -343,21 +352,9 @@ func registeredProvider(model string) (*store.Program, error) {
 	return &program, err
 }
 
-// configure prepares a run's database: the provider carried over from the
-// user's, and the settings asked for on the command line.
-func configure(database string, provider *store.Program, settings []string) error {
-	if provider == nil && len(settings) == 0 {
-		return nil
-	}
-
-	opened, err := store.Open(database)
-
-	if err != nil {
-		return err
-	}
-
-	defer opened.Close()
-
+// configure prepares a run's configuration: the provider carried over from
+// the user's, and the settings asked for on the command line.
+func configure(opened store.Store, provider *store.Program, settings []string) error {
 	if provider != nil {
 		if err := opened.PutProgram(store.KindProvider, *provider); err != nil {
 			return err
@@ -367,7 +364,7 @@ func configure(database string, provider *store.Program, settings []string) erro
 	for _, setting := range settings {
 		key, value, _ := strings.Cut(setting, "=")
 
-		if err := opened.SetSetting(store.GlobalScope, key, value); err != nil {
+		if err := opened.SetSetting(key, value); err != nil {
 			return err
 		}
 	}
@@ -406,20 +403,8 @@ func check(task, repo string, env []string) (string, error) {
 	return string(output), err
 }
 
-// measure reads what the run cost from the session it left in the database.
-func measure(outcome *result, database string) error {
-	if !exists(database) {
-		return nil
-	}
-
-	opened, err := store.Open(database)
-
-	if err != nil {
-		return err
-	}
-
-	defer opened.Close()
-
+// measure reads what the run cost from the session it left.
+func measure(outcome *result, opened store.Store) error {
 	sessions, err := opened.Sessions("")
 
 	if err != nil {

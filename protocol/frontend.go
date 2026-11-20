@@ -260,8 +260,7 @@ func DialFrontend(r io.Reader, w io.Writer, name string) (*FrontendConn, Fronten
 
 // DialFrontendConfigured is DialFrontend for a front end with a start
 // configuration: inForce is given the one registered, and returns the one in
-// force, with the front end's own default for every field it left out,
-// which the host keeps with the registration.
+// force, with the front end's own default for every field it left out.
 func DialFrontendConfigured(r io.Reader, w io.Writer, name string, inForce func(given json.RawMessage) json.RawMessage) (*FrontendConn, FrontendInitializeParams, error) {
 	reader := bufio.NewReader(r)
 

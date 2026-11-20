@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -13,22 +14,11 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
+// testStore is a store in files of the test's own, with nothing chosen.
 func testStore(t *testing.T) store.Store {
 	t.Helper()
 
-	database, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { database.Close() })
-
-	if err := seedBuiltins(database); err != nil {
-		t.Fatal(err)
-	}
-
-	return database
+	return store.Open(filepath.Join(t.TempDir(), configFile), t.TempDir())
 }
 
 func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
@@ -63,32 +53,19 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		}
 	}
 
-	// The settings that are no longer say what took their place.
-	for key, hint := range map[string]string{
-		"model":             "default_provider and default_model",
-		"options.anthropic": "rumbo provider options anthropic",
-	} {
-		for _, refused := range []error{setSetting(database, key, "x"), unsetSetting(database, key)} {
-			if refused == nil || !strings.Contains(refused.Error(), hint) {
-				t.Fatalf("%s: err = %v", key, refused)
-			}
-		}
+	// A built-in provider is there without being registered.
+	if err := setSetting(database, "default_provider", "anthropic"); err != nil {
+		t.Fatal(err)
 	}
 
-	setSetting(database, "default_provider", "anthropic")
 	setSetting(database, "default_model", "org/big-model")
-
-	// One stored for a project by an earlier version is no longer read, and
-	// is listed as such.
-	database.SetSetting("/repo", "max_turns", "40")
 
 	if turns, _ := effectiveSetting(database, "max_turns"); turns.Value != "150" || turns.Source != sourceDefault {
 		t.Fatalf("max_turns = %+v", turns)
 	}
 
 	listed, _ := effectiveSettings(database)
-	ignored, _ := ignoredSettings(database)
-	text := describeSettings(listed, ignored)
+	text := describeSettings(listed)
 
 	for _, line := range []string{
 		"default_provider     anthropic  (stored)",
@@ -96,20 +73,10 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		"frontend             (not set)",
 		"max_turns            150  (default)",
 		"compact_at           80%  (default)",
-		"no longer read",
-		"max_turns = 40  (/repo)",
 	} {
 		if !strings.Contains(text, line) {
 			t.Errorf("missing %q in:\n%s", line, text)
 		}
-	}
-
-	if strings.Contains(text, keySeeded) {
-		t.Fatalf("an internal key is listed as a setting:\n%s", text)
-	}
-
-	if _, err := storedSetting(database, keySeeded); err == nil {
-		t.Fatal("an internal key was read as a system setting")
 	}
 
 	if err := unsetSetting(database, "default_model"); err != nil {
@@ -134,131 +101,85 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		t.Fatalf("limits = %+v, err = %v", limits, err)
 	}
 
-	// One that is malformed in the store stops rumbo before it starts.
-	database.SetSetting(store.GlobalScope, "compact_at", "90000")
+	// One that is malformed in the file, as a person may write it, stops
+	// rumbo before it starts.
+	database.SetSetting("compact_at", "90000")
 
 	if _, err := loadConfig(database, "plain"); err == nil || !strings.Contains(err.Error(), "compact_at") {
 		t.Fatalf("a malformed compact_at: err = %v", err)
 	}
-}
 
-// The model an earlier version stored, with its provider, becomes the
-// default provider and model, once; what was stored stays.
-func TestTheOldModelSettingIsCarriedOverOnce(t *testing.T) {
-	database := testStore(t)
-	database.SetSetting(store.GlobalScope, legacyModel, "openai/org/model-x")
+	// So does a name that is no setting, which is how a misspelled one shows.
+	database.DeleteSetting("compact_at")
+	database.SetSetting("max_turn", "40")
 
-	if err := upgradeSettings(database); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, _ := loadConfig(database, "plain")
-
-	if loaded.DefaultProvider != "openai" || loaded.DefaultModel != "org/model-x" {
-		t.Fatalf("carried over as %+v", loaded)
-	}
-
-	if old, found, _ := database.Setting(store.GlobalScope, legacyModel); !found || old != "openai/org/model-x" {
-		t.Fatalf("the old value was not left as it was: %q", old)
-	}
-
-	// Once is enough: a default removed afterwards stays removed.
-	unsetSetting(database, keyDefaultProvider)
-	upgradeSettings(database)
-
-	if _, found, _ := database.Setting(store.GlobalScope, keyDefaultProvider); found {
-		t.Fatal("the old model was carried over again")
+	if _, err := loadConfig(database, "plain"); err == nil || !strings.Contains(err.Error(), `config.yaml, under system: there is no system setting "max_turn"`) {
+		t.Fatalf("a misspelled setting: err = %v", err)
 	}
 }
 
-// A provider's options are kept with its registration, and changed one by
-// one.
-func TestProviderOptionsAreChangedOneByOne(t *testing.T) {
-	database := testStore(t)
-	database.PutProgram(store.KindProvider, store.Program{Name: "anthropic", Command: []string{"run"}, Options: json.RawMessage(`{"effort":"low","beta":true}`)})
+// A run gets, with every request, the fields of its provider's
+// configuration that the provider describes as options, and the session's
+// over them.
+func TestOptionsComeFromTheProvidersConfiguration(t *testing.T) {
+	described := []protocol.Option{{Name: "effort"}, {Name: "web"}, {Name: "depth"}}
+	config := json.RawMessage(`{"base_url":"http://mine","effort":"low","web":false}`)
 
-	if err := changeOptions(database, "anthropic", []string{"beta=", "depth=3"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if program, _ := database.Program(store.KindProvider, "anthropic"); string(program.Options) != `{"depth":3,"effort":"low"}` {
-		t.Fatalf("stored options = %s", program.Options)
-	}
-
-	// The session's are over the provider's.
-	inForce, err := optionsInForce(database, "anthropic", []byte(`{"depth":5,"web":true}`))
-
-	if err != nil || string(inForce) != `{"depth":5,"effort":"low","web":true}` {
-		t.Fatalf("options in force = %s, err = %v", inForce, err)
-	}
-
-	if described, _ := describeOptions(database, "anthropic"); described != `options of anthropic: {"depth":3,"effort":"low"}` {
-		t.Fatalf("described = %q", described)
-	}
-
-	for name, changes := range map[string][]string{"missing": {"effort=high"}, "anthropic": {"novalue"}} {
-		if err := changeOptions(database, name, changes); err == nil {
-			t.Errorf("%s %v was accepted", name, changes)
+	for session, want := range map[string]string{
+		``:                            `{"effort":"low","web":false}`,
+		`{"effort":"high","depth":5}`: `{"depth":5,"effort":"high","web":false}`,
+	} {
+		if inForce, err := optionsInForce(config, described, json.RawMessage(session)); err != nil || string(inForce) != want {
+			t.Errorf("with %q in the session: %s, err = %v; want %s", session, inForce, err, want)
 		}
 	}
-}
 
-// What a program says its defaults are fills what its registration does not
-// hold, and changes nothing that it does.
-func TestDefaultsAreKeptForWhatIsNotStored(t *testing.T) {
-	database := testStore(t)
-	database.PutProgram(store.KindProvider, store.Program{
-		Name: "mine", Command: []string{"run"},
-		Config:  json.RawMessage(`{"base_url":"http://mine"}`),
-		Options: json.RawMessage(`{"effort":"high"}`),
-	})
-
-	described := protocol.Description{Options: []protocol.Option{
-		{Name: "effort", Default: json.RawMessage(`""`)},
-		{Name: "web", Default: json.RawMessage(`false`)},
-		{Name: "style"},
-	}}
-
-	undecided, err := adopt(database, store.KindProvider, "mine", json.RawMessage(`{"base_url":"https://default","api":"chat"}`), described)
-
-	if err != nil || len(undecided) != 1 || undecided[0] != "style" {
-		t.Fatalf("undecided = %v, err = %v", undecided, err)
+	// Nothing chosen is no options at all, so the provider's defaults apply.
+	if none, err := optionsInForce(json.RawMessage(`{"base_url":"http://mine"}`), described, nil); err != nil || none != nil {
+		t.Fatalf("with nothing chosen: %s, err = %v", none, err)
 	}
 
-	program, _ := database.Program(store.KindProvider, "mine")
-
-	if string(program.Config) != `{"api":"chat","base_url":"http://mine"}` || string(program.Options) != `{"effort":"high","web":false}` {
-		t.Fatalf("registered with %s and %s", program.Config, program.Options)
+	// A provider that describes none gets what the session chose.
+	if passed, _ := optionsInForce(config, nil, json.RawMessage(`{"effort":"high"}`)); string(passed) != `{"effort":"high"}` {
+		t.Fatalf("without a description: %s", passed)
 	}
 
-	// A front end has a configuration and no options.
-	database.PutProgram(store.KindFrontend, store.Program{Name: "editor", Command: []string{"run"}})
-	adopt(database, store.KindFrontend, "editor", json.RawMessage(`{"theme":"dark"}`), protocol.Description{})
-
-	if editor, _ := database.Program(store.KindFrontend, "editor"); string(editor.Config) != `{"theme":"dark"}` || editor.Options != nil {
-		t.Fatalf("front end registered with %s and %s", editor.Config, editor.Options)
+	if _, err := optionsInForce(json.RawMessage(`"fast"`), described, nil); err == nil {
+		t.Fatal("a configuration that is no object was accepted")
 	}
 }
 
 // A provider is started when it is added, which is the test that it works,
-// and stored with the defaults it says.
+// and kept with what the user gave it and nothing else: its defaults are
+// its own, and it says them when asked.
 func TestAProviderIsStartedWhenAdded(t *testing.T) {
 	database := testStore(t)
 
-	undecided, err := registerProvider(database, "local", []string{selfPlaceholder, "provide", "openai"}, json.RawMessage(`{"base_url":"http://localhost:11434/v1"}`), io.Discard)
-
-	if err != nil || len(undecided) != 0 {
-		t.Fatalf("undecided = %v, err = %v", undecided, err)
+	if err := registerProvider(database, "local", []string{selfPlaceholder, "provide", "openai"}, json.RawMessage(`{"base_url":"http://localhost:11434/v1"}`), io.Discard); err != nil {
+		t.Fatal(err)
 	}
 
 	program, _ := database.Program(store.KindProvider, "local")
 
-	if string(program.Config) != `{"api":"chat","api_key_env":"OPENAI_API_KEY","base_url":"http://localhost:11434/v1","context_window":0,"effort":""}` || string(program.Options) != `{"effort":""}` {
-		t.Fatalf("registered with %s and %s", program.Config, program.Options)
+	if string(program.Config) != `{"base_url":"http://localhost:11434/v1"}` {
+		t.Fatalf("registered with %s", program.Config)
+	}
+
+	shown, err := inspectProvider(database, "local", io.Discard)
+
+	for _, line := range []string{
+		"name: local\n",
+		`configuration: {"base_url":"http://localhost:11434/v1"}` + "\n",
+		`in force, with its defaults: {"base_url":"http://localhost:11434/v1","api_key_env":"OPENAI_API_KEY","context_window":0,"effort":"","api":"chat"}` + "\n",
+		"option effort: ",
+	} {
+		if err != nil || !strings.Contains(shown, line) {
+			t.Fatalf("show has no %q, err = %v:\n%s", line, err, shown)
+		}
 	}
 
 	// One that does not start is not registered.
-	if _, err := registerProvider(database, "broken", []string{"/no/such/program"}, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "was not registered") {
+	if err := registerProvider(database, "broken", []string{"/no/such/program"}, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "was not registered") {
 		t.Fatalf("a provider that does not start: err = %v", err)
 	}
 
@@ -267,58 +188,76 @@ func TestAProviderIsStartedWhenAdded(t *testing.T) {
 	}
 }
 
-// The options an earlier version stored as a setting of their own are kept
-// with the provider's registration, once.
-func TestOldProviderOptionsAreCarriedOver(t *testing.T) {
-	database := testStore(t)
-	database.SetSetting(store.GlobalScope, keyUpgraded, "1")
-	database.SetSetting(store.GlobalScope, "options.anthropic", `{"effort":"max"}`)
-
-	if err := upgradeSettings(database); err != nil {
-		t.Fatal(err)
-	}
-
-	if program, _ := database.Program(store.KindProvider, "anthropic"); string(program.Options) != `{"effort":"max"}` {
-		t.Fatalf("carried over as %s", program.Options)
-	}
-
-	if done, _, _ := database.Setting(store.GlobalScope, keyUpgraded); done != "2" {
-		t.Fatalf("the upgrades taken are recorded as %q", done)
-	}
-}
-
-// A built-in program the user removed is not put back, and one added by a
-// later version of rumbo still arrives.
-func TestBuiltinsAreRegisteredOnce(t *testing.T) {
+// The built-in programs are there without being registered. What the user
+// chooses for one is all that is kept of it, over what it is built in with.
+func TestBuiltinsAreThereWithoutBeingRegistered(t *testing.T) {
 	database := testStore(t)
 
 	// The openai one speaks the Responses API, which OpenAI's own models
 	// need; the others need nothing.
-	for name, want := range map[string]string{"openai": `{"api":"responses"}`, "anthropic": "{}", "chatgpt": "{}"} {
-		if program, err := database.Program(store.KindProvider, name); err != nil || string(program.Config) != want {
-			t.Fatalf("%s registered with %q, err %v; want %q", name, program.Config, err, want)
+	for name, want := range map[string]string{"openai": `{"api":"responses"}`, "anthropic": "", "chatgpt": ""} {
+		program, err := findProgram(database, store.KindProvider, name)
+
+		if err != nil || string(program.Config) != want || strings.Join(program.Command, " ") != "{self} provide "+name {
+			t.Fatalf("%s is %+v, err %v; want the configuration %q", name, program, err, want)
 		}
 	}
 
-	if err := database.DeleteProgram(store.KindProvider, "openai"); err != nil {
-		t.Fatal(err)
+	if _, err := database.Program(store.KindProvider, "openai"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a built-in nothing was chosen for is registered: err = %v", err)
 	}
 
-	if err := seedBuiltins(database); err != nil {
-		t.Fatal(err)
+	listed, err := listPrograms(database, store.KindFrontend)
+
+	if err != nil || len(listed) != 2 || listed[0].Name != "plain" || listed[1].Name != "tui" {
+		t.Fatalf("front ends = %+v, err = %v", listed, err)
 	}
 
-	if _, err := database.Program(store.KindProvider, "openai"); err == nil {
-		t.Fatal("a removed built-in came back")
+	configured, err := configureProgram(database, store.KindProvider, "openai", []string{"effort=high", "api=chat"})
+
+	if err != nil || string(configured.Config) != `{"api":"chat","effort":"high"}` {
+		t.Fatalf("configured = %+v, err = %v", configured, err)
 	}
 
-	builtins[0].names = append(builtins[0].names, "newcomer")
-	defer func() { builtins[0].names = builtins[0].names[:len(builtins[0].names)-1] }()
+	if kept, _ := database.Program(store.KindProvider, "openai"); len(kept.Command) != 0 || string(kept.Config) != `{"api":"chat","effort":"high"}` {
+		t.Fatalf("kept of openai: %+v", kept)
+	}
 
-	seedBuiltins(database)
+	// A field given back goes to what the built-in has, and nothing is kept
+	// of a built-in once nothing is chosen for it.
+	if back, _ := configureProgram(database, store.KindProvider, "openai", []string{"api="}); string(back.Config) != `{"api":"responses","effort":"high"}` {
+		t.Fatalf("after giving api back: %s", back.Config)
+	}
 
-	if _, err := database.Program(store.KindProvider, "newcomer"); err != nil {
-		t.Fatal("a built-in added later was not registered")
+	configureProgram(database, store.KindProvider, "openai", []string{"effort="})
+
+	if _, err := database.Program(store.KindProvider, "openai"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a built-in with nothing chosen is still registered: err = %v", err)
+	}
+
+	// It cannot be removed; what was chosen for it can.
+	if _, err := removeProgram(database, store.KindProvider, "openai"); err == nil || !strings.Contains(err.Error(), "is built in") {
+		t.Fatalf("removing a built-in: err = %v", err)
+	}
+
+	configureProgram(database, store.KindProvider, "openai", []string{"effort=low"})
+
+	if removed, err := removeProgram(database, store.KindProvider, "openai"); err != nil || !strings.Contains(removed, "as rumbo has it again") {
+		t.Fatalf("removing what was chosen for a built-in: %q, err = %v", removed, err)
+	}
+
+	// One registered under a built-in's name takes its place.
+	registerProgram(database, store.KindProvider, "openai", []string{"my-openai"}, nil)
+
+	if mine, _ := findProgram(database, store.KindProvider, "openai"); strings.Join(mine.Command, " ") != "my-openai" || mine.Config != nil {
+		t.Fatalf("openai registered by the user is %+v", mine)
+	}
+
+	// A name with only a configuration, and nothing built in, cannot start.
+	database.PutProgram(store.KindProvider, store.Program{Name: "orphan", Config: json.RawMessage(`{"a":1}`)})
+
+	if _, err := findProgram(database, store.KindProvider, "orphan"); err == nil || !strings.Contains(err.Error(), "has no command in config.yaml") {
+		t.Fatalf("a provider without a command: err = %v", err)
 	}
 }
 
@@ -336,6 +275,24 @@ func TestConfigureProgramChangesOnlyTheFieldsGiven(t *testing.T) {
 		t.Fatal("a change without = was accepted")
 	}
 
+	if _, err := configureProgram(database, store.KindProvider, "missing", []string{"a=b"}); err == nil || !strings.Contains(err.Error(), "not registered") {
+		t.Fatalf("configuring a provider that is not there: err = %v", err)
+	}
+
+	// One the user added keeps its command when nothing is left of its
+	// configuration, and goes when it is removed.
+	if emptied, _ := configureProgram(database, store.KindProvider, "mine", []string{"effort=", "retries="}); emptied.Config != nil || len(emptied.Command) != 1 {
+		t.Fatalf("with nothing chosen: %+v", emptied)
+	}
+
+	if removed, err := removeProgram(database, store.KindProvider, "mine"); err != nil || removed != "removed the provider mine" {
+		t.Fatalf("removed = %q, err = %v", removed, err)
+	}
+
+	if _, err := removeProgram(database, store.KindProvider, "mine"); err == nil {
+		t.Fatal("removing a provider twice reported nothing")
+	}
+
 	if err := registerProgram(database, store.KindProvider, "bad/name", []string{"run"}, nil); err == nil {
 		t.Fatal("a name with a slash was accepted")
 	}
@@ -343,7 +300,6 @@ func TestConfigureProgramChangesOnlyTheFieldsGiven(t *testing.T) {
 
 func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 	h := testHost(t)
-	seedBuiltins(h.database)
 
 	stored := call(t, h, "system-set", `{"key":"max_turns","value":"90"}`)
 
@@ -365,42 +321,42 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 		t.Fatalf("keys = %+v", keys.Values)
 	}
 
-	if added := call(t, h, "provider-add", `{"name":"mine","command":"{self} provide openai"}`); !strings.Contains(added.Text, "which started, with its defaults") {
+	if added := call(t, h, "provider-add", `{"name":"mine","command":"{self} provide openai"}`); !strings.Contains(added.Text, "registered the provider mine, which started") {
 		t.Fatalf("provider-add = %q", added.Text)
 	}
 
 	program, err := h.database.Program(store.KindProvider, "mine")
 
-	if err != nil || len(program.Command) != 3 || !strings.Contains(string(program.Config), `"api_key_env":"OPENAI_API_KEY"`) {
+	if err != nil || len(program.Command) != 3 || program.Config != nil {
 		t.Fatalf("registered = %+v, err = %v", program, err)
 	}
 
-	if configured := call(t, h, "provider-config", `{"provider":"mine","change":"effort=high"}`); !strings.Contains(configured.Text, `"effort":"high"`) {
+	// Its options are fields of its configuration, like any other.
+	configured := call(t, h, "provider-config", `{"provider":"mine","change":"effort=high"}`)
+
+	if !strings.Contains(configured.Text, `configuration of mine: {"effort":"high"}`) || !strings.Contains(configured.Text, "the runs that start from now on") {
 		t.Fatalf("provider-config = %q", configured.Text)
 	}
 
-	// Its options are the provider's own, apart from its configuration.
-	if shown := call(t, h, "provider-options", `{"provider":"second"}`); shown.Text != `options of second: {"depth":2}` {
-		t.Fatalf("provider-options = %q", shown.Text)
+	if removed := call(t, h, "provider-rm", `{"provider":"mine"}`); removed.Text != "removed the provider mine" {
+		t.Fatalf("provider-rm = %q", removed.Text)
 	}
-
-	call(t, h, "provider-options", `{"provider":"mine","change":"effort=low"}`)
-
-	if mine, _ := h.database.Program(store.KindProvider, "mine"); string(mine.Options) != `{"effort":"low"}` {
-		t.Fatalf("options stored with the provider = %s", mine.Options)
-	}
-
-	call(t, h, "provider-rm", `{"provider":"mine"}`)
 
 	for name, params := range map[string]string{
 		"provider-rm":      `{"provider":"first"}`,
-		"provider-options": `{"provider":"missing"}`,
+		"provider-config":  `{"provider":"missing","change":"effort=high"}`,
+		"provider-options": `{"provider":"second"}`,
 		"system-set":       `{"key":"max_turns","value":"x"}`,
 		"system-unset":     `{"key":"compact_at"}`,
 	} {
 		if _, err := h.invokeHost(context.Background(), name, []byte(params)); err == nil {
 			t.Errorf("%s %s should fail", name, params)
 		}
+	}
+
+	// A built-in provider cannot be removed, only what was chosen for it.
+	if err := refused(t, h, "provider-rm", `{"provider":"chatgpt"}`); !strings.Contains(err, "is built in") {
+		t.Fatalf("removing a built-in: %s", err)
 	}
 }
 

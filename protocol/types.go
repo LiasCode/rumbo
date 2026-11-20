@@ -104,8 +104,9 @@ type InitializeResult struct {
 	Protocol int    `json:"protocol"`
 	Name     string `json:"name"`
 	// Config is the configuration in force: what initialize gave, with the
-	// program's own default for every field it left out. The host keeps it
-	// with the registration, so every field is there to see and change.
+	// program's own default for every field it left out. The host shows it
+	// to a person who asks, so every field is there to see, and keeps none
+	// of it: only what the person chose is stored.
 	Config json.RawMessage `json:"config,omitempty"`
 	Description
 }
@@ -142,9 +143,9 @@ type Option struct {
 	// Values names the function that returns the accepted values, when they
 	// are not fixed. The function answers with a ValuesResult.
 	Values string `json:"values,omitempty"`
-	// Default is the value in force when none is chosen. Every option of a
-	// provider has one, which the host keeps as the provider's own value;
-	// it may be empty when that means the model decides.
+	// Default is the value in force when none is chosen, for a person to
+	// see; it may be empty when that means the model decides. The host
+	// sends an option only when a value was chosen for it.
 	Default json.RawMessage `json:"default,omitempty"`
 	// Optional says a parameter of a function may be left out. Optional
 	// parameters come after the required ones.

@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"database/sql"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,22 +13,16 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// storedHost is a host on a database at a path the test can reach.
+// storedHost is a host whose sessions are in a directory the test can reach.
 func storedHost(t *testing.T) (*host, string) {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "test.db")
-	database, err := store.Open(path)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { database.Close() })
+	data := t.TempDir()
+	database := store.Open(filepath.Join(t.TempDir(), configFile), data)
 
 	database.PutProgram(store.KindProvider, store.Program{Name: "first", Command: []string{"first-provider"}})
 
-	return hostOn(t, database), path
+	return hostOn(t, database), data
 }
 
 // worked makes a session of the host's project with the entries given.
@@ -49,22 +44,33 @@ func worked(t *testing.T, h *host, title string, entries ...any) store.Session {
 	return session
 }
 
-// backdate makes a session look last used at when.
-func backdate(t *testing.T, path, id string, when time.Time) {
+// backdate makes a session look made, and last used, at when.
+func backdate(t *testing.T, data, id string, when time.Time) {
 	t.Helper()
 
-	db, err := sql.Open("sqlite", path)
+	dir := filepath.Join(data, "sessions", id)
+	path := filepath.Join(dir, "session.json")
+	raw, err := os.ReadFile(path)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	defer db.Close()
+	var record map[string]any
 
-	for _, statement := range []string{`UPDATE sessions SET created_at = ? WHERE id = ?`, `UPDATE entries SET created_at = ? WHERE session_id = ?`} {
-		if _, err := db.Exec(statement, when.UnixMilli(), id); err != nil {
-			t.Fatal(err)
-		}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+
+	record["created_at"] = when.UTC().Format(time.RFC3339)
+	raw, _ = json.Marshal(record)
+
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chtimes(filepath.Join(dir, "entries.jsonl"), when, when); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -167,7 +173,7 @@ func TestRenameGivesTheCurrentSessionATitle(t *testing.T) {
 // Pruning lists the project's sessions not used in a while, and deletes them
 // when confirmed, keeping the current one and those in use, however old.
 func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
-	h, path := storedHost(t)
+	h, data := storedHost(t)
 	old := time.Now().Add(-40 * 24 * time.Hour)
 
 	forgotten := worked(t, h, "forgotten", steps(asked)...)
@@ -176,7 +182,7 @@ func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 	recent := worked(t, h, "recent", steps(asked)...)
 
 	for _, session := range []store.Session{forgotten, elsewhere, current} {
-		backdate(t, path, session.ID, old)
+		backdate(t, data, session.ID, old)
 	}
 
 	call(t, h, "open", `{"session":"`+current.ID+`"}`)

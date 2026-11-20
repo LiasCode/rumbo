@@ -34,7 +34,7 @@ Usage:
   rumbo request <session> [turn] print the request a turn sent the provider, as it was sent;
                                  without a turn, the last one
   rumbo system ...               read and write the system settings
-  rumbo provider ...             manage providers and their options
+  rumbo provider ...             manage providers and their configuration
   rumbo frontend ...             manage front ends
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
@@ -102,7 +102,7 @@ func dispatch(args []string) error {
 			return withStore(args[1:], systemCommands)
 		case "config":
 			// The old name would otherwise reach the model as a task.
-			return errors.New(`"rumbo config" is now "rumbo system", for the system settings; a provider's options are set with "rumbo provider options"`)
+			return errors.New(`"rumbo config" is now "rumbo system", for the system settings; a provider's options are set with "rumbo provider config"`)
 		case "sessions":
 			return withStore(args[1:], sessionCommands)
 		case "skills":
@@ -148,10 +148,10 @@ func launch(database store.Store, args []string) error {
 
 	defer host.close()
 
-	program, err := database.Program(store.KindFrontend, host.settings.Frontend)
+	program, err := findProgram(database, store.KindFrontend, host.settings.Frontend)
 
 	if err != nil {
-		return fmt.Errorf(`front end %q is not registered; see "rumbo frontend list"`, host.settings.Frontend)
+		return err
 	}
 
 	command, err := programCommand(program.Command)
@@ -167,7 +167,6 @@ func launch(database store.Store, args []string) error {
 	}
 
 	host.info.Config = program.Config
-	host.frontend = program.Name
 
 	err = host.serve(process.Reader, process.Writer)
 
@@ -214,9 +213,6 @@ type host struct {
 	single bool
 	info   protocol.FrontendInitializeParams
 	conn   *frontend.Conn
-	// frontend is the registered front end the host started, empty when a
-	// front end started the host itself.
-	frontend string
 	// tools holds the processes the sessions leave running, which stop with
 	// the host. Each session has tools of its own besides.
 	tools *tool.Set
@@ -302,17 +298,17 @@ func newHost(database store.Store, args []string) (*host, error) {
 		return nil, err
 	}
 
-	if _, err := database.Program(store.KindProvider, chosen.provider); err != nil {
+	if _, err := findProgram(database, store.KindProvider, chosen.provider); err != nil {
 		if session != nil && session.Provider == chosen.provider && *providerName == "" {
 			return nil, fmt.Errorf(`session %s uses the provider %q, which is not registered; register it again, or choose another with -p`, session.ID, chosen.provider)
 		}
 
-		return nil, fmt.Errorf(`provider %q is not registered; see "rumbo provider list"`, chosen.provider)
+		return nil, err
 	}
 
 	// A malformed stored value stops rumbo before a front end starts.
-	if _, err := optionsInForce(database, chosen.provider, chosen.options); err != nil {
-		return nil, err
+	if _, err := mergeOptions(chosen.options); err != nil {
+		return nil, fmt.Errorf("the options of the session: %w", err)
 	}
 
 	tools := tool.NewSet()
@@ -426,14 +422,6 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 
 	h.conn = conn
 
-	// The front end says its defaults, which its registration keeps for
-	// what it does not hold yet.
-	if h.frontend != "" {
-		if _, err := adopt(h.database, store.KindFrontend, h.frontend, conn.Config(), protocol.Description{}); err != nil {
-			fmt.Fprintf(conn.Log(), "the defaults of the front end %s were not stored: %v\n", h.frontend, err)
-		}
-	}
-
 	// Before the front end is attached there is nothing to stop but the
 	// process, which the signals still do by themselves.
 	stops := make(chan os.Signal, 1)
@@ -487,7 +475,7 @@ func (h *host) describe(ctx context.Context) (protocol.DescribeResult, error) {
 		return protocol.DescribeResult{}, err
 	}
 
-	options, err := h.inForce(chosen)
+	options, err := h.inForce(chosen, pool.Description())
 
 	if err != nil {
 		return protocol.DescribeResult{}, err

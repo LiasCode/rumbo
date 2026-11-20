@@ -11,7 +11,8 @@ it and the interfaces in front of it are separate programs you can replace.
 - **Any model, any interface, any language.** Providers and front ends are
   programs that speak a small JSON-RPC protocol over stdio. The built-in
   ones use the same protocols as the ones you write; none gets a shortcut.
-- **History you can replay.** A session is an append-only log in SQLite.
+- **History you can replay.** A session is an append-only log, one entry
+  to a line in a file you can read.
   Every request sent to the model can be rebuilt from it (`rumbo request`
   prints it), a run that failed or was cut short resumes where it stopped
   (`rumbo -r`), and `/branch` goes on from before any of your messages in a
@@ -53,7 +54,8 @@ you, without asking and without a sandbox. What the model reads, such as a
 project's `AGENTS.md`, its files, or command output, can steer it, so work
 on code you do not trust inside a container or a virtual machine. Sessions
 keep what the model saw, secrets in command output included, in
-`~/.local/share/rumbo/rumbo.db`. An API key you give a built-in provider's
+`~/.local/share/rumbo/sessions/`, readable only by you. An API key you give
+a built-in provider's
 `/login` is kept in `~/.config/rumbo/credentials/`
 (`~/Library/Application Support/rumbo/credentials/` on macOS), readable only
 by you, and so by the model too. rumbo itself contacts no server: only your
@@ -84,6 +86,25 @@ rumbo -r                                         # resume a run that stopped
 rumbo "summarize notes.md" > summary.txt         # piped: plain text out, exit code
 ```
 
+What you set is kept in `~/.config/rumbo/config.yaml`
+(`~/Library/Application Support/rumbo/config.yaml` on macOS). It holds only
+what you chose, never a default, and you can edit it; rumbo changes it one
+value at a time and leaves your comments:
+
+```yaml
+system:
+  default_provider: anthropic
+  default_model: claude-opus-5-5
+providers:
+  anthropic:
+    config:
+      effort: high   # every session, unless it chooses another with -o
+```
+
+Each session is a directory in `~/.local/share/rumbo/sessions/`:
+`session.json` says what it is, and `entries.jsonl` holds its history, one
+entry to a line.
+
 Any server compatible with OpenAI's Chat Completions, local ones included,
 works through the built-in `openai` provider:
 
@@ -93,10 +114,10 @@ rumbo provider config local context_window=32768   # a server cannot say its con
 rumbo -p local -m qwen3-coder "fix the failing test"   # the session keeps them
 ```
 
-The `openai` provider rumbo registers speaks OpenAI's Responses API, which
-its reasoning models need to use tools with an effort. One registered by an
-earlier version speaks Chat Completions until
-`rumbo provider config openai api=responses`.
+The built-in `openai` provider speaks OpenAI's Responses API, which its
+reasoning models need to use tools with an effort. One you add from the same
+program, as `local` above, speaks Chat Completions, as most servers do,
+unless you give it `api=responses`.
 
 The built-in `chatgpt` provider uses your ChatGPT plan instead of an API key:
 
@@ -153,14 +174,15 @@ is told of where you are, and says why one is left out.
 ## Learn more
 
 - `rumbo help`, `rumbo system`, and `rumbo provider`: the commands, the
-  system settings, and each provider's configuration and options.
+  system settings, and each provider's configuration, which
+  `rumbo provider show <name>` prints with the provider's defaults.
 - [docs/use-cases.md](docs/use-cases.md): everything the host, providers,
   and front ends can do.
 - [docs/architecture.md](docs/architecture.md) and
   [docs/glossary.md](docs/glossary.md): how the parts fit, and the terms.
 - [CHANGELOG.md](CHANGELOG.md): what each release changes. Until 1.0,
   commands and settings may change; the protocols stay at version 1 and only
-  grow, and stored sessions and settings keep working.
+  grow, and the files that hold your sessions and settings keep working.
 
 ## License
 

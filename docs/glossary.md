@@ -70,9 +70,13 @@ passes it on without interpreting it.
 
 **Option.** A value a provider accepts with a request, beyond the model,
 such as how thorough to be. Which options exist is the provider's decision.
-The values it gets are stored for the provider, apart from its
-configuration; a session can choose others, which it keeps and which win
-in it.
+The value a user sets for the provider is a field of its configuration; a
+session can choose another, which it keeps and which wins in it.
+
+**Configuration file.** `config.yaml`, in rumbo's directory of the user's
+configuration: what the user chose, and nothing else. It holds the system
+settings, the programs the user registered, and what they chose for each
+program. A person can edit it; a default is never written to it.
 
 **System setting.** A setting of rumbo itself, the same everywhere: the
 provider and the model a new session starts with, the front end, the turn
@@ -115,10 +119,11 @@ lets a front end show a session it opens as if it had followed every run.
 steers, newest first and each once, which a front end brings back to its
 input. It is read from the sessions, so it keeps nothing of its own.
 
-**Program.** A registered provider or front end: a name, the command that
-starts it, its start configuration, and for a provider the values of its
-options. Each field and option has a value: the one the user gave, or the
-program's own default, kept the first time the program says it.
+**Program.** A provider or front end rumbo can start: a name, the command
+that starts it, and its configuration, which for a provider holds the values
+of its options too. The built-in ones are always there; the user registers
+others. Only what the user chose is kept of a configuration: what is not
+chosen is the program's own default, which the program says when it starts.
 
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
 

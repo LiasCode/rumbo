@@ -31,19 +31,26 @@ changes one of those updates it in the same change.
 - **The protocols are public contracts.** Changes to `protocol/` are
   additive. An incompatible change needs a new protocol version and an update
   to `docs/protocol.md` or `docs/frontend-protocol.md` in the same change.
-- **Stored data keeps working.** Schema changes add tables or columns; they
-  never rewrite what a user's database already holds. A change to the schema
-  is a new entry at the end of `migrations` in `internal/store/sqlite.go`,
-  never an edit to an earlier one.
+- **Stored data keeps working.** Everything rumbo stores is a file a person
+  can read: `config.yaml`, and a directory for each session
+  (`internal/store`). A change to what a file holds adds a key or a field
+  that may be absent, so the files users already have are read as they are.
+  Never rename one or give it another meaning.
+- **`config.yaml` holds only what the user chose.** Never write a default
+  there, or what a program says about itself: a default lives in the code
+  that owns it, and a built-in program is there without an entry. rumbo
+  changes the one value a command names and leaves the rest of the file,
+  comments included, as the person wrote it.
 - **Settings are read in one place**, `internal/cli/config.go`: what rumbo
   starts with when it starts, and what a run uses when the run starts. They
   are passed down, and a run keeps what it started with.
 - **Configuration has three levels, kept apart.** A system setting is
   rumbo's own, the same everywhere (`settings.go`); a session keeps what it
-  chose, which wins over the system's in it; a provider has its
-  configuration and its options, which a session's win over
-  (`programs.go`, `options.go`). Nothing is set per project. Something new
-  goes at one level, and a host function names it in its `Group`.
+  chose, which wins over the system's in it; a provider has one
+  configuration, which holds the values of its options too, and a session's
+  win over those (`programs.go`, `options.go`). Nothing is set per project.
+  Something new goes at one level, and a host function names it in its
+  `Group`.
 - **Users read CHANGELOG.md.** A change they would notice adds a line to its
   `Unreleased` section, in their terms; the reason goes in the commit.
 

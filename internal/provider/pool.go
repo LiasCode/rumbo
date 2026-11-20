@@ -23,8 +23,6 @@ type Pool struct {
 	// description is what the first process said about the provider.
 	description protocol.Description
 	described   bool
-	// said is told, once, what the first process said about itself.
-	said func(config json.RawMessage, description protocol.Description)
 }
 
 // pooled is what a pool keeps: a provider process that can say it has
@@ -32,19 +30,15 @@ type Pool struct {
 type pooled interface {
 	Provider
 	Exited() bool
-	Config() json.RawMessage
 }
 
 // NewPool returns a pool of processes started from argv with config, their
-// stderr going to stderr. None starts until a request needs it. said, when
-// there is one, is told what the first process says about itself: its
-// configuration in force and its description.
-func NewPool(argv []string, config json.RawMessage, stderr io.Writer, said func(json.RawMessage, protocol.Description)) *Pool {
+// stderr going to stderr. None starts until a request needs it.
+func NewPool(argv []string, config json.RawMessage, stderr io.Writer) *Pool {
 	return &Pool{
 		start: func(ctx context.Context) (pooled, error) {
 			return Start(ctx, argv, config, stderr)
 		},
-		said: said,
 	}
 }
 
@@ -144,17 +138,12 @@ func (p *Pool) take(ctx context.Context) (pooled, error) {
 	}
 
 	p.mu.Lock()
-	first := !p.described
 
-	if first {
+	if !p.described {
 		p.description, p.described = process.Description(), true
 	}
 
 	p.mu.Unlock()
-
-	if first && p.said != nil {
-		p.said(process.Config(), process.Description())
-	}
 
 	return process, nil
 }

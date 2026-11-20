@@ -131,13 +131,7 @@ func text(value string) protocol.Block {
 // the one before, and that the stored entries rebuild it exactly.
 func TestRunRecordsAReproducibleHistory(t *testing.T) {
 	dir := t.TempDir()
-	database, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer database.Close()
+	database := store.Open(filepath.Join(t.TempDir(), "config.yaml"), t.TempDir())
 
 	model := &scripted{answers: []protocol.Message{
 		say(write("call-1", "state.txt", "ok")),
@@ -239,13 +233,7 @@ func kinds(entries []store.Entry) string {
 func setup(t *testing.T, model *scripted) (*Agent, store.Store, store.Session, *silent) {
 	t.Helper()
 
-	database, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { database.Close() })
+	database := store.Open(filepath.Join(t.TempDir(), "config.yaml"), t.TempDir())
 
 	dir := t.TempDir()
 	session, err := database.CreateSession(dir, dir, "test")

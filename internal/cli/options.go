@@ -6,20 +6,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // This file owns a provider's options: the values sent to it with every
 // request, which belong to the provider and not to the system settings. The
 // command line and the host's functions both go through it.
 
-// A provider's options are kept with its registration, a JSON object the
-// host stores and forwards; only the provider knows what it means. A
-// session's own values are laid over them, and win in it.
-
-// optionsPrefix started the setting that held a provider's options before
-// they were kept with its registration: "options.anthropic", for example.
-const optionsPrefix = "options."
+// An option has no place of its own. The value a user sets for a provider
+// is a field of the provider's configuration, like any other; a session's
+// own values are laid over it, and win in it. Both are JSON objects the host
+// forwards, and only the provider knows what they mean.
 
 // optionFlags collects the -o name=value flags of the command line.
 type optionFlags []string
@@ -101,31 +98,45 @@ func mergeOptions(layers ...json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(merged)
 }
 
-// storedOptions returns the option values stored for the provider.
-func storedOptions(database store.Store, provider string) (json.RawMessage, error) {
-	program, err := database.Program(store.KindProvider, provider)
-
-	if err != nil {
-		return nil, fmt.Errorf("provider %q is not registered", provider)
-	}
-
-	options, err := mergeOptions(program.Options)
-
-	if err != nil {
-		return nil, fmt.Errorf("the options stored for %s: %w", provider, err)
-	}
-
-	return options, nil
-}
-
-// changeObject lays name=value changes over the option values in options,
-// as applyChanges does. What is left is nil when no value is.
-func changeObject(options json.RawMessage, changes []string) (json.RawMessage, error) {
+// optionsInForce are the option values a run gets with every request: the
+// fields of its provider's configuration that the provider describes as
+// options, with the ones chosen in the session over them. The configuration
+// reaches the provider whole when it starts; sending its options with the
+// request too serves a provider that only reads them there.
+func optionsInForce(config json.RawMessage, described []protocol.Option, session json.RawMessage) (json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
 
+	if len(config) > 0 {
+		if err := json.Unmarshal(config, &fields); err != nil {
+			return nil, fmt.Errorf("the provider's configuration must be a JSON object: %w", err)
+		}
+	}
+
+	options := map[string]json.RawMessage{}
+
+	for _, option := range described {
+		if value, chosen := fields[option.Name]; chosen {
+			options[option.Name] = value
+		}
+	}
+
+	var configured json.RawMessage
+
 	if len(options) > 0 {
-		if err := json.Unmarshal(options, &fields); err != nil {
-			return nil, fmt.Errorf("the options are not an object: %w", err)
+		configured, _ = json.Marshal(options)
+	}
+
+	return mergeOptions(configured, session)
+}
+
+// changeObject lays name=value changes over the fields of a JSON object, as
+// applyChanges does. What is left is nil when no field is.
+func changeObject(object json.RawMessage, changes []string) (json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+
+	if len(object) > 0 {
+		if err := json.Unmarshal(object, &fields); err != nil {
+			return nil, fmt.Errorf("what is there is not a JSON object: %w", err)
 		}
 	}
 
@@ -138,40 +149,4 @@ func changeObject(options json.RawMessage, changes []string) (json.RawMessage, e
 	}
 
 	return json.Marshal(fields)
-}
-
-// changeOptions changes the option values stored for a provider, and
-// leaves the rest. One removed goes back to the provider's default the next
-// time the provider says it.
-func changeOptions(database store.Store, provider string, changes []string) error {
-	program, err := database.Program(store.KindProvider, provider)
-
-	if err != nil {
-		return fmt.Errorf("provider %q is not registered", provider)
-	}
-
-	if program.Options, err = changeObject(program.Options, changes); err != nil {
-		return err
-	}
-
-	return database.PutProgram(store.KindProvider, program)
-}
-
-// describeOptions says which option values are stored for a provider.
-func describeOptions(database store.Store, provider string) (string, error) {
-	if _, err := database.Program(store.KindProvider, provider); err != nil {
-		return "", fmt.Errorf("provider %q is not registered", provider)
-	}
-
-	options, err := storedOptions(database, provider)
-
-	if err != nil {
-		return "", err
-	}
-
-	if len(options) == 0 {
-		return fmt.Sprintf("no options are stored for %s; it uses its own defaults", provider), nil
-	}
-
-	return fmt.Sprintf("options of %s: %s", provider, options), nil
 }

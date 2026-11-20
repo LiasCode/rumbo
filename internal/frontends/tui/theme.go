@@ -11,9 +11,9 @@ import (
 // start configuration can change, or leave out altogether. Bold, dim, and
 // underline mark what they mark either way.
 
-// Config is the start configuration of the terminal UI, which rumbo keeps
-// with its registration and changes with rumbo frontend config tui
-// field=value.
+// Config is the start configuration of the terminal UI. What the user
+// chose of it is in rumbo's configuration file, and changes with rumbo
+// frontend config tui field=value.
 type Config struct {
 	// Theme is auto, which shows colors unless NO_COLOR is set; color, which
 	// always does; or plain, which shows none.

@@ -52,7 +52,7 @@ chooses; the host keeps none, and relays one a person types at a
 provider's question without recording it. A provider also describes
 itself: the options it accepts and the functions it can be asked, such as
 listing its models, and its default for each option and each field of its
-configuration, which the host keeps with its registration. The host stores
+configuration, which the host shows and does not store. The host stores
 the chosen values, sends them with every request, and relays function
 calls, and what a function says to the person and asks of them
 while it works, without knowing what any of them mean.
@@ -74,7 +74,12 @@ produces a named section. Everything else about a task the model finds out
 with its tools, when it needs it.
 
 **Store** (`internal/store`). Settings, registered programs, sessions, and
-entries, in one SQLite file.
+entries, all in files a person can read. What the user chose is one file,
+`config.yaml`, next to their instructions and skills: they can edit it, and
+rumbo changes it one value at a time, leaving the rest as it was, comments
+included. It holds no default, so a value that is there is one somebody set.
+Each session is a directory of its own in the user's data: what the session
+is, and its entries, one to a line, only ever appended.
 
 **Transcript** (`internal/transcript`). Defines what entries mean and rebuilds
 the model request from them. This is the single place that decides what the
@@ -104,8 +109,10 @@ starts, so a stored change applies to the next run.
 Configuration has three levels, kept apart. The system settings are
 rumbo's own, the same everywhere. A session keeps what it chose, which wins
 over them there: its provider, its model, and values of the provider's
-options. A provider has its configuration and the option values it gets with
-every request, under those a session chose. What a
+options. A provider has one configuration: what it starts with, and the
+values of its options, which it gets with every request under those a
+session chose. The built-in programs are there without being registered;
+what the user chooses for one is all that is kept of it. What a
 system setting is, what a provider's options are, and what a registered
 program is each have one owner there (`settings.go`, `options.go`,
 `programs.go`). The commands and the host's functions, each named for the

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,15 +28,35 @@ type limits struct {
 	Compaction agent.Compaction
 }
 
-// DatabasePath is where the SQLite file lives: RUMBO_DB, or the user's data
-// directory.
-func DatabasePath() (string, error) {
-	if path := os.Getenv("RUMBO_DB"); path != "" {
+// configFile is the name of the file that holds what the user chose.
+const configFile = "config.yaml"
+
+// ConfigPath is the file that holds what the user chose: RUMBO_CONFIG, or
+// config.yaml in rumbo's directory of the user's configuration, next to
+// their instructions and skills.
+func ConfigPath() (string, error) {
+	if path := os.Getenv("RUMBO_CONFIG"); path != "" {
 		return path, nil
 	}
 
+	dir, err := os.UserConfigDir()
+
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, "rumbo", configFile), nil
+}
+
+// DataDir is where the sessions are kept: RUMBO_DATA, or rumbo's directory
+// of the user's data.
+func DataDir() (string, error) {
+	if dir := os.Getenv("RUMBO_DATA"); dir != "" {
+		return dir, nil
+	}
+
 	if data := os.Getenv("XDG_DATA_HOME"); data != "" {
-		return filepath.Join(data, "rumbo", "rumbo.db"), nil
+		return filepath.Join(data, "rumbo"), nil
 	}
 
 	home, err := os.UserHomeDir()
@@ -46,37 +65,29 @@ func DatabasePath() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(home, ".local", "share", "rumbo", "rumbo.db"), nil
+	return filepath.Join(home, ".local", "share", "rumbo"), nil
 }
 
-// openStore opens the database, registers the built-in programs, and
-// carries over what an earlier version stored.
+// openStore opens the files rumbo keeps: what the user chose, and the
+// sessions.
 func openStore() (store.Store, error) {
-	path, err := DatabasePath()
+	chosen, err := ConfigPath()
 
 	if err != nil {
 		return nil, err
 	}
 
-	database, err := store.Open(path)
+	data, err := DataDir()
 
 	if err != nil {
 		return nil, err
 	}
 
-	if err := seedBuiltins(database); err != nil {
-		return nil, err
-	}
-
-	if err := upgradeSettings(database); err != nil {
-		return nil, err
-	}
-
-	return database, nil
+	return store.Open(chosen, data), nil
 }
 
 // workingProject returns the current directory and the root of the project
-// it is part of. Project settings and sessions are kept by root.
+// it is part of. Sessions are kept by root.
 func workingProject() (dir, root string, err error) {
 	dir, err = os.Getwd()
 
@@ -89,9 +100,14 @@ func workingProject() (dir, root string, err error) {
 
 // loadConfig resolves the system settings rumbo starts with. A malformed
 // one is an error; nothing is guessed. Those that runs read later are
-// checked too, so a malformed one stops rumbo before a front end starts.
+// checked too, and so is every name written in the file, so a malformed or
+// misspelled one stops rumbo before a front end starts.
 func loadConfig(settings store.Store, frontendFlag string) (config, error) {
 	loaded := config{Frontend: frontendFlag}
+
+	if err := checkStored(settings); err != nil {
+		return loaded, err
+	}
 
 	for key, into := range map[string]*string{keyDefaultProvider: &loaded.DefaultProvider, keyDefaultModel: &loaded.DefaultModel} {
 		chosen, err := effectiveSetting(settings, key)
@@ -125,18 +141,6 @@ func loadConfig(settings store.Store, frontendFlag string) (config, error) {
 	}
 
 	return loaded, nil
-}
-
-// optionsInForce are the option values a run of provider gets: those stored
-// for the provider, with the ones chosen in the session over them.
-func optionsInForce(database store.Store, provider string, session json.RawMessage) (json.RawMessage, error) {
-	stored, err := storedOptions(database, provider)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return mergeOptions(stored, session)
 }
 
 // loadLimits resolves the system settings a run reads when it starts.

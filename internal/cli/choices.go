@@ -13,7 +13,7 @@ import (
 // What a provider can be given is known only to the provider: its models,
 // and the values its options take. These functions ask it, so a front end
 // can offer them as choices for the functions that take them: use for a
-// model, and session-options and provider-options for a name=value change.
+// model, and session-options and provider-config for a name=value change.
 
 // providerModels lists the models a provider offers: the one named, or the
 // current session's, with the one this session uses marked.
@@ -54,25 +54,27 @@ func (h *host) providerModels(ctx context.Context, params map[string]string) (pr
 }
 
 // optionValues lists the changes the options of a provider can take, as
-// name=value: the one named, with the values stored for it marked, or the
-// current session's, with the values in force in it marked. The empty value
-// of each option comes first, which removes what was chosen.
+// name=value: the one named, with the values its configuration gives them
+// marked, or the current session's, with the values in force in it marked.
+// The empty value of each option comes first, which removes what was chosen.
 func (h *host) optionValues(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
 	chosen := h.current.choice
 	h.mu.Unlock()
 
-	name := params["provider"]
-
-	var current json.RawMessage
-	var err error
-
-	if name == "" {
-		name = chosen.provider
-		current, err = h.inForce(chosen)
-	} else {
-		current, err = storedOptions(h.database, name)
+	// A provider that is named is asked with nothing chosen in a session.
+	if named := params["provider"]; named != "" {
+		chosen = choice{provider: named}
 	}
+
+	name := chosen.provider
+	described, pool, err := h.offers(ctx, name)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	current, err := h.inForce(chosen, described)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -81,12 +83,6 @@ func (h *host) optionValues(ctx context.Context, params map[string]string) (prot
 	var inForce map[string]json.RawMessage
 
 	_ = json.Unmarshal(current, &inForce)
-
-	described, pool, err := h.offers(ctx, name)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
 
 	var values []protocol.Value
 

@@ -116,7 +116,7 @@ func (h *Handler) Initialize(_ context.Context, params protocol.InitializeParams
 	h.client = sdk.NewClient(options...)
 	h.environment = fromEnvironment()
 
-	// Every field is said, given or not, so the host can keep each with
+	// Every field is said, given or not, so a person can see each with
 	// its value. An empty one is left to the SDK and the model.
 	config, _ := json.Marshal(h.config)
 
