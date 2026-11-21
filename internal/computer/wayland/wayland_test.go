@@ -42,7 +42,17 @@ var offered = []Global{
 func fakeCompositor(t *testing.T) *compositor {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "wayland-test")
+	// A socket's path is short: 103 bytes on macOS, where t.TempDir's path
+	// is longer than that by itself.
+	dir, err := os.MkdirTemp("", "wl")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { os.RemoveAll(dir) })
+
+	path := filepath.Join(dir, "w")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 
 	if err != nil {
