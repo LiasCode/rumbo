@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.7.0 (2026-11-21)
+
 The model can look at images and use your screen. `read` shows it an image
 file, and the computer tool, which you turn on, lets it take screenshots and
 use the pointer and the keyboard, for the programs a shell cannot drive.
