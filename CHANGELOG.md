@@ -5,6 +5,16 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Images in what you ask
+
+- A front end can give images with a task or a steer, in the new `images`
+  field of `run` and `steer`, and a session's history gives them back with
+  what was asked. They are made smaller when they are large, kept in the
+  session, and come back with the summary when the conversation is
+  compacted.
+- Every built-in provider sends them: Anthropic's API, ChatGPT, and both of
+  OpenAI's APIs.
+
 ### Fixes
 
 - The computer tool no longer ends a program made with GPUI, such as

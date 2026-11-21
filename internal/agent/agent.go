@@ -40,8 +40,9 @@ type Observer interface {
 // before every request, so what was said reaches the model at its next turn.
 type Inbox interface {
 	// Take passes what was said since the last call to record, in order,
-	// and stops at the first error, which it returns.
-	Take(record func(text string) error) error
+	// each text with the images given with it, and stops at the first
+	// error, which it returns.
+	Take(record func(text string, images []protocol.Image) error) error
 }
 
 // DefaultRetryWaits are the pauses before each retry of a request that
@@ -101,17 +102,18 @@ type Agent struct {
 	RetryWaits []time.Duration
 }
 
-// Run works on objective in the given session until the model stops, a
-// limit is reached, or ctx is cancelled.
-func (a *Agent) Run(ctx context.Context, session store.Session, objective string) error {
+// Run works on objective, and the images given with it, in the given
+// session until the model stops, a limit is reached, or ctx is cancelled.
+func (a *Agent) Run(ctx context.Context, session store.Session, objective string, images ...protocol.Image) error {
+	given := transcript.Text{Text: objective, Images: images}
 	err := a.prepare(ctx, session)
 
 	if err == nil {
-		err = a.append(session, transcript.KindUser, transcript.Text{Text: objective})
+		err = a.append(session, transcript.KindUser, given)
 	}
 
 	if err == nil {
-		err = a.loop(ctx, session, objective)
+		err = a.loop(ctx, session, given)
 	}
 
 	return a.finish(ctx, session, err)
@@ -137,7 +139,7 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 	}
 
 	if err == nil {
-		err = a.loop(ctx, session, state.Objective)
+		err = a.loop(ctx, session, transcript.Text{Text: state.Objective, Images: state.ObjectiveImages})
 	}
 
 	return a.finish(ctx, session, err)
@@ -145,11 +147,11 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 
 // loop asks the model and runs its tool calls until it stops calling them,
 // which is how the model says the work is done.
-func (a *Agent) loop(ctx context.Context, session store.Session, objective string) error {
+func (a *Agent) loop(ctx context.Context, session store.Session, objective transcript.Text) error {
 	cuts := 0
 	shed := false
 	// said is what the user told the run since the model last answered.
-	var said []string
+	var said []transcript.Text
 
 	for turns := 1; ; turns++ {
 		if a.MaxTurns > 0 && turns > a.MaxTurns {
@@ -231,19 +233,21 @@ func (a *Agent) loop(ctx context.Context, session store.Session, objective strin
 
 // listen records what the user told the run since the loop last looked, so
 // the model reads it in its next request, and returns it.
-func (a *Agent) listen(session store.Session) ([]string, error) {
+func (a *Agent) listen(session store.Session) ([]transcript.Text, error) {
 	if a.Inbox == nil {
 		return nil, nil
 	}
 
-	var heard []string
+	var heard []transcript.Text
 
-	err := a.Inbox.Take(func(text string) error {
-		if err := a.append(session, transcript.KindSteer, transcript.Text{Text: text}); err != nil {
+	err := a.Inbox.Take(func(text string, images []protocol.Image) error {
+		told := transcript.Text{Text: text, Images: images}
+
+		if err := a.append(session, transcript.KindSteer, told); err != nil {
 			return err
 		}
 
-		heard = append(heard, text)
+		heard = append(heard, told)
 
 		return nil
 	})
@@ -318,12 +322,14 @@ func (a *Agent) Compact(ctx context.Context, session store.Session) (int64, erro
 		return 0, errors.New("there is no conversation to compact yet")
 	}
 
-	return state.Tokens, a.summarize(ctx, session, state, state.Messages, state.Objective, "")
+	objective := transcript.Text{Text: state.Objective, Images: state.ObjectiveImages}
+
+	return state.Tokens, a.summarize(ctx, session, state, state.Messages, objective, "")
 }
 
 // compact replaces the conversation with a summary once the context has
 // grown to the limit.
-func (a *Agent) compact(ctx context.Context, session store.Session, objective string) error {
+func (a *Agent) compact(ctx context.Context, session store.Session, objective transcript.Text) error {
 	state, err := a.state(session)
 
 	if err != nil {
@@ -345,7 +351,7 @@ func (a *Agent) compact(ctx context.Context, session store.Session, objective st
 // last step is what tipped it over, so the conversation is summarized without
 // it, and the model is told that step was lost. What the user said during
 // that step is not lost with it: said is recorded again after the summary.
-func (a *Agent) shed(ctx context.Context, session store.Session, objective string, said []string) error {
+func (a *Agent) shed(ctx context.Context, session store.Session, objective transcript.Text, said []transcript.Text) error {
 	state, err := a.state(session)
 
 	if err != nil {
@@ -365,8 +371,8 @@ func (a *Agent) shed(ctx context.Context, session store.Session, objective strin
 		return err
 	}
 
-	for _, text := range said {
-		if err := a.append(session, transcript.KindSteer, transcript.Text{Text: text}); err != nil {
+	for _, told := range said {
+		if err := a.append(session, transcript.KindSteer, told); err != nil {
 			return err
 		}
 	}
@@ -377,7 +383,7 @@ func (a *Agent) shed(ctx context.Context, session store.Session, objective strin
 // summarize asks the model for a summary of the conversation, as one more
 // request on the same prefix, and records the compaction the next request
 // starts from.
-func (a *Agent) summarize(ctx context.Context, session store.Session, state transcript.State, conversation []protocol.Message, objective, note string) error {
+func (a *Agent) summarize(ctx context.Context, session store.Session, state transcript.State, conversation []protocol.Message, objective transcript.Text, note string) error {
 	// The summary is not an answer to the user, so it is not shown as text.
 	params := a.params(state, summaryRequest(conversation, summarize))
 	result, took, err := a.complete(ctx, session, params, func(string) {})
@@ -397,7 +403,8 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 
 	return a.append(session, transcript.KindCompaction, transcript.Compaction{
 		Prompt:   summarize,
-		Text:     fmt.Sprintf(compacted, summary, objective) + note,
+		Text:     fmt.Sprintf(compacted, summary, objective.Text) + note,
+		Images:   objective.Images,
 		Usage:    result.Usage,
 		Provider: a.ProviderName,
 		Model:    a.Model,

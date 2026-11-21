@@ -1,7 +1,7 @@
 # Glossary
 
-**Objective.** What the user asks for in one message. A run works on one
-objective.
+**Objective.** What the user asks for in one message, in words, and the
+images given with them. A run works on one objective.
 
 **Run.** The work from an objective until the model stops calling tools, or
 the run fails or is cancelled. A session holds one or more runs.

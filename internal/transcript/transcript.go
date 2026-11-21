@@ -56,9 +56,11 @@ type Context struct {
 
 // Text is the payload of user, steer, and harness entries. A user entry is
 // an objective; a steer is what the user said to a run while it worked,
-// which leaves the objective as it was.
+// which leaves the objective as it was. Images are those the user gave with
+// it, prepared for the model.
 type Text struct {
-	Text string `json:"text"`
+	Text   string           `json:"text"`
+	Images []protocol.Image `json:"images,omitempty"`
 }
 
 // Assistant is a model response and where it came from.
@@ -112,12 +114,15 @@ type Note struct {
 // holds a summary of that conversation. Prompt is the instruction that
 // produced the summary, kept so the request can be reproduced.
 type Compaction struct {
-	Prompt   string          `json:"prompt"`
-	Text     string          `json:"text"`
-	Usage    protocol.Usage  `json:"usage"`
-	Provider string          `json:"provider"`
-	Model    string          `json:"model"`
-	Options  json.RawMessage `json:"options,omitempty"`
+	Prompt string `json:"prompt"`
+	Text   string `json:"text"`
+	// Images are those the objective came with, shown again with the
+	// summary, which has only words for them.
+	Images   []protocol.Image `json:"images,omitempty"`
+	Usage    protocol.Usage   `json:"usage"`
+	Provider string           `json:"provider"`
+	Model    string           `json:"model"`
+	Options  json.RawMessage  `json:"options,omitempty"`
 	Sent
 }
 
@@ -131,8 +136,10 @@ type State struct {
 	System   System
 	Messages []protocol.Message
 	Sections map[string]string
-	// Objective is the one the last run worked on.
-	Objective string
+	// Objective is the one the last run worked on, and ObjectiveImages the
+	// images it came with.
+	Objective       string
+	ObjectiveImages []protocol.Image
 	// Unfinished is true when the last run did not end with a done note, so
 	// it can be resumed.
 	Unfinished bool
@@ -227,7 +234,7 @@ func (b *builder) add(entry store.Entry) error {
 			b.user(protocol.Block{Type: protocol.BlockText, Text: RenderContext(Context{Sections: current})})
 		}
 
-		b.user(protocol.Block{Type: protocol.BlockText, Text: compaction.Text})
+		b.user(protocol.Block{Type: protocol.BlockText, Text: compaction.Text, Images: compaction.Images})
 
 	case KindContext:
 		var context Context
@@ -262,12 +269,12 @@ func (b *builder) add(entry store.Entry) error {
 		}
 
 		if entry.Kind == KindUser {
-			b.state.Objective = text.Text
+			b.state.Objective, b.state.ObjectiveImages = text.Text, text.Images
 			b.state.Unfinished = true
 		}
 
 		b.closePending()
-		b.user(protocol.Block{Type: protocol.BlockText, Text: text.Text})
+		b.user(protocol.Block{Type: protocol.BlockText, Text: text.Text, Images: text.Images})
 
 	case KindAssistant:
 		var assistant Assistant

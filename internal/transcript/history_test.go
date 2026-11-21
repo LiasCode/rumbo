@@ -146,3 +146,22 @@ func TestHistoryTellsCacheMissesAfterANewSystemPrompt(t *testing.T) {
 		t.Fatalf("told %q, cache %+v", told, state.Cache)
 	}
 }
+
+// The history tells what a person asked with the images they gave, so a
+// front end shows them where they were given.
+func TestHistoryTellsTheImagesAPersonGave(t *testing.T) {
+	image := protocol.Image{MediaType: "image/png", Data: []byte("png")}
+
+	events, err := History([]store.Entry{
+		entry(1, KindUser, Text{Text: "what is this?", Images: []protocol.Image{image}}),
+		entry(2, KindSteer, Text{Images: []protocol.Image{image, image}}),
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(events) < 2 || events[0].Type != protocol.EventObjective || len(events[0].Images) != 1 || events[1].Type != protocol.EventSteer || len(events[1].Images) != 2 {
+		t.Fatalf("events = %+v", events)
+	}
+}

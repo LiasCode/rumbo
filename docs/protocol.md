@@ -268,10 +268,14 @@ A message's `content` is a list of blocks.
 
 | `type` | Fields | Appears in |
 |---|---|---|
-| `text` | `text` | both roles |
+| `text` | `text`, and `images` in a user message | both roles |
 | `tool_call` | `id`, `name`, `args` (JSON) | assistant |
 | `tool_result` | `id` (of the call), `text`, `is_error`, `images` | user |
 | `opaque` | `data` (any JSON) | assistant |
+
+**`text`.** In a user message, `images` are pictures the person gave with
+what they said, such as a pasted screenshot, in the form a tool's result
+uses below; the text may then be empty. They go to the model with the text.
 
 **`tool_call`.** `args` should be the JSON object the model produced. If the
 model produced something that is not valid JSON, send it as a JSON string: the

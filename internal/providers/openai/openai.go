@@ -491,12 +491,16 @@ func messages(message protocol.Message) []chatMessage {
 	var results []chatMessage
 	var texts []string
 	var calls []toolCall
-	var shown []chatPart
+	var shown, given []chatPart
 
 	for _, block := range message.Content {
 		switch block.Type {
 		case protocol.BlockText:
 			texts = append(texts, block.Text)
+
+			for _, image := range block.Images {
+				given = append(given, chatPart{Type: "image_url", ImageURL: &imageURL{URL: dataURL(image)}})
+			}
 
 		case protocol.BlockToolResult:
 			results = append(results, chatMessage{Role: "tool", ToolCallID: block.ID, Content: block.Text})
@@ -506,8 +510,7 @@ func messages(message protocol.Message) []chatMessage {
 			}
 
 			for _, image := range block.Images {
-				url := "data:" + image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(image.Data)
-				shown = append(shown, chatPart{Type: "image_url", ImageURL: &imageURL{URL: url}})
+				shown = append(shown, chatPart{Type: "image_url", ImageURL: &imageURL{URL: dataURL(image)}})
 			}
 
 		case protocol.BlockToolCall:
@@ -528,11 +531,22 @@ func messages(message protocol.Message) []chatMessage {
 		results = append(results, chatMessage{Role: "user", Content: shown})
 	}
 
-	if text != "" {
+	// The images a person gave come before their words.
+	switch {
+	case len(given) > 0 && text != "":
+		results = append(results, chatMessage{Role: "user", Content: append(given, chatPart{Type: "text", Text: text})})
+	case len(given) > 0:
+		results = append(results, chatMessage{Role: "user", Content: given})
+	case text != "":
 		results = append(results, chatMessage{Role: "user", Content: text})
 	}
 
 	return results
+}
+
+// dataURL is an image as the OpenAI APIs take one inline.
+func dataURL(image protocol.Image) string {
+	return "data:" + image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(image.Data)
 }
 
 // collect reads the server-sent events of a streamed completion into the

@@ -39,11 +39,9 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 ### Images
 
-59. **A person cannot give the model an image.** An objective and a steer
-    are text (`RunParams`, `SteerParams`); only a tool's result shows the
-    model images. The model can still `read` an image whose path it is told.
-60. **Front ends do not see the images.** A tool's events carry its text,
-    so a person following a run is not shown the screenshots the model is.
+60. **Front ends do not see a tool's images.** A tool's events carry its
+    text, so a person following a run is not shown the screenshots the
+    model is; the images a person gave are in the history.
 
 ### Provider options
 

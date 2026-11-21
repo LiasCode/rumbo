@@ -695,13 +695,13 @@ type told struct {
 	said  map[int][]string
 }
 
-func (t *told) Take(record func(string) error) error {
+func (t *told) Take(record func(string, []protocol.Image) error) error {
 	asked := len(t.model.requests)
 	texts := t.said[asked]
 	delete(t.said, asked)
 
 	for _, text := range texts {
-		if err := record(text); err != nil {
+		if err := record(text, nil); err != nil {
 			return err
 		}
 	}
@@ -811,7 +811,7 @@ type script struct {
 	at    map[int]func(record func(string) error) error
 }
 
-func (s *script) Take(record func(string) error) error {
+func (s *script) Take(record func(string, []protocol.Image) error) error {
 	asked := len(s.model.requests)
 	act := s.at[asked]
 	delete(s.at, asked)
@@ -820,7 +820,7 @@ func (s *script) Take(record func(string) error) error {
 		return nil
 	}
 
-	return act(record)
+	return act(func(text string) error { return record(text, nil) })
 }
 
 // changing is a collector whose section is whatever version says.
@@ -1024,5 +1024,73 @@ func TestACacheMissIsTold(t *testing.T) {
 
 	if !slices.Equal(told, want) {
 		t.Fatalf("the history told %q, want %q", told, want)
+	}
+}
+
+// gives is an Inbox that tells the run images once the model has received
+// a given number of requests.
+type gives struct {
+	model  *scripted
+	at     int
+	images []protocol.Image
+}
+
+func (g *gives) Take(record func(string, []protocol.Image) error) error {
+	if len(g.model.requests) != g.at || g.images == nil {
+		return nil
+	}
+
+	images := g.images
+	g.images = nil
+
+	return record("", images)
+}
+
+// What a person gives with an objective, or tells a run, reaches the model
+// with it, and the objective's images come back after a compaction, which
+// has only words for them.
+func TestImagesReachTheModelAndOutliveACompaction(t *testing.T) {
+	mockup := protocol.Image{MediaType: "image/png", Data: []byte("mockup")}
+	crop := protocol.Image{MediaType: "image/png", Data: []byte("crop")}
+	model := &scripted{
+		usage: protocol.Usage{Input: 120, Output: 10},
+		answers: []protocol.Message{
+			say(write("call-1", "a.txt", "one")),
+			say(text("<summary>Started on the mockup.</summary>")),
+			say(text("Done.")),
+		},
+	}
+
+	worker, _, session, _ := setup(t, model)
+	worker.Compaction = Compaction{Tokens: 100}
+	worker.Inbox = &gives{model: model, at: 1, images: []protocol.Image{crop}}
+
+	if err := worker.Run(context.Background(), session, "build this", mockup); err != nil {
+		t.Fatal(err)
+	}
+
+	first := model.requests[0].Messages[0].Content
+	given := first[len(first)-1]
+
+	if given.Text != "build this" || len(given.Images) != 1 || string(given.Images[0].Data) != "mockup" {
+		t.Fatalf("the first request ends with %+v", given)
+	}
+
+	// The steer is recorded before the compaction, so the summary request
+	// carries it; the request after starts from the summary alone.
+	asked := model.requests[1].Messages
+	steered := asked[len(asked)-1].Content
+
+	if !slices.ContainsFunc(steered, func(block protocol.Block) bool {
+		return len(block.Images) == 1 && string(block.Images[0].Data) == "crop"
+	}) {
+		t.Fatalf("the summary request does not show the steer's image: %+v", steered)
+	}
+
+	after := model.requests[2].Messages[0].Content
+	summary := after[len(after)-1]
+
+	if !strings.Contains(summary.Text, "build this") || len(summary.Images) != 1 || string(summary.Images[0].Data) != "mockup" {
+		t.Fatalf("after the compaction the model saw %+v", summary)
 	}
 }

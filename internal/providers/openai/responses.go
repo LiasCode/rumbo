@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -94,9 +93,11 @@ type responsesTool struct {
 
 // inputItem is a message, a function call, or a function call's output.
 type inputItem struct {
-	Type      string `json:"type"`
-	Role      string `json:"role,omitempty"`
-	Content   string `json:"content,omitempty"`
+	Type string `json:"type"`
+	Role string `json:"role,omitempty"`
+	// Content is the text of a message, or a list of its parts when it
+	// shows images.
+	Content   any    `json:"content,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
@@ -105,8 +106,9 @@ type inputItem struct {
 	Output any `json:"output,omitempty"`
 }
 
-// outputPart is one part of a tool's result that shows images.
-type outputPart struct {
+// inputPart is one part of a message, or of a tool's result, that shows
+// images.
+type inputPart struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
@@ -119,11 +121,30 @@ func toolOutput(block protocol.Block) any {
 		return block.Text
 	}
 
-	parts := []outputPart{{Type: "input_text", Text: block.Text}}
+	parts := []inputPart{{Type: "input_text", Text: block.Text}}
 
 	for _, image := range block.Images {
-		url := "data:" + image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(image.Data)
-		parts = append(parts, outputPart{Type: "input_image", ImageURL: url})
+		parts = append(parts, inputPart{Type: "input_image", ImageURL: dataURL(image)})
+	}
+
+	return parts
+}
+
+// messageContent is what a message's text sends: the text alone, or the
+// images a person gave and then their words, when there are any.
+func messageContent(block protocol.Block) any {
+	if len(block.Images) == 0 {
+		return block.Text
+	}
+
+	var parts []inputPart
+
+	for _, image := range block.Images {
+		parts = append(parts, inputPart{Type: "input_image", ImageURL: dataURL(image)})
+	}
+
+	if block.Text != "" {
+		parts = append(parts, inputPart{Type: "input_text", Text: block.Text})
 	}
 
 	return parts
@@ -255,7 +276,7 @@ func inputItems(message protocol.Message, model string) []any {
 	for index, block := range message.Content {
 		switch block.Type {
 		case protocol.BlockText:
-			items = append(items, inputItem{Type: "message", Role: message.Role, Content: block.Text})
+			items = append(items, inputItem{Type: "message", Role: message.Role, Content: messageContent(block)})
 
 		case protocol.BlockToolCall:
 			items = append(items, inputItem{Type: "function_call", CallID: block.ID, Name: block.Name, Arguments: string(block.Args)})

@@ -27,11 +27,12 @@ type Run struct {
 	listening bool
 }
 
-// steer is something the front end told a run, and the request to answer
-// once it is recorded.
+// steer is something the front end told a run, with the images given with
+// it, and the request to answer once it is recorded.
 type steer struct {
-	id   *int64
-	text string
+	id     *int64
+	text   string
+	images []protocol.Image
 }
 
 // Report returns a Run for work on session that no run request asked for,
@@ -50,16 +51,16 @@ func (r *Run) Attach(session string) {
 	r.session = session
 }
 
-// Take implements agent.Inbox. Each steer is answered once its text is
-// recorded, so the front end knows it reached the model.
-func (r *Run) Take(record func(text string) error) error {
+// Take implements agent.Inbox. Each steer is answered once it is recorded,
+// so the front end knows it reached the model.
+func (r *Run) Take(record func(text string, images []protocol.Image) error) error {
 	r.mu.Lock()
 	taken := r.steers
 	r.steers = nil
 	r.mu.Unlock()
 
 	for index, steer := range taken {
-		if err := record(steer.text); err != nil {
+		if err := record(steer.text, steer.images); err != nil {
 			// The run fails on this error, so the rest will not be recorded.
 			for _, left := range taken[index:] {
 				r.conn.fail(left.id, protocol.CodeInternal, err.Error())
@@ -75,12 +76,12 @@ func (r *Run) Take(record func(text string) error) error {
 }
 
 // hold keeps what the front end told the run until the loop takes it.
-func (r *Run) hold(id *int64, text string) {
+func (r *Run) hold(id *int64, text string, images []protocol.Image) {
 	r.mu.Lock()
 	listening := r.listening
 
 	if listening {
-		r.steers = append(r.steers, steer{id: id, text: text})
+		r.steers = append(r.steers, steer{id: id, text: text, images: images})
 	}
 
 	r.mu.Unlock()

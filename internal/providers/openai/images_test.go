@@ -44,3 +44,33 @@ func TestChatCompletionsShowAToolsImagesAfterIt(t *testing.T) {
 		t.Fatalf("sent %s\nwant %s", sent, want)
 	}
 }
+
+var given = protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{{
+	Type: protocol.BlockText, Text: "what is this?",
+	Images: []protocol.Image{{MediaType: "image/png", Data: []byte("png bytes")}},
+}}}
+
+func TestTheResponsesAPIIsShownAPersonsImages(t *testing.T) {
+	sent, _ := json.Marshal(inputItems(given, "gpt-test"))
+	want := `[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,cG5nIGJ5dGVz"},{"type":"input_text","text":"what is this?"}]}]`
+
+	if string(sent) != want {
+		t.Fatalf("sent %s\nwant %s", sent, want)
+	}
+}
+
+func TestChatCompletionsAreShownAPersonsImages(t *testing.T) {
+	sent, _ := json.Marshal(messages(given))
+	want := `[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5nIGJ5dGVz"}},{"type":"text","text":"what is this?"}]}]`
+
+	if string(sent) != want {
+		t.Fatalf("sent %s\nwant %s", sent, want)
+	}
+
+	alone := given
+	alone.Content = []protocol.Block{{Type: protocol.BlockText, Images: given.Content[0].Images}}
+
+	if sent, _ := json.Marshal(messages(alone)); string(sent) != `[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5nIGJ5dGVz"}}]}]` {
+		t.Fatalf("images alone sent %s", sent)
+	}
+}

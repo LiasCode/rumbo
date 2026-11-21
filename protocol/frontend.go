@@ -100,14 +100,15 @@ type HostState struct {
 	Model    string `json:"model"`
 }
 
-// RunParams starts a run on Objective, or, with Resume, continues the
-// session's last run where it stopped. Session names the session of the
-// project to run in, and New asks for a new one; with neither, the run goes
-// to the current session. A session has one run at a time. Model and
-// Options choose, for this run, what the provider described; what is left
-// out keeps its stored value.
+// RunParams starts a run on Objective, and the Images the person gave with
+// it, or, with Resume, continues the session's last run where it stopped.
+// Session names the session of the project to run in, and New asks for a
+// new one; with neither, the run goes to the current session. A session has
+// one run at a time. Model and Options choose, for this run, what the
+// provider described; what is left out keeps its stored value.
 type RunParams struct {
 	Objective string          `json:"objective,omitempty"`
+	Images    []Image         `json:"images,omitempty"`
 	Resume    bool            `json:"resume,omitempty"`
 	Session   string          `json:"session,omitempty"`
 	New       bool            `json:"new,omitempty"`
@@ -137,8 +138,9 @@ type FrontendAskParams struct {
 // its run request; without one, to the only run in progress. It reaches the
 // model before its next request, and the run's objective stays as it was.
 type SteerParams struct {
-	Text string `json:"text"`
-	Run  int64  `json:"run,omitempty"`
+	Text   string  `json:"text"`
+	Images []Image `json:"images,omitempty"`
+	Run    int64   `json:"run,omitempty"`
 }
 
 // DescribeResult is what the provider in use offers and what is in force.
@@ -176,8 +178,9 @@ type RunResult struct {
 //     provider said.
 //   - log: Text, and Source saying whose line it is: the provider's own
 //     output, or something the host did, such as retrying a request.
-//   - objective: Text, the objective a run was given.
-//   - steer: Text, what the person told a run while it worked.
+//   - objective: Text, the objective a run was given, and the Images given
+//     with it.
+//   - steer: Text, what the person told a run while it worked, and Images.
 //   - ended: Status, how a run ended, as a RunResult says it, and Text,
 //     why a failed run failed.
 //
@@ -198,6 +201,7 @@ type Event struct {
 	Context  int64           `json:"context,omitempty"`
 	Window   int64           `json:"window,omitempty"`
 	Usage    *Usage          `json:"usage,omitempty"`
+	Images   []Image         `json:"images,omitempty"`
 	Status   string          `json:"status,omitempty"`
 }
 
@@ -330,12 +334,12 @@ func (c *FrontendConn) Steer(text string) error {
 	return c.SteerRun(0, text)
 }
 
-// SteerRun tells text to one run, named by the id of its request, which its
-// events carry, and returns like Steer.
-func (c *FrontendConn) SteerRun(run int64, text string) error {
+// SteerRun tells text, and images, to one run, named by the id of its
+// request, which its events carry, and returns like Steer.
+func (c *FrontendConn) SteerRun(run int64, text string, images ...Image) error {
 	var result struct{}
 
-	return c.request(MethodSteer, SteerParams{Text: text, Run: run}, &result, nil)
+	return c.request(MethodSteer, SteerParams{Text: text, Images: images, Run: run}, &result, nil)
 }
 
 // Describe asks what the provider in use offers and what is in force.

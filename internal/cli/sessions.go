@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/LiasCode/rumbo/internal/agent"
 	"github.com/LiasCode/rumbo/internal/ambient"
@@ -169,7 +170,14 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		return id, err
 	}
 
-	session, err := h.made(target, params.Objective)
+	title := params.Objective
+
+	// A task of images alone is named by them.
+	if strings.TrimSpace(title) == "" && len(params.Images) > 0 {
+		title = "[image]"
+	}
+
+	session, err := h.made(target, title)
 
 	if err != nil {
 		return session.ID, err
@@ -182,7 +190,7 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		return session.ID, worker.Resume(ctx, session)
 	}
 
-	return session.ID, worker.Run(ctx, session, params.Objective)
+	return session.ID, worker.Run(ctx, session, params.Objective, params.Images...)
 }
 
 // agent builds the loop for one piece of work in a session, with the

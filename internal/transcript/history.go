@@ -85,7 +85,7 @@ func (h *history) add(entry store.Entry) error {
 			kind = protocol.EventSteer
 		}
 
-		h.tell(protocol.Event{Type: kind, Text: text.Text})
+		h.tell(protocol.Event{Type: kind, Text: text.Text, Images: text.Images})
 
 	case KindAssistant:
 		var assistant Assistant

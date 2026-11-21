@@ -115,6 +115,15 @@ continues the session's last run where it stopped: one that failed, was
 cancelled, or was cut short by the host dying. It is an error when the last
 run finished.
 
+`images` are pictures the person gave with the objective, such as one
+pasted: a list of `{"media_type": "image/png", "data": "<base64>"}`, as in a
+tool's result (see [protocol.md](protocol.md#content-blocks)). They go to
+the model with the objective, and come back with the summary when the
+conversation is compacted. A run of images alone, with no objective, is
+taken too. The host prepares each one for the model, made smaller when it
+is large, and refuses the run when one is not a PNG, JPEG, GIF, or WebP
+image.
+
 Where it runs is the current session, unless the request says otherwise:
 `session` names another session of the project, and `"new": true` starts a
 new one, which keeps the provider of the current session. Neither changes
@@ -297,7 +306,7 @@ Tells a run something while it works: the run whose request had the id
 `run`, or without it the only run in progress. The text reaches the model
 before its next request, as the user's words, and the run's objective stays
 as it was. If the model was about to finish, the run goes on so the model
-reads it.
+reads it. `images` go with the text, or alone, as they do with `run`.
 
 The result, `{}`, arrives once the text is recorded for the model. An error
 means it never will be: the run is not in progress, several are and none was
@@ -324,8 +333,8 @@ selects the other fields:
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |
 | `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for what the host has to say, such as a request it retried or one that missed the provider's cache. |
-| `objective` | `text` | The objective a run was given. Only in a [history](#history-request-front-end-to-host). |
-| `steer` | `text` | What the person told a run while it worked. Only in a history. |
+| `objective` | `text`, `images` | The objective a run was given, and the images given with it. Only in a [history](#history-request-front-end-to-host). |
+| `steer` | `text`, `images` | What the person told a run while it worked. Only in a history. |
 | `ended` | `status`, `text` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. Only in a history. |
 
 A front end ignores event types and fields it does not know. New ones may be

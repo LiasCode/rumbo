@@ -177,3 +177,45 @@ func TestBuildKeepsTheImagesOfAResult(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 }
+
+// What a person gives with their words goes to the model with them, and the
+// objective's images come back with the summary that replaces the
+// conversation, which has only words for them.
+func TestBuildShowsWhatAPersonGave(t *testing.T) {
+	mockup := protocol.Image{MediaType: "image/png", Data: []byte("mockup")}
+	crop := protocol.Image{MediaType: "image/png", Data: []byte("crop")}
+
+	entries := []store.Entry{
+		entry(1, KindUser, Text{Text: "build this", Images: []protocol.Image{mockup}}),
+		entry(2, KindAssistant, Assistant{Message: protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockText, Text: "ok"}}}}),
+		entry(3, KindSteer, Text{Images: []protocol.Image{crop}}),
+	}
+
+	state, err := Build(entries)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first := state.Messages[0].Content[0]; first.Text != "build this" || len(first.Images) != 1 || string(first.Images[0].Data) != "mockup" {
+		t.Fatalf("objective = %+v", first)
+	}
+
+	if steer := state.Messages[2].Content[0]; steer.Text != "" || len(steer.Images) != 1 || string(steer.Images[0].Data) != "crop" {
+		t.Fatalf("steer = %+v", steer)
+	}
+
+	if state.Objective != "build this" || len(state.ObjectiveImages) != 1 {
+		t.Fatalf("objective %q with %d image(s)", state.Objective, len(state.ObjectiveImages))
+	}
+
+	entries = append(entries, entry(4, KindCompaction, Compaction{Text: "summary", Images: []protocol.Image{mockup}}))
+
+	if state, err = Build(entries); err != nil {
+		t.Fatal(err)
+	}
+
+	if summary := state.Messages[0].Content[0]; summary.Text != "summary" || len(summary.Images) != 1 || string(summary.Images[0].Data) != "mockup" {
+		t.Fatalf("after the compaction = %+v", summary)
+	}
+}
