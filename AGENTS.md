@@ -141,9 +141,15 @@ Ctrl-C, quit, and the shell being usable afterwards.
 
 The computer tool is tested against a fake screen, and its Wayland client
 against a fake compositor. After changing `internal/computer`, also try it
-on a real desktop, driven by a provider that only follows a script, never a
-model: give what it acts on a monitor of its own (on Hyprland, a headless
-output far from the person's monitors), open the test window there and
-check that it is there, since a program can ignore where it was asked to
-open, and stop at the first screenshot of any other monitor. The tool acts
-on whatever has the focus, which may be what the person is doing.
+on a real desktop, driven by a provider that follows a script, and see what
+reached a test page that records its events. A Sway started with
+`WLR_BACKENDS=headless` shows nothing on the person's desktop, and a rootful
+`Xwayland :N` gives X11 a server of its own; neither can touch what the
+person is doing. On the person's Hyprland, the tool acts on whatever has the
+focus, and its pointer is theirs too: give what it acts on a headless output
+far from their monitors, check that the test window opened there, since a
+program can ignore where it was asked to open, and stop at the first
+screenshot of any other monitor. A refusal because the pointer moved is
+the person using their mouse, which is what it is for. In a browser,
+Shift-click after a click elsewhere selects from there, and what is typed
+next is dropped: click plainly before typing.

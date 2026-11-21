@@ -28,13 +28,23 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 58. **Old tool results stay in the context until a compaction.** A result
     read once is paid for on every later request. Dropping old ones needs the
     provider's help, because editing earlier turns invalidates the reasoning
-    blocks that came after.
+    blocks that came after. Screenshots make it costlier: each is about 1,400
+    tokens on every request after it.
 
 ### Tools
 
 48. **Background processes end with the host.** A process started with
     `background` is stopped when rumbo exits, so it does not survive between
     one-shot runs.
+
+### Images
+
+59. **A person cannot give the model an image.** An objective and a steer
+    are text (`RunParams`, `SteerParams`); only a tool's result shows the
+    model images. The model can still `read` an image whose path it is told.
+60. **Front ends do not see the images.** A tool's events carry its text,
+    so a person following a run is not shown the screenshots the model is.
+
 ### Provider options
 
 52. **Host functions take only text.** Their parameters are an object of
@@ -61,3 +71,5 @@ The owner decided what this covers: these, in this order.
 ## 4. Quality
 
 39. **Windows.** Not supported.
+61. **The computer tool on macOS** is written, and has not been run on a
+    Mac.

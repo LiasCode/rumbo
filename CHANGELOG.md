@@ -5,6 +5,11 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+The model can look at images and use your screen. `read` shows it an image
+file, and the computer tool, which you turn on, lets it take screenshots and
+use the pointer and the keyboard, for the programs a shell cannot drive.
+Every built-in provider sends the model the images a tool shows.
+
 ### Tools
 
 - `read` shows the model an image file, PNG, JPEG, GIF, or WebP, made
@@ -12,10 +17,11 @@ it. The commits hold the reasons.
 - **The computer tool**, off unless you turn it on with `rumbo system set
   computer=on`: the model takes screenshots of your desktop and uses its
   pointer and keyboard, for programs a shell cannot drive. It works on
-  wlroots compositors such as Hyprland and Sway, with `grim` installed; in
-  X11 sessions, with `xdotool` and `maim` or ImageMagick; and on macOS,
-  once you allow the program that runs rumbo under Screen Recording and
-  Accessibility. It shows the monitor in use, and does nothing more once
+  wlroots compositors such as Hyprland and Sway, with `grim` installed, and
+  in X11 sessions, with `xdotool` and `maim` or ImageMagick. It is written
+  for macOS too, which has not been tried yet: there, allow the program
+  that runs rumbo under Screen Recording, Accessibility, and Automation of
+  System Events. It shows the monitor in use, and does nothing more once
   you move the pointer yourself or turn to another monitor, until the model
   takes a new screenshot.
 - Images are kept in the session and sent again with every later request,
