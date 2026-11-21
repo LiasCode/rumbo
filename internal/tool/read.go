@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/LiasCode/rumbo/internal/picture"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -53,8 +54,8 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (Result, 
 		return Result{}, err
 	}
 
-	if kind := imageType(raw); kind != "" {
-		shown, about, err := showImage(raw, kind)
+	if kind := picture.Kind(raw); kind != "" {
+		shown, about, err := picture.Prepare(raw, kind)
 
 		if err != nil {
 			return Result{}, fmt.Errorf("%s: %w", input.Path, err)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LiasCode/rumbo/internal/computer"
+	"github.com/LiasCode/rumbo/internal/picture"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -417,8 +418,8 @@ func (d *display) screenshot(ctx context.Context, did string) (Result, error) {
 	}
 
 	bounds := shot.Image.Bounds()
-	width, height := fitSize(bounds.Dx(), bounds.Dy(), screenWidth, screenHeight, 0)
-	shown, err := encodePNG(scale(shot.Image, width, height))
+	width, height := picture.Fit(bounds.Dx(), bounds.Dy(), screenWidth, screenHeight, 0)
+	shown, err := picture.PNG(picture.Scale(shot.Image, width, height))
 
 	if err != nil {
 		return Result{}, err
@@ -477,8 +478,8 @@ func (d *display) zoom(ctx context.Context, region []int) (Result, error) {
 	}
 
 	cut := part.SubImage(crop)
-	width, height := fitSize(crop.Dx(), crop.Dy(), screenWidth, screenHeight, 0)
-	shown, err := encodePNG(scale(cut, width, height))
+	width, height := picture.Fit(crop.Dx(), crop.Dy(), screenWidth, screenHeight, 0)
+	shown, err := picture.PNG(picture.Scale(cut, width, height))
 
 	if err != nil {
 		return Result{}, err

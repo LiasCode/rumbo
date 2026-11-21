@@ -1,4 +1,7 @@
-package tool
+// Package picture prepares the images a model is shown: those a tool shows,
+// and those a person gives with what they say. Every model API reads what
+// it returns, at a size a model sees whole.
+package picture
 
 import (
 	"bytes"
@@ -18,18 +21,18 @@ import (
 // proportion to its area, and resize anything larger than about this
 // themselves, so a larger one costs the same and only travels further.
 const (
-	// maxImageSide bounds the longer side of an image read from a file.
-	maxImageSide = 1568
-	// maxImagePixels bounds its area.
-	maxImagePixels = 1_150_000
-	// maxImageBytes is the largest file sent as it is: model APIs take
-	// about 5 MB of base64 per image.
-	maxImageBytes = 3_750_000
+	// MaxSide bounds the longer side of an image Prepare returns.
+	MaxSide = 1568
+	// MaxPixels bounds its area.
+	MaxPixels = 1_150_000
+	// maxBytes is the largest file sent as it is: model APIs take about 5
+	// MB of base64 per image.
+	maxBytes = 3_750_000
 )
 
-// imageType returns the media type of data when it is an image a model can
-// be shown, and "" otherwise.
-func imageType(data []byte) string {
+// Kind returns the media type of data when it is an image a model can be
+// shown, and "" otherwise.
+func Kind(data []byte) string {
 	switch kind := http.DetectContentType(data); kind {
 	case "image/png", "image/jpeg", "image/gif", "image/webp":
 		return kind
@@ -38,14 +41,15 @@ func imageType(data []byte) string {
 	return ""
 }
 
-// showImage prepares the image in data for the model: as it is when it is
-// small enough, and otherwise smaller, as a PNG. It returns the image and
-// what to tell of it.
-func showImage(data []byte, kind string) (protocol.Image, string, error) {
+// Prepare prepares the image in data, of the media type Kind says, for the
+// model: as it is when it is small enough and every model API reads it, and
+// otherwise as a PNG, smaller when it is large. It returns the image and
+// what to tell of it, such as "png, 3000×1500, shown at 1568×784".
+func Prepare(data []byte, kind string) (protocol.Image, string, error) {
 	// WebP has no decoder in Go's standard library, so it goes as it is.
 	if kind == "image/webp" {
-		if len(data) > maxImageBytes {
-			return protocol.Image{}, "", fmt.Errorf("the image is %d bytes, more than the %d a model is shown; convert it to a smaller PNG or JPEG with bash", len(data), maxImageBytes)
+		if len(data) > maxBytes {
+			return protocol.Image{}, "", fmt.Errorf("the image is %d bytes, more than the %d a model is shown; convert it to a smaller PNG or JPEG", len(data), maxBytes)
 		}
 
 		return protocol.Image{MediaType: kind, Data: data}, "webp", nil
@@ -57,10 +61,10 @@ func showImage(data []byte, kind string) (protocol.Image, string, error) {
 		return protocol.Image{}, "", fmt.Errorf("the image cannot be decoded: %w", err)
 	}
 
-	width, height := fitSize(config.Width, config.Height, maxImageSide, maxImageSide, maxImagePixels)
+	width, height := Fit(config.Width, config.Height, MaxSide, MaxSide, MaxPixels)
 	format := kind[len("image/"):]
 
-	if width == config.Width && height == config.Height && len(data) <= maxImageBytes && readable(data, kind) {
+	if width == config.Width && height == config.Height && len(data) <= maxBytes && readable(data, kind) {
 		return protocol.Image{MediaType: kind, Data: data}, fmt.Sprintf("%s, %d×%d", format, width, height), nil
 	}
 
@@ -70,7 +74,7 @@ func showImage(data []byte, kind string) (protocol.Image, string, error) {
 		return protocol.Image{}, "", fmt.Errorf("the image cannot be decoded: %w", err)
 	}
 
-	shown, err := encodePNG(toRGBA(scale(decoded, width, height)))
+	shown, err := PNG(Scale(decoded, width, height))
 
 	if err != nil {
 		return protocol.Image{}, "", err
@@ -103,10 +107,10 @@ func readable(data []byte, kind string) bool {
 	return depth == 8 && (color == 2 || color == 6)
 }
 
-// fitSize returns the largest size with the proportions of width×height
-// that fits in maxWidth×maxHeight and holds at most maxPixels, never larger
-// than the size it was given.
-func fitSize(width, height, maxWidth, maxHeight, maxPixels int) (int, int) {
+// Fit returns the largest size with the proportions of width×height that
+// fits in maxWidth×maxHeight and holds at most maxPixels, or any number of
+// them when it is zero, never larger than the size it was given.
+func Fit(width, height, maxWidth, maxHeight, maxPixels int) (int, int) {
 	ratio := min(1, float64(maxWidth)/float64(width), float64(maxHeight)/float64(height))
 
 	if pixels := float64(width) * float64(height) * ratio * ratio; maxPixels > 0 && pixels > float64(maxPixels) {
@@ -120,10 +124,10 @@ func fitSize(width, height, maxWidth, maxHeight, maxPixels int) (int, int) {
 	return max(1, int(float64(width)*ratio)), max(1, int(float64(height)*ratio))
 }
 
-// scale returns source resized to width×height, each pixel the average of
+// Scale returns source resized to width×height, each pixel the average of
 // the pixels it covers, which keeps thin lines and small text legible when
 // a screen is made smaller.
-func scale(source image.Image, width, height int) image.Image {
+func Scale(source image.Image, width, height int) image.Image {
 	bounds := source.Bounds()
 
 	if bounds.Dx() == width && bounds.Dy() == height {
@@ -182,11 +186,12 @@ func toRGBA(img image.Image) *image.RGBA {
 	return rgba
 }
 
-// encodePNG returns img as a PNG image for the model.
-func encodePNG(img image.Image) (protocol.Image, error) {
+// PNG returns img as a PNG image for the model, of 8-bit color, which every
+// model API reads.
+func PNG(img image.Image) (protocol.Image, error) {
 	var buffer bytes.Buffer
 
-	if err := png.Encode(&buffer, img); err != nil {
+	if err := png.Encode(&buffer, toRGBA(img)); err != nil {
 		return protocol.Image{}, err
 	}
 

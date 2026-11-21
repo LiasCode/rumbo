@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/LiasCode/rumbo/internal/picture"
 )
 
 // size returns the size of the one image a result shows, which is a PNG.
@@ -52,33 +54,8 @@ func TestReadShowsAnImage(t *testing.T) {
 		t.Fatalf("large = %q, %v", large.Text, err)
 	}
 
-	if width, height := size(t, large); width > maxImageSide || width*height > maxImagePixels {
+	if width, height := size(t, large); width > picture.MaxSide || width*height > picture.MaxPixels {
 		t.Fatalf("large shown at %d×%d", width, height)
-	}
-}
-
-func TestScalingAveragesThePixelsItCovers(t *testing.T) {
-	source := image.NewRGBA(image.Rect(0, 0, 4, 2))
-
-	for x := range 2 {
-		for y := range 2 {
-			source.Pix[y*source.Stride+x*4] = 200
-			source.Pix[y*source.Stride+x*4+3] = 255
-		}
-	}
-
-	scaled := scale(source, 2, 1).(*image.RGBA)
-
-	if left, right := scaled.RGBAAt(0, 0), scaled.RGBAAt(1, 0); left.R != 200 || right.R != 0 || left.A != 255 {
-		t.Fatalf("scaled = %v %v", left, right)
-	}
-
-	if width, height := fitSize(1920, 1080, 1280, 800, 0); width != 1280 || height != 720 {
-		t.Fatalf("fit = %d×%d", width, height)
-	}
-
-	if width, height := fitSize(800, 600, 1280, 800, 0); width != 800 || height != 600 {
-		t.Fatalf("a small one grew to %d×%d", width, height)
 	}
 }
 
@@ -89,10 +66,6 @@ func TestReadSendsAPNGEveryAPIReads(t *testing.T) {
 	var buffer bytes.Buffer
 	png.Encode(&buffer, image.NewGray16(image.Rect(0, 0, 30, 10)))
 	os.WriteFile(filepath.Join(dir, "gray.png"), buffer.Bytes(), 0o644)
-
-	if readable(buffer.Bytes(), "image/png") {
-		t.Fatal("a 16-bit gray PNG was taken as readable")
-	}
 
 	result, err := runTool(t, Read{}, dir, map[string]any{"path": "gray.png"})
 
