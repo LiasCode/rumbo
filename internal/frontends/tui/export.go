@@ -106,9 +106,11 @@ func markdownOf(told protocol.HistoryResult, now time.Time) string {
 		case protocol.EventObjective:
 			run = tally{}
 			fmt.Fprintf(&out, "\n---\n\n**You**\n\n%s\n", event.Text)
+			given(&out, event.Images)
 
 		case protocol.EventSteer:
 			fmt.Fprintf(&out, "\n**You, while it worked**\n\n%s\n", event.Text)
+			given(&out, event.Images)
 
 		case protocol.EventText:
 			text.WriteString(event.Text)
@@ -242,4 +244,11 @@ func inlineCode(text string) string {
 	}
 
 	return ticks + text + ticks
+}
+
+// given tells the images a person gave, which a document names, not shows.
+func given(out *strings.Builder, images []protocol.Image) {
+	if len(images) > 0 {
+		fmt.Fprintf(out, "\n*%s*\n", imageLabels(images))
+	}
 }

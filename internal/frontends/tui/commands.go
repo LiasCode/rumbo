@@ -321,6 +321,7 @@ func (u *ui) help() string {
 	out.WriteString("\n")
 	out.WriteString("A slash opens a menu of the commands, and after one, of what it takes: Up and Down choose, Tab or Enter take, Escape closes it. Enter on a command that still needs something opens what it takes next.\n")
 	out.WriteString("Enter sends; Alt-Enter, Shift-Enter, or Ctrl-J starts a new line. Up and Down go through the lines typed, and past them through what you entered before, which Ctrl-R searches.\n")
+	out.WriteString("Ctrl-V adds the image in the clipboard to what you send next; Backspace on an empty line takes the last one away.\n")
 	out.WriteString("Anything that is not a command is a task.")
 
 	return out.String()

@@ -463,6 +463,10 @@ speaks the Agent Frontend Protocol with the host.
   the host recalls of the project's sessions, and adds what is entered
   while it runs, commands too, which it keeps nowhere; answers to a
   question or a confirmation are not in it.
+- Ctrl-V reads the image in the desktop's clipboard, with `wl-paste` on
+  Wayland, `xclip` on X11, or AppKit on macOS, since a terminal pastes text
+  only; the images wait above the input for what is sent next, and
+  Backspace on an empty line takes the last one away.
 - Ctrl-C gives up a provider's function in progress, else cancels the run,
   else clears the input, else quits; Ctrl-D quits on an empty input, and
   Ctrl-L starts the screen again, the conversation kept in the scrollback.

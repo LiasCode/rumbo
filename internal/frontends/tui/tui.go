@@ -7,6 +7,7 @@ package tui
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -145,7 +146,7 @@ func Run(r io.Reader, w io.Writer) int {
 	case info.Resume:
 		ui.start("(resuming the unfinished run)", protocol.RunParams{Resume: true})
 	case info.Objective != "":
-		ui.submit(info.Objective)
+		ui.submit(info.Objective, nil)
 	}
 
 	// The front end ends when the user quits, or when the host goes away,
@@ -191,6 +192,11 @@ type ui struct {
 	mu     sync.Mutex
 	screen screen
 	input  inputLine
+	// pasted are the images Ctrl-V put in the input, which go with the next
+	// task or steer; clipboard reads the image to paste, when a test does
+	// not want the desktop's.
+	pasted    []protocol.Image
+	clipboard func(context.Context) ([]byte, error)
 	// partial is what the model wrote of a line it has not ended yet, which
 	// the live area shows until the line is done, and markdown shows what
 	// the model writes as the Markdown it is.
@@ -416,6 +422,10 @@ func (u *ui) paint(done string) {
 
 	if u.menu != nil {
 		rows = append(rows, u.menu.rows(width)...)
+	}
+
+	if len(u.pasted) > 0 {
+		rows = append(rows, cut(styleDim+imageLabels(u.pasted)+"  Backspace on an empty line takes the last away"+styleWeightOff, width-1))
 	}
 
 	room := width - len([]rune(prompt))
@@ -741,7 +751,7 @@ func (u *ui) tell(from *job, event protocol.Event) {
 			from.tally = tally{}
 		}
 
-		u.line(styleBold, "\n"+echoed(event.Text))
+		u.said(event.Text, event.Images)
 
 	case protocol.EventEnded:
 		u.settle()
@@ -807,9 +817,10 @@ func (u *ui) retell(told protocol.HistoryResult) {
 	u.flush()
 }
 
-// submit starts a run on objective, unless one is already in progress.
-func (u *ui) submit(objective string) {
-	u.start(objective, protocol.RunParams{Objective: objective})
+// submit starts a run on objective and the images given with it, unless
+// one is already in progress.
+func (u *ui) submit(objective string, images []protocol.Image) {
+	u.start(objective, protocol.RunParams{Objective: objective, Images: images})
 }
 
 // start follows one run in the current session, shown under label, unless
@@ -838,7 +849,8 @@ func (u *ui) start(label string, params protocol.RunParams) {
 	u.here = started
 	u.notice = ""
 	u.input.clear()
-	u.line(styleBold, "\n"+echoed(label))
+	u.pasted = nil
+	u.said(label, params.Images)
 	u.mu.Unlock()
 
 	u.wait.Go(func() {
@@ -945,15 +957,16 @@ func (u *ui) follow() {
 	}
 }
 
-// steer tells the run in progress text. It is shown once the model has it,
-// which is where the model reads it. If the run ends first, the text goes
-// back to the input line, to be sent as a task.
-func (u *ui) steer(text string) {
+// steer tells the run in progress text, and images. It is shown once the
+// model has it, which is where the model reads it. If the run ends first,
+// what was said goes back to the input, to be sent as a task.
+func (u *ui) steer(text string, images []protocol.Image) {
 	u.mu.Lock()
 
 	// The run may have ended since Enter was pressed.
 	if u.here == nil {
 		u.input.set(text)
+		u.pasted = images
 		u.notice = "the run ended before this reached it; Enter sends it as a new task"
 		u.footer()
 		u.mu.Unlock()
@@ -963,6 +976,7 @@ func (u *ui) steer(text string) {
 
 	run := u.here.run
 	u.input.clear()
+	u.pasted = nil
 	u.notice = ""
 	u.telling++
 	u.footer()
@@ -970,7 +984,7 @@ func (u *ui) steer(text string) {
 
 	u.wait.Go(func() {
 
-		err := u.conn.SteerRun(run, text)
+		err := u.conn.SteerRun(run, text, images...)
 
 		u.mu.Lock()
 		defer u.mu.Unlock()
@@ -979,16 +993,27 @@ func (u *ui) steer(text string) {
 
 		switch {
 		case err == nil:
-			u.line(styleBold, "\n"+echoed(text))
-		case u.input.empty():
+			u.said(text, images)
+		case u.input.empty() && len(u.pasted) == 0:
 			u.line(u.theme.failure, err.Error())
 			u.input.set(text)
+			u.pasted = images
 		default:
 			u.line(u.theme.failure, err.Error()+": "+text)
 		}
 
 		u.footer()
 	})
+}
+
+// said shows what the person said, and the images they gave with it, in
+// the conversation. The caller holds the lock.
+func (u *ui) said(text string, images []protocol.Image) {
+	u.line(styleBold, "\n"+echoed(text))
+
+	if len(images) > 0 {
+		u.line(styleDim, strings.Repeat(" ", len([]rune(prompt)))+imageLabels(images))
+	}
 }
 
 // readKeys edits the input until the user quits or stdin ends.
@@ -1123,8 +1148,9 @@ func (u *ui) press(pressed key) bool {
 			if u.here.run != 0 {
 				u.conn.CancelRun(u.here.run)
 			}
-		case !u.input.empty():
+		case !u.input.empty() || len(u.pasted) > 0:
 			u.input.clear()
+			u.pasted = nil
 		default:
 			u.mu.Unlock()
 			return false
@@ -1140,8 +1166,15 @@ func (u *ui) press(pressed key) bool {
 
 		u.input.remove()
 
-	case pressed.r == 0x7f, pressed.r == 0x08: // Backspace.
-		u.input.backspace()
+	case pressed.r == 0x7f, pressed.r == 0x08: // Backspace, which takes the last image away on an empty line.
+		if u.input.empty() && len(u.pasted) > 0 {
+			u.pasted = u.pasted[:len(u.pasted)-1]
+		} else {
+			u.input.backspace()
+		}
+
+	case pressed.r == 0x16: // Ctrl-V: an image from the clipboard, which a terminal does not paste.
+		u.pasteImage()
 
 	case pressed.r == 0x15: // Ctrl-U: delete to the start of the line.
 		u.input.killStart()
@@ -1236,6 +1269,8 @@ func (u *ui) enter(open bool) bool {
 	}
 
 	line, running := strings.TrimSpace(u.input.String()), u.here != nil
+	images := u.pasted
+	said := line != "" || len(images) > 0
 
 	// The answer to a confirmation is not worth bringing back.
 	if line != "" && u.pending == nil {
@@ -1249,10 +1284,10 @@ func (u *ui) enter(open bool) bool {
 	case u.confirm(line):
 	case isCommand(line):
 		u.command(line)
-	case line != "" && running:
-		u.steer(line)
-	case line != "":
-		u.submit(line)
+	case said && running:
+		u.steer(line, images)
+	case said:
+		u.submit(line, images)
 	}
 
 	return true

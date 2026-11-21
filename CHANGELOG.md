@@ -7,6 +7,12 @@ it. The commits hold the reasons.
 
 ### Images in what you ask
 
+- **Ctrl-V in the terminal UI pastes the image in the clipboard**, which
+  goes to the model with what you send next, a task or what you tell a
+  run, or alone. A terminal pastes text only, so rumbo reads the clipboard
+  itself: with `wl-paste` on Wayland, `xclip` on X11, and AppKit on macOS.
+  The images wait above the input, and Backspace on an empty line takes the
+  last one away.
 - A front end can give images with a task or a steer, in the new `images`
   field of `run` and `steer`, and a session's history gives them back with
   what was asked. They are made smaller when they are large, kept in the
