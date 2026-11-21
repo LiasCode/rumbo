@@ -15,6 +15,14 @@ import (
 func call(t *testing.T, target Tool, dir string, args map[string]any) (string, error) {
 	t.Helper()
 
+	result, err := runTool(t, target, dir, args)
+
+	return result.Text, err
+}
+
+func runTool(t *testing.T, target Tool, dir string, args map[string]any) (Result, error) {
+	t.Helper()
+
 	raw, _ := json.Marshal(args)
 
 	return target.Run(context.Background(), dir, raw)

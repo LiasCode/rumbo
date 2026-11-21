@@ -59,8 +59,10 @@ while it works, without knowing what any of them mean.
 
 **Tools** (`internal/tool`). What the model can do: read, write, and edit
 files, and run commands. The set is small because every declared tool costs
-tokens on every request, and a shell already reaches everything else. The
-tools keep a little state. Each session has its own record of the files its
+tokens on every request, and a shell already reaches everything else. A
+result is text, and may show the model images as well: `read` shows an
+image file as an image, with text that says what it is for a provider that
+cannot send it. The tools keep a little state. Each session has its own record of the files its
 model has seen, so a model cannot replace a file whole without knowing what
 is in it, even one another session's model read. The processes left running
 in the background, and the files the tools save for the model, are the

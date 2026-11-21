@@ -94,6 +94,8 @@ type ToolResult struct {
 	Name    string `json:"name"`
 	Text    string `json:"text"`
 	IsError bool   `json:"is_error,omitempty"`
+	// Images are what the result showed the model, such as a screenshot.
+	Images []protocol.Image `json:"images,omitempty"`
 	// Duration is how long the tool took, in milliseconds.
 	Duration int64 `json:"duration_ms,omitempty"`
 }
@@ -305,7 +307,7 @@ func (b *builder) add(entry store.Entry) error {
 			}
 		}
 
-		b.user(protocol.Block{Type: protocol.BlockToolResult, ID: result.ID, Text: result.Text, IsError: result.IsError})
+		b.user(protocol.Block{Type: protocol.BlockToolResult, ID: result.ID, Text: result.Text, IsError: result.IsError, Images: result.Images})
 
 	default:
 		return fmt.Errorf("unknown kind")

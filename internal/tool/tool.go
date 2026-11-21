@@ -18,7 +18,20 @@ type Tool interface {
 	Def() protocol.ToolDef
 	// Run executes the call in dir. A returned error is shown to the model as
 	// a failed result, so its message should say how to recover.
-	Run(ctx context.Context, dir string, args json.RawMessage) (string, error)
+	Run(ctx context.Context, dir string, args json.RawMessage) (Result, error)
+}
+
+// Result is what a call gives the model: text, and the images it shows, if
+// any. The text says what each image is, for the providers that cannot
+// send it and for the person following the run.
+type Result struct {
+	Text   string
+	Images []protocol.Image
+}
+
+// text is a result of text alone.
+func text(value string) Result {
+	return Result{Text: value}
 }
 
 // Defaults returns the built-in tools, for callers that have nothing to

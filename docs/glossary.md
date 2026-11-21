@@ -142,6 +142,7 @@ Only what the user chose is kept of a configuration: what is not chosen is
 the program's own default, which the program says when it starts.
 
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
+A tool's result is text, and may show images too.
 
 **Ambient context.** What the harness tells the model without being asked:
 the environment it runs in, the user's instructions, and the user's skills.

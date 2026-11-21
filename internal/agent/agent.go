@@ -566,12 +566,12 @@ func (a *Agent) execute(ctx context.Context, session store.Session, calls []prot
 		a.Observer.ToolStarted(call.Name, call.Args)
 
 		started := time.Now()
-		text, failed := a.call(ctx, session.Dir, call)
+		output, failed := a.call(ctx, session.Dir, call)
 		took := time.Since(started)
 
-		a.Observer.ToolFinished(call.Name, text, failed)
+		a.Observer.ToolFinished(call.Name, output.Text, failed)
 
-		result := transcript.ToolResult{ID: call.ID, Name: call.Name, Text: text, IsError: failed, Duration: took.Milliseconds()}
+		result := transcript.ToolResult{ID: call.ID, Name: call.Name, Text: output.Text, Images: output.Images, IsError: failed, Duration: took.Milliseconds()}
 
 		if err := a.append(session, transcript.KindToolResult, result); err != nil {
 			return err
@@ -581,7 +581,7 @@ func (a *Agent) execute(ctx context.Context, session store.Session, calls []prot
 	return ctx.Err()
 }
 
-func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text string, failed bool) {
+func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (result tool.Result, failed bool) {
 	for _, candidate := range a.Tools {
 		if candidate.Def().Name != call.Name {
 			continue
@@ -590,19 +590,19 @@ func (a *Agent) call(ctx context.Context, dir string, call protocol.Block) (text
 		// Arguments arrive as the model generated them, so they are checked
 		// here, at the boundary, before a tool sees them.
 		if !json.Valid(call.Args) {
-			return "invalid arguments: not valid JSON", true
+			return tool.Result{Text: "invalid arguments: not valid JSON"}, true
 		}
 
 		output, err := candidate.Run(ctx, dir, call.Args)
 
 		if err != nil {
-			return err.Error(), true
+			return tool.Result{Text: err.Error()}, true
 		}
 
 		return output, false
 	}
 
-	return fmt.Sprintf("unknown tool %q", call.Name), true
+	return tool.Result{Text: fmt.Sprintf("unknown tool %q", call.Name)}, true
 }
 
 func (a *Agent) state(session store.Session) (transcript.State, error) {

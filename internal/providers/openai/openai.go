@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -266,10 +267,22 @@ func (h *Handler) models(ctx context.Context) (protocol.ValuesResult, error) {
 }
 
 type chatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
+	Role string `json:"role"`
+	// Content is text, or a list of parts when the message shows images.
+	Content    any        `json:"content"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+// chatPart is one part of a message that shows images.
+type chatPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"`
 }
 
 type toolCall struct {
@@ -471,11 +484,14 @@ func request(params protocol.CompleteParams) chatRequest {
 
 // messages converts one protocol message. A user message can carry tool
 // results and text together; this API wants each result as its own message,
-// before the text.
+// before the text. A tool's message takes text alone, so the images of the
+// results go after them, in a message of the user's that says whose they
+// are.
 func messages(message protocol.Message) []chatMessage {
 	var results []chatMessage
 	var texts []string
 	var calls []toolCall
+	var shown []chatPart
 
 	for _, block := range message.Content {
 		switch block.Type {
@@ -484,6 +500,15 @@ func messages(message protocol.Message) []chatMessage {
 
 		case protocol.BlockToolResult:
 			results = append(results, chatMessage{Role: "tool", ToolCallID: block.ID, Content: block.Text})
+
+			if len(block.Images) > 0 {
+				shown = append(shown, chatPart{Type: "text", Text: fmt.Sprintf("The image(s) of the result of tool call %s:", block.ID)})
+			}
+
+			for _, image := range block.Images {
+				url := "data:" + image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(image.Data)
+				shown = append(shown, chatPart{Type: "image_url", ImageURL: &imageURL{URL: url}})
+			}
 
 		case protocol.BlockToolCall:
 			call := toolCall{ID: block.ID, Type: "function"}
@@ -497,6 +522,10 @@ func messages(message protocol.Message) []chatMessage {
 
 	if message.Role == protocol.RoleAssistant {
 		return []chatMessage{{Role: "assistant", Content: text, ToolCalls: calls}}
+	}
+
+	if len(shown) > 0 {
+		results = append(results, chatMessage{Role: "user", Content: shown})
 	}
 
 	if text != "" {

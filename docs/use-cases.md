@@ -82,8 +82,9 @@ nothing and knows no model API.
 
 **Give the model**
 
-- Four tools: read a file in windows, write a whole file, edit one by exact
-  match, and run a bash command, with a timeout or in the background.
+- Four tools: read a file in windows, or look at an image, write a whole
+  file, edit one by exact match, and run a bash command, with a timeout or
+  in the background.
 - A guard against replacing a file its model has not read, or that changed
   since it did. Each session keeps its own record of what its model read.
 - The environment it works in: the working directory, the platform, and the
@@ -295,6 +296,8 @@ the Agent Provider Protocol on its stdin and stdout.
   them.
 - Keep what it needs to continue a conversation, such as signed reasoning,
   in opaque blocks the host returns unchanged.
+- Show the model the images of a tool's result. One whose model API takes
+  none there sends the result's text, which says what each image is.
 - Cache the start of requests, which the host keeps stable, and report how
   much of each it read from the cache and wrote to it, which is how the
   host tells a request that missed it.

@@ -152,3 +152,28 @@ func TestPointsAreTheObjectives(t *testing.T) {
 		t.Fatalf("points = %+v, err = %v", points, err)
 	}
 }
+
+// What a tool's result showed the model is stored with it, and shown again
+// on every later request.
+func TestBuildKeepsTheImagesOfAResult(t *testing.T) {
+	call := protocol.Block{Type: protocol.BlockToolCall, ID: "a", Name: "read", Args: json.RawMessage(`{"path":"shot.png"}`)}
+	image := protocol.Image{MediaType: "image/png", Data: []byte{0x89, 'P', 'N', 'G'}}
+
+	entries := []store.Entry{
+		entry(1, KindUser, Text{Text: "look"}),
+		entry(2, KindAssistant, Assistant{Message: protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{call}}}),
+		entry(3, KindToolResult, ToolResult{ID: "a", Name: "read", Text: "[image shot.png: png, 1×1]", Images: []protocol.Image{image}}),
+	}
+
+	state, err := Build(entries)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := state.Messages[2].Content[0]
+
+	if len(result.Images) != 1 || result.Images[0].MediaType != "image/png" || string(result.Images[0].Data) != string(image.Data) {
+		t.Fatalf("result = %+v", result)
+	}
+}

@@ -29,7 +29,13 @@ func (Write) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (w Write) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
+func (w Write) Run(_ context.Context, dir string, args json.RawMessage) (Result, error) {
+	output, err := w.write(dir, args)
+
+	return text(output), err
+}
+
+func (w Write) write(dir string, args json.RawMessage) (string, error) {
 	var input struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -85,7 +91,13 @@ func (Edit) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (e Edit) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
+func (e Edit) Run(_ context.Context, dir string, args json.RawMessage) (Result, error) {
+	output, err := e.edit(dir, args)
+
+	return text(output), err
+}
+
+func (e Edit) edit(dir string, args json.RawMessage) (string, error) {
 	var input struct {
 		Path string `json:"path"`
 		Old  string `json:"old"`

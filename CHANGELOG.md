@@ -5,6 +5,21 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Tools
+
+- `read` shows the model an image file, PNG, JPEG, GIF, or WebP, made
+  smaller when it is large, instead of refusing it as binary.
+- An image is kept in the session and sent again with every later
+  request, as any tool result is.
+
+### Providers
+
+- A tool's result can carry images, in the new `images` field of a
+  `tool_result` block. The built-in providers send them to Anthropic's API,
+  to ChatGPT, and to OpenAI's Responses API; Chat Completions takes images
+  only in a message of the user's, so the openai provider sends them in one
+  right after the results.
+
 ## 0.6.0 (2026-11-20)
 
 Configuration is one thing to learn. Everything rumbo keeps is in files you

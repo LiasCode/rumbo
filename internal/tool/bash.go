@@ -40,7 +40,13 @@ func (Bash) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (b Bash) Run(ctx context.Context, dir string, args json.RawMessage) (string, error) {
+func (b Bash) Run(ctx context.Context, dir string, args json.RawMessage) (Result, error) {
+	output, err := b.run(ctx, dir, args)
+
+	return text(output), err
+}
+
+func (b Bash) run(ctx context.Context, dir string, args json.RawMessage) (string, error) {
 	var input struct {
 		Command    string `json:"command"`
 		Timeout    int    `json:"timeout"`

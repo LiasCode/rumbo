@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -93,13 +94,39 @@ type responsesTool struct {
 
 // inputItem is a message, a function call, or a function call's output.
 type inputItem struct {
-	Type      string  `json:"type"`
-	Role      string  `json:"role,omitempty"`
-	Content   string  `json:"content,omitempty"`
-	CallID    string  `json:"call_id,omitempty"`
-	Name      string  `json:"name,omitempty"`
-	Arguments string  `json:"arguments,omitempty"`
-	Output    *string `json:"output,omitempty"`
+	Type      string `json:"type"`
+	Role      string `json:"role,omitempty"`
+	Content   string `json:"content,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	// Output is the text of a tool's result, or a list of its parts when it
+	// shows images.
+	Output any `json:"output,omitempty"`
+}
+
+// outputPart is one part of a tool's result that shows images.
+type outputPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+}
+
+// toolOutput is what a tool's result sends: its text alone, or its text
+// and then the images it shows, each as a data URL.
+func toolOutput(block protocol.Block) any {
+	if len(block.Images) == 0 {
+		return block.Text
+	}
+
+	parts := []outputPart{{Type: "input_text", Text: block.Text}}
+
+	for _, image := range block.Images {
+		url := "data:" + image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(image.Data)
+		parts = append(parts, outputPart{Type: "input_image", ImageURL: url})
+	}
+
+	return parts
 }
 
 // respond completes params with the Responses API.
@@ -234,8 +261,7 @@ func inputItems(message protocol.Message, model string) []any {
 			items = append(items, inputItem{Type: "function_call", CallID: block.ID, Name: block.Name, Arguments: string(block.Args)})
 
 		case protocol.BlockToolResult:
-			output := block.Text
-			items = append(items, inputItem{Type: "function_call_output", CallID: block.ID, Output: &output})
+			items = append(items, inputItem{Type: "function_call_output", CallID: block.ID, Output: toolOutput(block)})
 
 		case protocol.BlockOpaque:
 			if item, ok := replayable(message.Content, index, model); ok {

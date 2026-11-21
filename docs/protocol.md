@@ -270,7 +270,7 @@ A message's `content` is a list of blocks.
 |---|---|---|
 | `text` | `text` | both roles |
 | `tool_call` | `id`, `name`, `args` (JSON) | assistant |
-| `tool_result` | `id` (of the call), `text`, `is_error` | user |
+| `tool_result` | `id` (of the call), `text`, `is_error`, `images` | user |
 | `opaque` | `data` (any JSON) | assistant |
 
 **`tool_call`.** `args` should be the JSON object the model produced. If the
@@ -279,6 +279,13 @@ host rejects it and tells the model.
 
 **`tool_result`.** Every `tool_call` of an assistant message has a
 `tool_result` in the next user message, before any text.
+
+`images`, when present, are what the result shows the model, such as a
+screenshot: a list of `{"media_type": "image/png", "data": "<base64>"}`,
+where the type is `image/png`, `image/jpeg`, `image/gif`, or `image/webp`.
+The text always says what each image is, so a provider whose model API
+takes no images in a tool result sends the text alone, and the model still
+knows what it was not shown.
 
 **`opaque`.** State the provider needs back to continue the conversation, such
 as signed reasoning. The host stores it and returns it in place, unread and

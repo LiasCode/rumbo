@@ -10,7 +10,8 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// Read returns the contents of a text file, in windows when it is large.
+// Read returns the contents of a text file, in windows when it is large, or
+// shows the model an image.
 type Read struct {
 	seen *seen
 }
@@ -19,7 +20,7 @@ type Read struct {
 func (Read) Def() protocol.ToolDef {
 	return protocol.ToolDef{
 		Name:        "read",
-		Description: "Read a text file. Returns 500 lines per call unless limit says otherwise; pass offset (1-based line) to read further. For a large file, search with bash first and read only the part you need.",
+		Description: "Read a text file, or look at an image (PNG, JPEG, GIF, WebP). Returns 500 lines per call unless limit says otherwise; pass offset (1-based line) to read further. For a large file, search with bash first and read only the part you need.",
 		Schema: schema(`{
 			"path": {"type": "string", "description": "File path, relative to the working directory or absolute"},
 			"offset": {"type": "integer", "description": "First line to read, starting at 1"},
@@ -29,7 +30,7 @@ func (Read) Def() protocol.ToolDef {
 }
 
 // Run implements Tool.
-func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (string, error) {
+func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (Result, error) {
 	var input struct {
 		Path   string `json:"path"`
 		Offset int    `json:"offset"`
@@ -37,23 +38,35 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (string, 
 	}
 
 	if err := decode(args, &input); err != nil {
-		return "", err
+		return Result{}, err
 	}
 
 	path, err := resolve(dir, input.Path)
 
 	if err != nil {
-		return "", err
+		return Result{}, err
 	}
 
 	raw, err := os.ReadFile(path)
 
 	if err != nil {
-		return "", err
+		return Result{}, err
+	}
+
+	if kind := imageType(raw); kind != "" {
+		shown, about, err := showImage(raw, kind)
+
+		if err != nil {
+			return Result{}, fmt.Errorf("%s: %w", input.Path, err)
+		}
+
+		r.seen.record(path)
+
+		return Result{Text: fmt.Sprintf("[image %s: %s]", input.Path, about), Images: []protocol.Image{shown}}, nil
 	}
 
 	if strings.ContainsRune(string(raw[:min(len(raw), 8000)]), 0) {
-		return "", fmt.Errorf("%s is a binary file; inspect it with bash instead", input.Path)
+		return Result{}, fmt.Errorf("%s is a binary file; inspect it with bash instead", input.Path)
 	}
 
 	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
@@ -61,7 +74,7 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (string, 
 	start := max(input.Offset, 1) - 1
 
 	if start >= total {
-		return "", fmt.Errorf("offset %d is past the end of the file (%d lines)", input.Offset, total)
+		return Result{}, fmt.Errorf("offset %d is past the end of the file (%d lines)", input.Offset, total)
 	}
 
 	limit := readLines
@@ -79,7 +92,7 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (string, 
 	}
 
 	if end == start {
-		return "", fmt.Errorf("line %d is longer than %d bytes; inspect it with bash instead", start+1, maxReadBytes)
+		return Result{}, fmt.Errorf("line %d is longer than %d bytes; inspect it with bash instead", start+1, maxReadBytes)
 	}
 
 	r.seen.record(path)
@@ -90,5 +103,5 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (string, 
 		text += fmt.Sprintf("\n[lines %d-%d of %d; continue with offset %d]", start+1, end, total, end+1)
 	}
 
-	return text, nil
+	return Result{Text: text}, nil
 }
