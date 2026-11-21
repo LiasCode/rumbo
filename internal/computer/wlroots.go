@@ -48,7 +48,7 @@ func openWayland(_ context.Context) (Screen, error) {
 	}
 
 	pointer, pointerErr := conn.NewPointer()
-	keyboard, keyboardErr := conn.NewKeyboard()
+	keyboard, keyboardErr := conn.NewKeyboard(keymap(nil))
 
 	if pointerErr != nil || keyboardErr != nil {
 		conn.Close()
@@ -62,7 +62,7 @@ func openWayland(_ context.Context) (Screen, error) {
 		return nil, missing("grim", "takes screenshots", desktop)
 	}
 
-	return &wlroots{desktop: desktop, conn: conn, pointer: pointer, keyboard: keyboard}, nil
+	return &wlroots{desktop: desktop, conn: conn, pointer: pointer, keyboard: keyboard, uploaded: keymap(nil)}, nil
 }
 
 // waylandDesktop names the compositor rumbo runs in.

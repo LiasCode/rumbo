@@ -221,9 +221,11 @@ type Keyboard struct {
 	id   uint32
 }
 
-// NewKeyboard makes a virtual keyboard. It types nothing until it has a
-// keymap.
-func (c *Conn) NewKeyboard() (*Keyboard, error) {
+// NewKeyboard makes a virtual keyboard with keymap, in XKB's text format.
+// It is given the keymap at once, in the same breath: a keyboard without one
+// is announced to the windows all the same, and some programs, such as
+// those made with GPUI, end when told of its modifiers before its keymap.
+func (c *Conn) NewKeyboard(keymap string) (*Keyboard, error) {
 	global, ok := c.Global(virtualKeyboardManager)
 
 	if !ok {
@@ -248,11 +250,24 @@ func (c *Conn) NewKeyboard() (*Keyboard, error) {
 		return nil, err
 	}
 
+	if err := keyboard.sendKeymap(keymap); err != nil {
+		return nil, err
+	}
+
 	return keyboard, c.Roundtrip()
 }
 
 // Keymap gives the keyboard a keymap in XKB's text format.
 func (k *Keyboard) Keymap(keymap string) error {
+	if err := k.sendKeymap(keymap); err != nil {
+		return err
+	}
+
+	return k.conn.Roundtrip()
+}
+
+// sendKeymap sends the keymap, without waiting for the compositor.
+func (k *Keyboard) sendKeymap(keymap string) error {
 	// The keymap travels as a file the compositor maps, removed from its
 	// directory at once, so only the open file is left, and it goes when
 	// both sides close it.
@@ -275,11 +290,7 @@ func (k *Keyboard) Keymap(keymap string) error {
 
 	message := NewMessage().Uint(keymapFormatXKB).FD(int(file.Fd())).Uint(uint32(len(data)))
 
-	if err := k.conn.Send(k.id, keyboardKeymap, message); err != nil {
-		return err
-	}
-
-	return k.conn.Roundtrip()
+	return k.conn.Send(k.id, keyboardKeymap, message)
 }
 
 // Key presses or releases a key, by its code in the keymap less 8, which is

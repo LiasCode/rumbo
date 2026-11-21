@@ -88,6 +88,10 @@ func (c *compositor) send(object uint32, opcode uint16, message *Message) {
 
 func (c *compositor) serve() {
 	var pending []byte
+	// The files that came are queued, and each goes to the next request
+	// that carries one, as libwayland does: a read may bring several
+	// requests, and their files with them.
+	var files []int
 
 	for {
 		buffer := make([]byte, 4096)
@@ -98,12 +102,10 @@ func (c *compositor) serve() {
 			return
 		}
 
-		var fds []int
-
 		if messages, err := syscall.ParseSocketControlMessage(oob[:oobCount]); err == nil {
 			for _, message := range messages {
 				rights, _ := syscall.ParseUnixRights(&message)
-				fds = append(fds, rights...)
+				files = append(files, rights...)
 			}
 		}
 
@@ -118,11 +120,24 @@ func (c *compositor) serve() {
 
 			object := binary.LittleEndian.Uint32(pending)
 			opcode := uint16(binary.LittleEndian.Uint32(pending[4:]))
+			var fds []int
+
+			// Of the requests here, only a keymap carries a file.
+			if c.carriesFile(object, opcode) && len(files) > 0 {
+				fds, files = files[:1], files[1:]
+			}
+
 			c.handle(object, opcode, append([]byte(nil), pending[8:size]...), fds)
-			fds = nil
 			pending = pending[size:]
 		}
 	}
+}
+
+func (c *compositor) carriesFile(object uint32, opcode uint16) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.objects[object] == "zwp_virtual_keyboard_v1" && opcode == keyboardKeymap
 }
 
 func (c *compositor) handle(object uint32, opcode uint16, body []byte, fds []int) {
@@ -283,16 +298,12 @@ func TestTheKeymapTravelsAsAFile(t *testing.T) {
 
 	defer conn.Close()
 
-	keyboard, err := conn.NewKeyboard()
-
-	if err != nil {
+	if _, err := conn.NewKeyboard("xkb_keymap {};"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := keyboard.Keymap("xkb_keymap {};"); err != nil {
-		t.Fatal(err)
-	}
-
+	// The keymap comes with the keyboard, before the compositor is waited
+	// for.
 	sent := fake.sent("zwp_virtual_keyboard_v1")
 
 	if len(sent) != 1 || len(sent[0].fds) != 1 {

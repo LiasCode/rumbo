@@ -5,6 +5,12 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Fixes
+
+- The computer tool no longer ends a program made with GPUI, such as
+  rumbo-gui, when it starts typing in a desktop with no keyboard of its
+  own, such as a headless Sway: its keyboard has its keymap from the start.
+
 ## 0.7.0 (2026-11-21)
 
 The model can look at images and use your screen. `read` shows it an image
