@@ -241,10 +241,21 @@ func TestThePointerMovesAcrossTheWholeLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := pointer.Nudge(-1, 0); err != nil {
+		t.Fatal(err)
+	}
+
 	sent := fake.sent("zwlr_virtual_pointer_v1")
 
-	if len(sent) != 5 || sent[0].opcode != pointerMotionAbsolute || sent[1].opcode != pointerFrame {
+	if len(sent) != 7 || sent[0].opcode != pointerMotionAbsolute || sent[1].opcode != pointerFrame {
 		t.Fatalf("sent %+v", sent)
+	}
+
+	nudge := sent[5].args
+	nudge.Uint()
+
+	if dx, dy := nudge.Int(), nudge.Int(); sent[5].opcode != pointerMotion || dx != -256 || dy != 0 || sent[6].opcode != pointerFrame {
+		t.Fatalf("nudge = %d %d", dx, dy)
 	}
 
 	motion := sent[0].args

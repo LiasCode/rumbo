@@ -22,6 +22,7 @@ const (
 	xdgOutputLogicalSize     = 1
 	xdgOutputName            = 3
 	pointerCreate            = 0 // zwlr_virtual_pointer_manager_v1.create_virtual_pointer
+	pointerMotion            = 0
 	pointerMotionAbsolute    = 1
 	pointerButton            = 2
 	pointerFrame             = 4
@@ -158,6 +159,15 @@ func (p *Pointer) MoveTo(x, y, width, height int) error {
 	message := NewMessage().Uint(now()).Uint(uint32(x)).Uint(uint32(y)).Uint(uint32(width)).Uint(uint32(height))
 
 	if err := p.conn.Send(p.id, pointerMotionAbsolute, message); err != nil {
+		return err
+	}
+
+	return p.frame()
+}
+
+// Nudge moves the pointer by dx, dy, as a mouse does.
+func (p *Pointer) Nudge(dx, dy float64) error {
+	if err := p.conn.Send(p.id, pointerMotion, NewMessage().Uint(now()).Fixed(dx).Fixed(dy)); err != nil {
 		return err
 	}
 

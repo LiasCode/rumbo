@@ -240,6 +240,23 @@ func (w *wlroots) Move(_ context.Context, p Point) error {
 		return err
 	}
 
+	// Hyprland moves the cursor on an absolute motion of a virtual pointer,
+	// but does not always give the pointer to the window under it, which
+	// then gets no motion and no button. A relative motion, as a mouse
+	// makes, does; a pixel there and back leaves the pointer where it was
+	// put. It goes toward the middle, so an edge does not stop the first.
+	step := 1.0
+
+	if p.X-box.X >= box.Width/2 {
+		step = -1
+	}
+
+	for _, dx := range []float64{step, -step} {
+		if err := w.pointer.Nudge(dx, 0); err != nil {
+			return err
+		}
+	}
+
 	w.at = &p
 
 	return nil
