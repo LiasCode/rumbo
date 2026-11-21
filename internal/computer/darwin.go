@@ -135,7 +135,15 @@ func (d *darwin) run(ctx context.Context, args ...string) (string, error) {
 	out, err := output(ctx, "osascript", append([]string{"-l", "JavaScript", "-e", quartz}, args...)...)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "assistive") || strings.Contains(err.Error(), "not allowed") {
+		message := err.Error()
+
+		switch {
+		// Typing goes through System Events, which takes the person's leave
+		// under Automation; -1743 is the refusal.
+		case strings.Contains(message, "-1743") || strings.Contains(message, "Not authorized to send Apple events"):
+			return "", errors.New("macOS does not let the program that runs rumbo type through System Events: allow it in System Settings, Privacy & Security, Automation, and try again")
+
+		case strings.Contains(message, "assistive") || strings.Contains(message, "not allowed"):
 			return "", errors.New("macOS does not let the program that runs rumbo control the computer: allow it in System Settings, Privacy & Security, Accessibility, and try again")
 		}
 
