@@ -141,8 +141,13 @@ starts with. The built-in ones are always there; the user registers others.
 Only what the user chose is kept of a configuration: what is not chosen is
 the program's own default, which the program says when it starts.
 
-**Tool.** An action the model can request: `read`, `write`, `edit`, `bash`.
-A tool's result is text, and may show images too.
+**Tool.** An action the model can request: `read`, `write`, `edit`, `bash`,
+and `computer` when the user turns it on. A tool's result is text, and may
+show images too.
+
+**Computer tool.** The tool that sees and uses the desktop rumbo runs in:
+screenshots, the pointer, and the keyboard. Its coordinates are pixels of
+the last screenshot it showed.
 
 **Ambient context.** What the harness tells the model without being asked:
 the environment it runs in, the user's instructions, and the user's skills.

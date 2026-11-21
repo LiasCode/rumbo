@@ -68,6 +68,22 @@ is in it, even one another session's model read. The processes left running
 in the background, and the files the tools save for the model, are the
 host's: they go when it exits.
 
+**Screen** (`internal/computer`). The desktop rumbo runs in, for the
+computer tool, which is declared only when the user turns on the `computer`
+setting: a shell starts programs, but cannot show the model what they draw
+or press their buttons. It finds out which desktop it is in and acts
+through what that desktop offers: on a wlroots compositor such as Hyprland
+or Sway, the compositor's virtual pointer and keyboard (spoken by a small
+Wayland client of its own, `internal/computer/wayland`) and grim's
+screenshots; on X11, xdotool; on macOS, Quartz events through osascript and
+screencapture. Its keyboard is a US one whatever the person's layout, each
+key with the code of the key it is, and a character such a keyboard lacks
+is typed on a key given it for the moment. The tool shows the model
+screenshots of at most 1280×800 and maps the model's coordinates to the
+screen, and it acts only on the screen the model saw last: when the monitor
+in use changes, or someone else moves the pointer, it does nothing until
+the model looks again.
+
 **Ambient context** (`internal/ambient`). The little the model is told
 without asking: the environment it runs in, the user's instruction files,
 and the user's skills. Of a skill the model is told only what it is for and

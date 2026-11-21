@@ -196,11 +196,17 @@ func (h *host) agent(pool *provider.Pool, chosen choice, options json.RawMessage
 		return nil, err
 	}
 
+	declared := tools.Tools()
+
+	if settings.Computer {
+		declared = append(declared, tools.Computer())
+	}
+
 	return &agent.Agent{
 		Store:        h.database,
 		Provider:     pool,
 		Observer:     observer,
-		Tools:        tools.Tools(),
+		Tools:        declared,
 		Collectors:   ambient.Defaults(),
 		ProviderName: chosen.provider,
 		Model:        chosen.model,

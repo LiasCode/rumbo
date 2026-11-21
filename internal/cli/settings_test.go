@@ -49,6 +49,7 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 		"compact_at=150%":       "share of the model's context",
 		"default_provider=nope": `provider "nope" is not registered`,
 		"max_turns=many":        "whole number",
+		"computer=yes":          "on or off",
 		"frontend=missing":      `front end "missing" is not registered`,
 		"no_such_setting=1":     `there is no system setting "no_such_setting"`,
 		"default_model=big":     `the model is now each provider's own: "rumbo provider set <provider> model=<model>"`,
@@ -91,9 +92,20 @@ func TestSettingsAreCheckedAndResolvedInOnePlace(t *testing.T) {
 
 	limits, err := loadLimits(database)
 
-	if err != nil || limits.MaxTurns != 150 || limits.Compaction != (agent.Compaction{Percent: 80}) || limits.MaxTokens != 0 {
+	if err != nil || limits.MaxTurns != 150 || limits.Compaction != (agent.Compaction{Percent: 80}) || limits.MaxTokens != 0 || limits.Computer {
 		t.Fatalf("limits = %+v, err = %v", limits, err)
 	}
+
+	// The computer tool is there only when the user turned it on.
+	if _, err := setSettings(database, []string{"computer=on"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if limits, err := loadLimits(database); err != nil || !limits.Computer {
+		t.Fatalf("with computer=on, limits = %+v, err = %v", limits, err)
+	}
+
+	database.DeleteSetting(keyComputer)
 
 	// One that is malformed in the file, as a person may write it, stops
 	// rumbo before it starts.
@@ -430,6 +442,13 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 
 	if values := call(t, h, "system-values", "").Values; !slices.ContainsFunc(values, func(value protocol.Value) bool { return value.Value == "default_provider=anthropic" }) {
 		t.Fatalf("system-values = %+v", values)
+	}
+
+	// A switch is offered with both of its values.
+	for _, offered := range []string{"computer=on", "computer=off"} {
+		if values := call(t, h, "system-values", "").Values; !slices.ContainsFunc(values, func(value protocol.Value) bool { return value.Value == offered }) {
+			t.Fatalf("system-values has no %s: %+v", offered, values)
+		}
 	}
 
 	if added := call(t, h, "provider-add", `{"name":"mine","command":"{self} provide openai"}`); !strings.Contains(added.Text, "registered the provider mine, which started") {

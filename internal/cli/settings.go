@@ -25,6 +25,7 @@ const (
 	keyMaxTurns        = "max_turns"
 	keyMaxTokens       = "max_tokens"
 	keyCompactAt       = "compact_at"
+	keyComputer        = "computer"
 )
 
 // Where a value in force comes from: the configuration file, rumbo's own
@@ -57,6 +58,7 @@ var settingSpecs = []settingSpec{
 	{key: keyMaxTurns, help: "model responses after which a run is stopped; 0 for no limit", fallback: "150", check: checkCount},
 	{key: keyMaxTokens, help: "output token limit per response", unset: "the provider's own limit", check: checkCount},
 	{key: keyCompactAt, help: "share of the model's context at which the conversation is summarized, such as 80%; 0% never; 150000 tokens when the provider does not say the context's size", fallback: "80%", check: checkCompactAt},
+	{key: keyComputer, help: "on gives the model the computer tool: it sees the screen and uses the pointer and the keyboard of the desktop rumbo runs in", fallback: "off", check: checkSwitch},
 }
 
 // retiredSettings are the system settings there were, and what took their
@@ -85,6 +87,14 @@ func checkFrontend(database store.Store, value string) error {
 func checkCount(_ store.Store, value string) error {
 	if number, err := strconv.Atoi(value); err != nil || number < 0 {
 		return fmt.Errorf("it takes a whole number, zero or more, not %q", value)
+	}
+
+	return nil
+}
+
+func checkSwitch(_ store.Store, value string) error {
+	if value != "on" && value != "off" {
+		return fmt.Errorf("it takes on or off, not %q", value)
 	}
 
 	return nil

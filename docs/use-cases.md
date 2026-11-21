@@ -85,6 +85,10 @@ nothing and knows no model API.
 - Four tools: read a file in windows, or look at an image, write a whole
   file, edit one by exact match, and run a bash command, with a timeout or
   in the background.
+- The computer tool, when the user turns it on: screenshots of the desktop
+  rumbo runs in, and its pointer and keyboard, through what that desktop
+  offers. It acts only on the screen its model saw last, and does nothing
+  once someone else moves the pointer.
 - A guard against replacing a file its model has not read, or that changed
   since it did. Each session keeps its own record of what its model read.
 - The environment it works in: the working directory, the platform, and the

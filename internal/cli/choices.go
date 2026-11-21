@@ -124,8 +124,9 @@ func listModels(database store.Store, name string, diagnostics io.Writer) (strin
 }
 
 // systemValues lists the changes system-set takes, as name=value: the
-// providers and front ends there are for those that name one, and the name
-// alone for the others, which take what the person types. The values in
+// providers and front ends there are for those that name one, on and off for
+// a switch, and the name alone for the others, which take what the person
+// types. The values in
 // force are marked, and a setting that is set comes with its empty value
 // first, which gives it back to its default.
 func (h *host) systemValues(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -141,13 +142,15 @@ func (h *host) systemValues(context.Context, map[string]string) (protocol.HostRe
 		current, set := stored[spec.key]
 		back := "empty: gives it back to " + spec.fallbackText()
 
-		var named []store.Program
+		var named []string
 
 		switch spec.key {
 		case keyDefaultProvider:
-			named, err = listPrograms(h.database, store.KindProvider)
+			named, err = programNames(h.database, store.KindProvider)
 		case keyFrontend:
-			named, err = listPrograms(h.database, store.KindFrontend)
+			named, err = programNames(h.database, store.KindFrontend)
+		case keyComputer:
+			named = []string{"on", "off"}
 		}
 
 		if err != nil {
@@ -171,10 +174,10 @@ func (h *host) systemValues(context.Context, map[string]string) (protocol.HostRe
 			values = append(values, protocol.Value{Value: spec.key + "=", Description: back})
 		}
 
-		for _, program := range named {
-			value := protocol.Value{Value: spec.key + "=" + program.Name, Description: spec.help}
+		for _, name := range named {
+			value := protocol.Value{Value: spec.key + "=" + name, Description: spec.help}
 
-			if set && current == program.Name {
+			if set && current == name {
 				value.Description = remark(value.Description, "in force")
 			}
 
@@ -183,6 +186,23 @@ func (h *host) systemValues(context.Context, map[string]string) (protocol.HostRe
 	}
 
 	return protocol.HostResult{Values: values}, nil
+}
+
+// programNames returns the names of the programs of a kind there are.
+func programNames(database store.Store, kind string) ([]string, error) {
+	programs, err := listPrograms(database, kind)
+
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(programs))
+
+	for index, program := range programs {
+		names[index] = program.Name
+	}
+
+	return names, nil
 }
 
 // sessionValues lists the changes session-set takes, as name=value: the

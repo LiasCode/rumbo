@@ -6,28 +6,31 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/LiasCode/rumbo/internal/computer"
 )
 
 // Set is the built-in tools together with what they share for the life of a
-// host: which files the model has seen, the processes it left running, and
-// the files the tools saved for it.
+// host: which files the model has seen, the processes it left running, the
+// files the tools saved for it, and the screen.
 type Set struct {
-	seen  *seen
-	jobs  *jobs
-	saved *saved
+	seen    *seen
+	jobs    *jobs
+	saved   *saved
+	display *display
 }
 
 // NewSet returns the built-in tools, ready to use.
 func NewSet() *Set {
-	return &Set{seen: newSeen(), jobs: &jobs{}, saved: &saved{}}
+	return &Set{seen: newSeen(), jobs: &jobs{}, saved: &saved{}, display: &display{open: computer.Open, delay: answerDelay}}
 }
 
 // Separate returns a set for another session. It keeps its own record of
 // the files its model has seen, since one model has not read what another
-// did, and shares the processes left running and the files saved, which go
-// with the host.
+// did, and shares the processes left running, the files saved, and the
+// screen, which go with the host.
 func (s *Set) Separate() *Set {
-	return &Set{seen: newSeen(), jobs: s.jobs, saved: s.saved}
+	return &Set{seen: newSeen(), jobs: s.jobs, saved: s.saved, display: s.display}
 }
 
 // Tools returns the tools in the order they are declared to the model.
@@ -35,11 +38,24 @@ func (s *Set) Tools() []Tool {
 	return []Tool{Read{seen: s.seen}, Write{seen: s.seen}, Edit{seen: s.seen}, Bash{jobs: s.jobs, saved: s.saved}}
 }
 
-// Close stops the processes the model started in the background, and then
-// removes the files the tools saved, which those processes wrote to.
+// Computer returns the computer tool, which acts on the screen of the
+// machine rumbo runs on. It is declared only when the user turned it on.
+func (s *Set) Computer() Tool {
+	return Computer{display: s.display}
+}
+
+// Close stops the processes the model started in the background, removes
+// the files the tools saved, which those processes wrote to, and lets go of
+// the screen.
 func (s *Set) Close() {
 	s.jobs.stopAll()
 	s.saved.remove()
+
+	if s.display != nil {
+		s.display.mu.Lock()
+		s.display.close()
+		s.display.mu.Unlock()
+	}
 }
 
 // seen remembers the state of each file as the model last saw it, so a file

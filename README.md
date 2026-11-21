@@ -1,7 +1,8 @@
 # rumbo
 
 A minimal agent harness. Give it a task, and it works through four tools
-(`read`, `write`, `edit`, `bash`) until the model is done. The models behind
+(`read`, `write`, `edit`, `bash`), and a fifth that uses the screen if you
+turn it on, until the model is done. The models behind
 it and the interfaces in front of it are separate programs you can replace.
 
 ![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol.](docs/how-it-works.svg)

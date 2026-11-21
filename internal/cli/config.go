@@ -25,6 +25,8 @@ type limits struct {
 	MaxTokens  int
 	MaxTurns   int
 	Compaction agent.Compaction
+	// Computer says the model has the computer tool.
+	Computer bool
 }
 
 // configFile is the name of the file that holds what the user chose.
@@ -160,6 +162,18 @@ func loadLimits(settings store.Store) (limits, error) {
 	if loaded.Compaction, err = parseCompactAt(compactAt.Value); err != nil {
 		return loaded, fmt.Errorf("setting %s: %w", keyCompactAt, err)
 	}
+
+	computer, err := effectiveSetting(settings, keyComputer)
+
+	if err != nil {
+		return loaded, err
+	}
+
+	if err := checkSwitch(settings, computer.Value); err != nil {
+		return loaded, fmt.Errorf("setting %s: %w", keyComputer, err)
+	}
+
+	loaded.Computer = computer.Value == "on"
 
 	return loaded, nil
 }

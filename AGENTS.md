@@ -138,3 +138,12 @@ built-in providers are tested against local HTTP servers.
 The TUI has no automated test. After changing `internal/frontends/tui`, run
 it in tmux and look at it (`tmux capture-pane -p`): a run, typing, cancel with
 Ctrl-C, quit, and the shell being usable afterwards.
+
+The computer tool is tested against a fake screen, and its Wayland client
+against a fake compositor. After changing `internal/computer`, also try it
+on a real desktop, driven by a provider that only follows a script, never a
+model: give what it acts on a monitor of its own (on Hyprland, a headless
+output far from the person's monitors), open the test window there and
+check that it is there, since a program can ignore where it was asked to
+open, and stop at the first screenshot of any other monitor. The tool acts
+on whatever has the focus, which may be what the person is doing.

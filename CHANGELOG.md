@@ -9,8 +9,17 @@ it. The commits hold the reasons.
 
 - `read` shows the model an image file, PNG, JPEG, GIF, or WebP, made
   smaller when it is large, instead of refusing it as binary.
-- An image is kept in the session and sent again with every later
-  request, as any tool result is.
+- **The computer tool**, off unless you turn it on with `rumbo system set
+  computer=on`: the model takes screenshots of your desktop and uses its
+  pointer and keyboard, for programs a shell cannot drive. It works on
+  wlroots compositors such as Hyprland and Sway, with `grim` installed; in
+  X11 sessions, with `xdotool` and `maim` or ImageMagick; and on macOS,
+  once you allow the program that runs rumbo under Screen Recording and
+  Accessibility. It shows the monitor in use, and does nothing more once
+  you move the pointer yourself or turn to another monitor, until the model
+  takes a new screenshot.
+- Images are kept in the session and sent again with every later request,
+  as any tool result is: a screenshot costs about 1,400 tokens each time.
 
 ### Providers
 

@@ -10,13 +10,13 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// Tool describes a tool call by the argument that identifies it: the command
-// or the path.
+// Tool describes a tool call by the argument that identifies it: the command,
+// the path, or the action.
 func Tool(name string, args json.RawMessage) string {
 	var fields map[string]any
 
 	if json.Unmarshal(args, &fields) == nil {
-		for _, key := range []string{"command", "path"} {
+		for _, key := range []string{"command", "path", "action"} {
 			if value, ok := fields[key].(string); ok {
 				return name + " " + FirstLine(value)
 			}
