@@ -34,45 +34,6 @@ var clipboardTypes = []string{"image/png", "image/jpeg", "image/webp", "image/gi
 // errNoImage says the clipboard holds no image a model takes.
 var errNoImage = errors.New("the clipboard holds no image; your terminal pastes text, often with Ctrl-Shift-V")
 
-// pasteImage reads the image in the clipboard into the input, in the
-// background, since the clipboard may take a moment. The caller holds the
-// lock.
-func (u *ui) pasteImage() {
-	if u.question != nil {
-		u.notice = "an answer takes no image"
-		return
-	}
-
-	read := u.clipboard
-
-	if read == nil {
-		read = readClipboard
-	}
-
-	u.wait.Go(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
-		defer cancel()
-
-		data, err := read(ctx)
-		var shown protocol.Image
-
-		if err == nil {
-			shown, err = prepared(data)
-		}
-
-		u.mu.Lock()
-		defer u.mu.Unlock()
-
-		if err != nil {
-			u.notice = err.Error()
-		} else {
-			u.pasted = append(u.pasted, shown)
-		}
-
-		u.footer()
-	})
-}
-
 // prepared returns the image in data as the model will be shown it, which
 // is also what is sent: no larger than it needs to be.
 func prepared(data []byte) (protocol.Image, error) {

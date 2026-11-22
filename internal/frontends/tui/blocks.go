@@ -11,10 +11,10 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// A tool call is shown as a block: while it works, a line in the live area
-// with a spinner and its time; once it is done, a line with how it went,
-// and under it what tells most about it: the change an edit made, or the
-// start of what a command printed, and the end of it when it failed.
+// A tool call is shown as a block: while it works, a line with a spinner
+// and its time; once it is done, a line with how it went, and under it
+// what tells most about it: the change an edit made, or the start of what
+// a command printed, and the end of it when it failed.
 
 const (
 	markDone    = "✓"

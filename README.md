@@ -87,6 +87,15 @@ rumbo -r                                         # resume a run that stopped
 rumbo "summarize notes.md" > summary.txt         # piped: plain text out, exit code
 ```
 
+`rumbo` alone opens the terminal UI, over the whole screen: the project's
+sessions in a sidebar, the conversation, and under it a composer with the
+model and how full its context is. Ctrl-P opens every command, Ctrl-Alt-B
+the session's details, and Ctrl-G what changed in the project as Git sees
+it. Tab goes to the sessions, and Shift-Tab up into the conversation, where
+Enter shows a tool call whole or asks one of your messages again in a
+branch. Dragging the mouse selects text and copies it; `/help` lists the
+rest.
+
 Every setting is changed the same way, as `name=value`, and an empty value
 gives it back to its default: `rumbo system set`, `rumbo provider set`, and
 `rumbo frontend set`, or `/system-set`, `/provider-set`, and `/session-set`

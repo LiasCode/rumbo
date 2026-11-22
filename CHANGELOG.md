@@ -5,14 +5,50 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Terminal UI
+
+- **The terminal UI takes the whole screen**, as rumbo-gui takes a
+  window, and no longer draws inline: the project's sessions are in a
+  sidebar, the conversation in a column of its own, which PgUp, PgDn, and
+  the mouse's wheel scroll, and the composer under it shows the model, how
+  full the context is, and what the session spent. The conversation no
+  longer stays in the terminal once it quits; `/export` writes it to a
+  file.
+- Each session keeps what it showed, and a run goes on in its session
+  while you look at another, which the sidebar marks while it works and
+  when it ends. The mouse, or Tab and the arrows, show a session, and
+  Delete deletes the one chosen; Ctrl-N starts a new session, Ctrl-B puts
+  the sidebar away, and Escape cancels the run.
+- Ctrl-P opens a palette of every command, which typing narrows. One that
+  takes something asks for it in a form that lists the values it takes,
+  one that cannot be undone asks you to agree in a dialog rather than to
+  type yes, and a provider's question, such as a sign-in code, opens in
+  one too, leaving what you were typing as it was. The palette also
+  renames, branches, compacts, and deletes the session.
+- A click on the model under the composer, or the palette's Model and
+  options, chooses the provider, the model, and the options of the
+  session.
+- Ctrl-Alt-B shows the session's details beside the conversation, with its
+  context, tokens, and skills, and Ctrl-G what changed in the project's
+  folder, as Git sees it.
+- Shift-Tab goes up into the conversation: Enter, or a click, on a tool
+  call shows all of it, on your message changes it or asks it again in a
+  branch that starts before it, and on anything else copies it.
+- Dragging the mouse over the conversation or a panel selects its text,
+  and letting go copies it. A code block shows its language and its code
+  alone, so what you select of it is the code.
+- Keys that changed: Ctrl-P and Ctrl-N no longer go back and forward
+  through what you entered, which Up and Down still do; Ctrl-B no longer
+  moves the cursor; and Ctrl-L is gone.
+
 ### Images in what you ask
 
 - **Ctrl-V in the terminal UI pastes the image in the clipboard**, which
   goes to the model with what you send next, a task or what you tell a
   run, or alone. A terminal pastes text only, so rumbo reads the clipboard
   itself: with `wl-paste` on Wayland, `xclip` on X11, and AppKit on macOS.
-  The images wait above the input, and Backspace on an empty line takes the
-  last one away.
+  The images wait in the composer, and Backspace on an empty composer
+  takes the last one away.
 - A front end can give images with a task or a steer, in the new `images`
   field of `run` and `steer`, and a session's history gives them back with
   what was asked. They are made smaller when they are large, kept in the
@@ -23,6 +59,8 @@ it. The commits hold the reasons.
 
 ### Fixes
 
+- The choice selected in the terminal UI's command menu shows in reverse
+  across its whole row, and no longer stops where its description starts.
 - The computer tool no longer ends a program made with GPUI, such as
   rumbo-gui, when it starts typing in a desktop with no keyboard of its
   own, such as a headless Sway: its keyboard has its keymap from the start.

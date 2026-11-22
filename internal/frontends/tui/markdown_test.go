@@ -73,7 +73,11 @@ func TestACodeBlockKeepsItsText(t *testing.T) {
 		shown = append(shown, m.line(text, 40)...)
 	}
 
-	want := []string{"```go", "x := a * b * c", "# not a heading", "~~~", "```", "after"}
+	want := []string{"go", "x := a * b * c", "# not a heading", "~~~", "after"}
+
+	if len(shown) != len(want) {
+		t.Fatalf("shown %q, want %q", shown, want)
+	}
 
 	for index, row := range shown {
 		if plain(row) != want[index] {
@@ -81,7 +85,7 @@ func TestACodeBlockKeepsItsText(t *testing.T) {
 		}
 	}
 
-	if !strings.HasPrefix(shown[1], defaultTheme.code) || !strings.HasPrefix(shown[5], styleBold) {
+	if !strings.HasPrefix(shown[1], defaultTheme.code) || !strings.HasPrefix(shown[4], styleBold) {
 		t.Fatalf("styles: %q", shown)
 	}
 
@@ -93,7 +97,7 @@ func TestACodeBlockKeepsItsText(t *testing.T) {
 		rows = append(rows, nested.line(text, 40)...)
 	}
 
-	if plain(rows[2]) != "**inside**" || plain(rows[5]) != "outside" {
+	if len(rows) != 5 || plain(rows[2]) != "**inside**" || plain(rows[4]) != "outside" {
 		t.Fatalf("nested fences: %q", rows)
 	}
 

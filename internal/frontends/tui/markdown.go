@@ -58,7 +58,15 @@ func (m *markdown) line(text string, width int) []string {
 		m.table = nil
 	}
 
-	return append(shown, m.render(text, width, true))
+	// The fence that closes a code block takes no row.
+	open := m.fence
+	rendered := m.render(text, width, true)
+
+	if open != "" && m.fence == "" {
+		return shown
+	}
+
+	return append(shown, rendered)
 }
 
 // peek shows the line still being written, without taking it.
@@ -89,17 +97,25 @@ func (m *markdown) end() []string {
 // render shows one line outside a table. Only a whole line opens or closes
 // a code block.
 func (m *markdown) render(text string, width int, whole bool) string {
+	// A fence shows as the language of the block it opens, and as nothing
+	// where it closes one, so what a code block shows is its code alone, to
+	// be selected and copied as it is. One inside a block that it does not
+	// close is code, and one still being written shows as it is.
 	if found := fenceLine.FindStringSubmatch(text); found != nil {
 		mark := found[1]
 
 		switch {
 		case m.fence == "" && whole:
 			m.fence = mark
+
+			return styleDim + strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(text), mark[:1])) + styleReset
 		case m.fence != "" && strings.HasPrefix(mark, m.fence) && strings.TrimSpace(text) == mark && whole:
 			m.fence = ""
-		}
 
-		return styleDim + text + styleReset
+			return ""
+		case m.fence == "":
+			return styleDim + text + styleReset
+		}
 	}
 
 	if m.fence != "" {

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/LiasCode/rumbo/internal/frontend"
 	"github.com/LiasCode/rumbo/protocol"
 )
@@ -37,50 +39,43 @@ func holding(data []byte, err error) func(context.Context) ([]byte, error) {
 	}
 }
 
-// Ctrl-V puts the clipboard's image in the input, which shows it above
-// what is typed; Backspace on an empty line takes the last away, and
+// Ctrl-V puts the clipboard's image in the composer, which shows it above
+// what is typed; Backspace on an empty composer takes the last away, and
 // Ctrl-C all of them.
 func TestCtrlVPastesTheClipboardsImage(t *testing.T) {
-	u := quiet()
-	u.clipboard = holding(pngOf(t, 40, 20), nil)
+	s := composing(t)
+	s.a.clipboard = holding(pngOf(t, 40, 20), nil)
 
-	u.press(key{r: 0x16})
-	u.press(key{r: 0x16})
-	u.wait.Wait()
+	s.apply(ctrl('v'))
+	s.apply(ctrl('v'))
 
-	if len(u.pasted) != 2 {
-		t.Fatalf("pasted %d image(s)", len(u.pasted))
+	if len(s.a.pasted) != 2 || !strings.Contains(s.screen(), "[image 1: png, 40×20]  [image 2: png, 40×20]") {
+		t.Fatalf("pasted %d image(s):\n%s", len(s.a.pasted), s.screen())
 	}
 
-	u.footer()
+	s.text("ab")
+	s.press(tea.KeyBackspace)
 
-	if shown := drawn(u); !strings.Contains(shown, "[image 1: png, 40×20]  [image 2: png, 40×20]") {
-		t.Fatalf("the live area shows:\n%s", shown)
+	if len(s.a.pasted) != 2 || s.a.input.String() != "a" {
+		t.Fatalf("Backspace on a line took %d image(s) and left %q", 2-len(s.a.pasted), s.a.input.String())
 	}
 
-	typing(u, "ab")
-	u.press(key{r: 0x7f})
+	s.press(tea.KeyBackspace)
+	s.press(tea.KeyBackspace)
 
-	if len(u.pasted) != 2 || u.input.String() != "a" {
-		t.Fatalf("Backspace on a line took %d image(s) and left %q", 2-len(u.pasted), u.input.String())
+	if len(s.a.pasted) != 1 || !s.a.input.empty() {
+		t.Fatalf("Backspace on an empty composer left %d image(s)", len(s.a.pasted))
 	}
 
-	u.press(key{r: 0x7f})
-	u.press(key{r: 0x7f})
+	s.apply(ctrl('c'))
 
-	if len(u.pasted) != 1 || !u.input.empty() {
-		t.Fatalf("Backspace on an empty line left %d image(s)", len(u.pasted))
-	}
-
-	u.press(key{r: 0x03})
-
-	if len(u.pasted) != 0 {
+	if len(s.a.pasted) != 0 {
 		t.Fatal("Ctrl-C left the images")
 	}
 }
 
 // What the clipboard holds that is no image is said, and nothing is put in
-// the input.
+// the composer.
 func TestAClipboardWithoutAnImageIsSaid(t *testing.T) {
 	for _, held := range []struct {
 		data []byte
@@ -91,14 +86,13 @@ func TestAClipboardWithoutAnImageIsSaid(t *testing.T) {
 		{[]byte("just text"), nil, "not a PNG, JPEG, GIF, or WebP"},
 		{nil, errors.New("no access"), "no access"},
 	} {
-		u := quiet()
-		u.clipboard = holding(held.data, held.err)
+		s := composing(t)
+		s.a.clipboard = holding(held.data, held.err)
 
-		u.press(key{r: 0x16})
-		u.wait.Wait()
+		s.apply(ctrl('v'))
 
-		if len(u.pasted) != 0 || !strings.Contains(u.notice, held.said) {
-			t.Errorf("pasted %d, notice %q; want it to say %q", len(u.pasted), u.notice, held.said)
+		if len(s.a.pasted) != 0 || !strings.Contains(s.a.notice, held.said) {
+			t.Errorf("pasted %d, notice %q; want it to say %q", len(s.a.pasted), s.a.notice, held.said)
 		}
 	}
 }
@@ -134,52 +128,50 @@ func TestTheClipboardIsReadForAnImage(t *testing.T) {
 
 // Enter sends the images with what is typed, or alone, as a task, and the
 // conversation shows them under it; the history shows them where they were
+// Enter sends the images with what is typed, or alone, as a task, and the
+// conversation shows them under it; the history shows them where they were
 // given.
 func TestPastedImagesGoWithTheTask(t *testing.T) {
-	u := quiet()
 	given := make(chan protocol.RunParams, 2)
-	u.conn = attached(t, func(params protocol.RunParams, run *frontend.Run) (frontend.Work, error) {
+
+	s := staged(t, frontend.Handlers{Run: func(params protocol.RunParams, run *frontend.Run) (frontend.Work, error) {
 		given <- params
 
 		return func(context.Context) (string, error) { return "s1", nil }, nil
-	})
-	u.clipboard = holding(pngOf(t, 40, 20), nil)
+	}}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
 
-	u.press(key{r: 0x16})
-	u.wait.Wait()
-	typing(u, "what is this?")
-	u.press(key{r: '\r'})
-	u.wait.Wait()
+	s.a.clipboard = holding(pngOf(t, 40, 20), nil)
+
+	s.apply(ctrl('v'))
+	s.typing("what is this?")
 
 	sent := <-given
 
-	if sent.Objective != "what is this?" || len(sent.Images) != 1 || len(u.pasted) != 0 {
-		t.Fatalf("sent %q with %d image(s); %d left in the input", sent.Objective, len(sent.Images), len(u.pasted))
+	if sent.Objective != "what is this?" || len(sent.Images) != 1 || len(s.a.pasted) != 0 {
+		t.Fatalf("sent %q with %d image(s); %d left in the composer", sent.Objective, len(sent.Images), len(s.a.pasted))
 	}
 
-	if shown := drawn(u); !inOrder(shown, "what is this?", "[image 1: png, 40×20]") {
-		t.Fatalf("the conversation shows:\n%s", shown)
+	if screen := s.screen(); !inOrder(screen, "what is this?", "[image 1: png, 40×20]") {
+		t.Fatalf("the conversation shows:\n%s", screen)
 	}
 
-	u.press(key{r: 0x16})
-	u.wait.Wait()
-	u.press(key{r: '\r'})
-	u.wait.Wait()
+	s.apply(ctrl('v'))
+	s.press(tea.KeyEnter)
 
 	if alone := <-given; alone.Objective != "" || len(alone.Images) != 1 {
 		t.Fatalf("an image alone was sent as %q with %d image(s)", alone.Objective, len(alone.Images))
 	}
 
-	u.tell(&job{}, protocol.Event{Type: protocol.EventObjective, Text: "and this?", Images: []protocol.Image{{MediaType: "image/png", Data: pngOf(t, 8, 6)}}})
+	s.a.shown.apply(protocol.Event{Type: protocol.EventObjective, Text: "and this?", Images: []protocol.Image{{MediaType: "image/png", Data: pngOf(t, 8, 6)}}}, true, time.Now())
 
-	if shown := drawn(u); !inOrder(shown, "and this?", "[image 1: png, 8×6]") {
-		t.Fatalf("the history shows:\n%s", shown)
+	if screen := s.screen(); !inOrder(screen, "and this?", "[image 1: png, 8×6]") {
+		t.Fatalf("the history shows:\n%s", screen)
 	}
 }
 
-// attached returns a front end's connection to a host whose runs are
-// handled by run.
-func attached(t *testing.T, run func(protocol.RunParams, *frontend.Run) (frontend.Work, error)) *protocol.FrontendConn {
+// hosted returns a front end's connection to a host that handlers answer,
+// which tells the front end info when it starts.
+func hosted(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInitializeParams) *protocol.FrontendConn {
 	t.Helper()
 
 	hostReads, frontendWrites := io.Pipe()
@@ -196,13 +188,13 @@ func attached(t *testing.T, run func(protocol.RunParams, *frontend.Run) (fronten
 		dialed <- conn
 	}()
 
-	host, err := frontend.Connect(hostReads, hostWrites, protocol.FrontendInitializeParams{Model: "m"})
+	host, err := frontend.Connect(hostReads, hostWrites, info)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	go host.Serve(frontend.Handlers{Run: run})
+	go host.Serve(handlers)
 	t.Cleanup(func() { frontendWrites.Close() })
 
 	return <-dialed

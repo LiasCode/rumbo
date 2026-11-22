@@ -404,100 +404,134 @@ speaks the Agent Frontend Protocol with the host.
 
 **`tui`**, the terminal UI:
 
-- It draws inline, below what the terminal showed before: the
-  conversation goes into the terminal's own scrollback, and a live area
-  under it shows the line the model is still writing, the menu while a
-  command is typed, the input, and the status bar.
-- What the model writes shows as the Markdown it is: headings, lists,
-  quotes, code, bold, italics, links, and tables with their columns lined
-  up. Code keeps its text, so it can be copied as it is.
-- A tool call shows in the live area while it works, with its time, and
-  then as a block that says how it went: an edit with the lines it changed,
-  a command with the start of what it printed, or, when it failed, with its
-  status and the end of what it printed. A blank line sets the calls apart
-  from the text around them.
+- It takes the whole screen, as rumbo-gui takes a window: a header with
+  the project and the session shown; the project's sessions in a sidebar,
+  which marks those working and those whose run ended while they were not
+  shown; the conversation in a column of its own, which PgUp, PgDn, and
+  the mouse's wheel scroll; and under it a composer with the model, how
+  full the context is, and what the session spent, over a line that says
+  what the keys do. The conversation goes with the screen when it quits.
+- What the person said shows in a box on the right, and what the model
+  writes as the Markdown it is: headings, lists, quotes, code, bold,
+  italics, links, and tables with their columns lined up. A code block
+  shows its language and its code alone, so it can be selected and copied
+  as it is.
+- A tool call shows with a spinner and its time while it works, and then
+  as a block that says how it went: an edit with the lines it changed, a
+  command with the start of what it printed, or, when it failed, with its
+  status and the end of what it printed.
 - A run ends with a line that says how it ended, how long it took, and its
   turns and tokens.
-- A session opened, branched to, or continued shows what it holds first,
-  told as its runs were shown.
+- Each session keeps what it showed, and one shown for the first time
+  shows what it holds first, told as its runs were shown. A run goes on in
+  its session while another is shown: the header counts those runs, and
+  when one ends the sidebar marks its session and a line says so.
+- The mouse, or Tab on an empty composer, the arrows, and Enter, show a
+  session of the sidebar, and Delete deletes the one chosen there, once the
+  person agrees. Ctrl-N starts a new session, and Ctrl-B shows or puts
+  away the sidebar.
 - Enter sends a task. During a run it tells the run what was typed, which
-  shows once the model has it, and goes back to the input if the run ended
-  first.
+  shows once the model has it, and goes back to the composer if the run
+  ended first.
+- Ctrl-P opens a palette of its own actions, the project's other sessions,
+  and every command, which typing narrows. A command that takes something
+  asks for it in a form, where each field offers the values its
+  parameter's function lists, asked with what was given for the fields
+  before it, and takes any value typed instead. One that cannot be undone
+  asks to be agreed to in a dialog, which starts on the button that leaves
+  things as they are. The palette also renames, branches, compacts,
+  deletes, and copies the id of the session shown.
+- The picker, from the palette or a click on the model under the composer,
+  changes the provider, the model, and the options of the session, with
+  `use` and `session-set`, each change shown as the command it is.
+- Beside the conversation, Ctrl-Alt-B shows the session's details: its id
+  and how it stands, its folder, its model, how full its context is and
+  what it spent, and what the host's `skills` and `status` say, laid out by
+  the shape of their lines; and Ctrl-G what changed in the project's
+  folder, as Git sees it against the last commit, new files included,
+  which it only reads, with Git's optional locks off. Where there is no
+  room for both, the panel takes the conversation's place.
+- Shift-Tab goes up into the conversation, where Up and Down choose an
+  entry and Enter acts on it, as a click on it does: a tool call shows all
+  it was given and returned, or goes back to its excerpt; what the person
+  asked can be changed, or asked again, in a branch that starts before it
+  (`branch` with its `point`); and anything else is copied.
+- Dragging the mouse over the conversation or the panel selects its text,
+  shown in reverse, within the part the drag started in, and letting go
+  copies it, to the clipboard and to the primary selection; the
+  conversation holds still while text is selected. Text is copied with
+  OSC 52, so it also works over ssh, in the terminals that take it; in
+  tmux, with `set-clipboard on`. With Shift, the terminal selects as it
+  does elsewhere.
 - Its commands are the functions the host and the provider describe, but
   for those there to list a parameter's values, and its own, which come
   before one of theirs of the same name: `/help`, `/copy`, and `/export`.
   `/help` lists the host's by what they act on: the system, the session,
   and the providers.
 - `/copy` puts the model's last answer in the clipboard, and `/copy code`
-  only its last code block, with OSC 52, so it also works over ssh, in the
-  terminals that take it; in tmux, with `set-clipboard on`.
+  only its last code block.
 - `/export` writes the current session as Markdown, from its history: what
   was asked, what the model wrote, each tool call with the change it made
   or the start of what it returned, and how each run ended. It writes to
   the path given, from the session's directory, or to `rumbo-<session>.md`
   there, and never over a file that exists.
-- A slash opens a menu of the commands, with what each does, and after a
-  command, of what its next parameter takes, with what the host or the
-  provider says of each value: a session's title, the text of a message to
-  branch before. It narrows as one types, by value or by what describes
-  it; Up and Down choose, Tab or Enter take, and Escape closes it. Enter on
-  a command that needs nothing more sends it, and on one that still needs
-  something opens the menu of what it takes next, or says what that is:
-  `/open` lists the sessions, and `/use openai` the models of `openai`.
-  After `/session-set `, `/provider-set <provider> `, and `/system-set `,
-  the menu offers the changes each takes as `name=value`, with those in
-  force marked.
+- A slash in the composer opens a menu of the commands, with what each
+  does, and after a command, of what its next parameter takes, with what
+  the host or the provider says of each value: a session's title, the text
+  of a message to branch before. It narrows as one types, by value or by
+  what describes it; Up and Down choose, Tab or Enter take, and Escape
+  closes it. Enter on a command that needs nothing more sends it, and on
+  one that still needs something opens the menu of what it takes next, or
+  says what that is: `/open` lists the sessions, and `/use openai` the
+  models of `openai`. After `/session-set `, `/provider-set <provider> `,
+  and `/system-set `, the menu offers the changes each takes as
+  `name=value`, with those in force marked.
 - Answers, errors, and diagnostics are marked `[host]` or `[provider
   <name>]`, by where they come from.
-- `/new` or `/open` during a run leaves the run working in the background.
-  The status bar counts those runs, and a line says when each one ends.
 - What a provider's function says shows marked as the provider's. Its
-  question takes the next line typed; a secret one shows as dots and is kept
-  nowhere, not even in the history.
-- The input takes several lines: Enter sends it, and Alt-Enter,
+  question opens in a dialog with a line of its own for the answer, so
+  what was typed in the composer stays; a secret answer shows as dots and
+  is kept nowhere, not even in the history.
+- The composer takes several lines: Enter sends them, and Alt-Enter,
   Shift-Enter, or Ctrl-J starts a new line. Pasted text keeps its line
   breaks. It grows to ten rows, or a third of a short screen, and then
   scrolls with the cursor.
 - Up and Down move through the rows typed, and past them through what was
-  entered, as Ctrl-P and Ctrl-N do; Ctrl-R searches it. It starts with what
-  the host recalls of the project's sessions, and adds what is entered
-  while it runs, commands too, which it keeps nowhere; answers to a
-  question or a confirmation are not in it.
+  entered; Ctrl-R searches it. It starts with what the host recalls of the
+  project's sessions, and adds what is entered while it runs, commands
+  too, which it keeps nowhere; answers to a question are not in it.
 - Ctrl-V reads the image in the desktop's clipboard, with `wl-paste` on
   Wayland, `xclip` on X11, or AppKit on macOS, since a terminal pastes text
-  only; the images wait above the input for what is sent next, and
-  Backspace on an empty line takes the last one away.
-- Ctrl-C gives up a provider's function in progress, else cancels the run,
-  else clears the input, else quits; Ctrl-D quits on an empty input, and
-  Ctrl-L starts the screen again, the conversation kept in the scrollback.
-- The input edits where the cursor is, with readline's keys: Left, Right,
-  Home, and End, or Ctrl-B, Ctrl-F, Ctrl-A, and Ctrl-E, move in it, and by
+  only; the images wait in the composer for what is sent next, and
+  Backspace on an empty composer takes the last one away.
+- Escape gives up a provider's function in progress, else cancels the run
+  of the session shown. Ctrl-C does the same, else clears the composer,
+  else quits; Ctrl-D quits on an empty composer.
+- The composer edits where the cursor is, with readline's keys: Left,
+  Right, Home, and End, or Ctrl-F, Ctrl-A, and Ctrl-E, move in it, and by
   words with Ctrl or Alt and the arrows, or Alt-B and Alt-F; Delete or
   Ctrl-D deletes under the cursor, and Ctrl-W, Ctrl-U, and Ctrl-K delete a
   word back, to the start of the line, and to its end.
-- The status bar shows what is happening, with the time a run has worked,
-  the provider and the model, or that there is no model yet, the session,
-  and the runs in the background; and, on the right, how full the context
-  is, as a bar that
-  turns yellow past half and red past four fifths, and the tokens the
-  session has spent. What does not fit leaves, the least needed first.
-- A run in the background that ends says so, with what it took and how to
-  open its session. When a run ends, or a provider's function asks
-  something, while the terminal is not in front, it rings the terminal's
-  bell and sends a desktop notification, in the terminals that report
-  their focus and take OSC 9; in tmux, with `focus-events` on.
+- The composer's last row shows the provider and the model, or that there
+  is no model yet; how full the context is, as a bar that turns yellow
+  past half and red past four fifths; the tokens the session has spent;
+  and how the run of the session shown stands. What does not fit leaves,
+  the least needed first.
+- When a run ends, or a provider's function asks something, while the
+  terminal is not in front, it rings the terminal's bell and sends a
+  desktop notification, in the terminals that report their focus and take
+  OSC 9; in tmux, with `focus-events` on.
 - Its start configuration chooses its colors: `theme` is `auto`, which
   shows them unless `NO_COLOR` is set, `color`, or `plain`, which shows
   none; and `color_host`, `color_provider`, `color_code`, `color_success`,
   `color_failure`, `color_warning`, and `color_progress` each take a name,
   such as `cyan` or `bright-blue`, a number of the 256 colors, written as
   text or as a number, `#rrggbb`, or `default`. It says the configuration
-  in force, with its defaults,
-  and one it cannot use stops it with what is wrong, before it takes the
-  terminal.
-- It gives the terminal back as it found it, when it quits or the host ends,
-  and leaves under the conversation the command that continues its
-  session, `rumbo -s <session>`.
+  in force, with its defaults, and one it cannot use stops it with what is
+  wrong, before it takes the terminal.
+- It gives the terminal back as it found it, when it quits or the host
+  ends, and leaves in it the command that continues its session,
+  `rumbo -s <session>`.
 
 **`plain`**, for pipes and scripts:
 

@@ -1,9 +1,8 @@
 package tui
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,11 +15,10 @@ import (
 // The last answer is what the model wrote since the last thing that was
 // not text, and /copy sends it, or its last code block, to the clipboard.
 func TestCopyTakesTheLastAnswer(t *testing.T) {
-	u := quiet()
-	run := &job{}
+	s := composing(t)
 
-	if _, err := u.copyAnswer(nil); err == nil {
-		t.Fatal("copied an answer there is not")
+	if s.a.copyReply(nil) != nil || !strings.Contains(s.screen(), "there is no answer to copy yet") {
+		t.Fatalf("copied an answer there is not:\n%s", s.screen())
 	}
 
 	for _, event := range []protocol.Event{
@@ -31,25 +29,22 @@ func TestCopyTakesTheLastAnswer(t *testing.T) {
 		{Type: protocol.EventTurn, Usage: &protocol.Usage{}},
 		{Type: protocol.EventText, Text: "```\nDone.\n"},
 	} {
-		u.tell(run, event)
+		s.a.shown.apply(event, false, time.Now())
 	}
 
 	for args, want := range map[string]string{
 		"":     "Here:\n```go\nfmt.Println(1)\n```\nDone.",
 		"code": "fmt.Println(1)",
 	} {
-		written := u.screen.out.(*bytes.Buffer)
-		written.Reset()
+		copied := s.a.copyReply(strings.Fields(args))
 
-		copied, err := u.copyAnswer(strings.Fields(args))
-		sent := escape + "]52;c;" + base64.StdEncoding.EncodeToString([]byte(want)) + "\a"
-
-		if err != nil || !strings.Contains(written.String(), sent) || !strings.Contains(copied.text, "line(s) to the clipboard") {
-			t.Fatalf("/copy %s: %q, %v; wrote %q", args, copied.text, err, written.String())
+		// What goes to the clipboard is what the program sends the terminal.
+		if copied == nil || fmt.Sprint(copied()) != want || !strings.Contains(s.screen(), "line(s) to the clipboard") {
+			t.Fatalf("/copy %s sent %v", args, copied)
 		}
 	}
 
-	if _, err := u.copyAnswer([]string{"all"}); err == nil {
+	if s.a.copyReply([]string{"all"}) != nil {
 		t.Fatal("/copy all was taken")
 	}
 }

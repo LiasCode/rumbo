@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,41 +16,6 @@ import (
 // exportedLines bounds the lines of what a tool returned that an export
 // keeps.
 const exportedLines = 40
-
-// export writes what the current session holds as Markdown: to the path
-// given, which is taken from the session's directory, or to
-// rumbo-<session>.md there. It never writes over a file that exists.
-func (u *ui) export(args []string) (answer, error) {
-	u.mu.Lock()
-	session, dir := u.session, u.info.Dir
-	u.mu.Unlock()
-
-	if session == "" {
-		return answer{}, errors.New("this session holds nothing yet")
-	}
-
-	told, err := u.conn.History(session)
-
-	if err != nil {
-		return answer{}, err
-	}
-
-	path := filepath.Join(dir, "rumbo-"+session+".md")
-
-	if len(args) > 0 {
-		path = strings.Join(args, " ")
-
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(dir, path)
-		}
-	}
-
-	if err := writeNew(path, markdownOf(told, time.Now())); err != nil {
-		return answer{}, err
-	}
-
-	return answer{text: "wrote the session to " + path}, nil
-}
 
 // writeNew writes text to a file that does not exist yet, and leaves one
 // that does as it is.

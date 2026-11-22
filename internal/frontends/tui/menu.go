@@ -116,8 +116,10 @@ func (m *menu) rows(width int) []string {
 
 		row = pad(cut(row, width-1), width-1)
 
+		// The selection shows across the whole row, whatever styles its
+		// parts have.
 		if index == m.selected {
-			row = styleReverse + "▸" + row[1:] + styleReset
+			row = styleReverse + "▸" + string([]rune(stripped(row))[1:]) + styleReset
 		}
 
 		rows = append(rows, row)

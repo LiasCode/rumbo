@@ -135,9 +135,23 @@ and a provider that only records the request settles it without a model.
 Tests never call a real model: the agent uses a scripted `Provider`, and the
 built-in providers are tested against local HTTP servers.
 
-The TUI has no automated test. After changing `internal/frontends/tui`, run
-it in tmux and look at it (`tmux capture-pane -p`): a run, typing, cancel with
-Ctrl-C, quit, and the shell being usable afterwards.
+The TUI's state is tested by driving it with messages (`app_test.go`'s
+stage), but nothing tests what a terminal draws of it. After changing
+`internal/frontends/tui`, run it in tmux and look at it (`tmux capture-pane
+-p`): a run, typing, cancel with Ctrl-C, quit, and the shell being usable
+afterwards; another session opened from the sidebar while a run works, and
+coming back to it once it ends; a command from Ctrl-P with a form and one
+with a confirmation; the picker changing the model and an option, and a
+run that uses them; a provider's function that asks a secret, answered and
+given up with Escape; both panels, Ctrl-G on a folder with edits and on
+one outside Git, and Ctrl-Alt-B; a tool call shown whole and back; a
+message asked again in a branch; and text selected by dragging the
+pointer. `tmux send-keys` takes some words as key names, `delete` among
+them: send text with `-l`; it sends an Escape and the key after it at
+once, which reads as Alt and that key, so give them apart; and the pointer
+is sent as the terminal reports it, `-l` with `\e[<0;X;YM` for the left
+button going down on column X and row Y, counted from 1, `\e[<32;X;YM`
+for it moving held, and `\e[<0;X;Ym` for it coming up.
 
 The computer tool is tested against a fake screen, and its Wayland client
 against a fake compositor. After changing `internal/computer`, also try it

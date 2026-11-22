@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,77 +9,6 @@ import (
 
 	"github.com/LiasCode/rumbo/protocol"
 )
-
-// drawn is what u's terminal shows after all it wrote: the scrollback and
-// the live area under it, as lines, read by playing back the sequences the
-// screen sends. Styles are left out.
-func drawn(u *ui) string {
-	var lines [][]rune
-
-	row, column := 0, 0
-	out := []rune(u.screen.out.(*bytes.Buffer).String())
-
-	for index := 0; index < len(out); index++ {
-		for len(lines) <= row {
-			lines = append(lines, nil)
-		}
-
-		switch r := out[index]; {
-		case r == 0x1b && index+1 < len(out) && out[index+1] == '[':
-			end := index + 2
-
-			for end < len(out) && (out[end] < 0x40 || out[end] > 0x7e) {
-				end++
-			}
-
-			count := 1
-			fmt.Sscanf(string(out[index+2:end]), "%d", &count)
-
-			switch out[end] {
-			case 'A':
-				row = max(row-count, 0)
-			case 'B':
-				row++
-			case 'C':
-				column += count
-			case 'K':
-				lines[row] = nil
-			}
-
-			index = end
-
-		case r == 0x1b:
-			index++
-
-		case r == '\r':
-			column = 0
-
-		case r == '\n':
-			row++
-
-		default:
-			for len(lines[row]) < column {
-				lines[row] = append(lines[row], ' ')
-			}
-
-			if column < len(lines[row]) {
-				lines[row][column] = r
-			} else {
-				lines[row] = append(lines[row], r)
-			}
-
-			column++
-		}
-	}
-
-	shown := make([]string, len(lines))
-
-	for index, line := range lines {
-		shown[index] = strings.TrimRight(string(line), " ")
-	}
-
-	return strings.Join(shown, "\n")
-}
 
 // inOrder reports whether text holds each part, one after the other.
 func inOrder(text string, parts ...string) bool {
@@ -97,183 +25,140 @@ func inOrder(text string, parts ...string) bool {
 	return true
 }
 
-// A run shows what the model writes as Markdown, each call as a block set
-// apart from the text, and how it ended with what it took.
-func TestARunIsShownAsItWorks(t *testing.T) {
-	u := quiet()
-	run := &job{tally: tally{started: time.Now()}}
-	u.here = run
+// kinds lists the kinds of what a conversation shows, in order.
+func kinds(c *conversation) []int {
+	listed := make([]int, len(c.entries))
+
+	for index, each := range c.entries {
+		listed[index] = each.kind
+	}
+
+	return listed
+}
+
+// plainRows is what a conversation shows at width, without its styles.
+func plainRows(c *conversation, width int) string {
+	rows := c.rows(defaultTheme, width, time.Now())
+
+	for index, row := range rows {
+		rows[index] = strings.TrimRight(stripped(row), " ")
+	}
+
+	return strings.Join(rows, "\n")
+}
+
+// The model's text streams into one reply until something else comes, and
+// a turn's usage is no such thing.
+func TestTextStreamsIntoOneReply(t *testing.T) {
+	c := newConversation("s1", func(string) string { return "" })
+	now := time.Now()
 
 	for _, event := range []protocol.Event{
-		{Type: protocol.EventText, Text: "## Pl"},
-		{Type: protocol.EventText, Text: "an\nLooking.\n"},
-		{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"ls"}`)},
-		{Type: protocol.EventToolFinished, Name: "bash", Result: "a.txt"},
-		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 1500, Output: 20}},
-		{Type: protocol.EventText, Text: "Done."},
-		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 1600, Output: 5}},
+		{Type: protocol.EventText, Text: "Hi"},
+		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 10}},
+		{Type: protocol.EventText, Text: " there"},
+		{Type: protocol.EventContext, Sections: []string{"environment"}},
+		{Type: protocol.EventText, Text: "Again"},
 	} {
-		u.tell(run, event)
+		c.apply(event, false, now)
 	}
 
-	u.end(run, protocol.RunResult{Status: protocol.RunDone}, nil)
-
-	if shown := drawn(u); !inOrder(shown, "Plan\nLooking.\n\n✓ bash ls\n    a.txt\n\nDone.\n\n✓ done  ", "2 turns · 3.1k in, 0 cached, 25 out") {
-		t.Fatalf("shown:\n%s", shown)
+	if got := kinds(c); fmt.Sprint(got) != fmt.Sprint([]int{entryReply, entryContext, entryReply}) {
+		t.Fatalf("kinds %v", got)
 	}
 
-	if u.tool != nil || u.partial != "" {
-		t.Fatalf("left behind: tool %v, partial %q", u.tool, u.partial)
+	if c.entries[0].text != "Hi there" || c.entries[0].open || !c.entries[2].open || c.reply != "Again" {
+		t.Fatalf("replies %q (open %v), %q (open %v); last answer %q", c.entries[0].text, c.entries[0].open, c.entries[2].text, c.entries[2].open, c.reply)
 	}
 }
 
-// A session's history is told as its runs were shown: the objective before
-// the context it started with, a call that never finished said to be so,
-// and what the runs spent counted.
-func TestAHistoryIsToldAsARunIs(t *testing.T) {
-	u := quiet()
+// A result goes to the oldest call of its tool still working, and a new
+// task leaves the calls that never finished as they stand.
+func TestAResultGoesToTheOldestCallOfItsTool(t *testing.T) {
+	c := newConversation("s1", func(string) string { return "" })
+	now := time.Now()
 
-	u.retell(protocol.HistoryResult{Session: "4cf0261c", Events: []protocol.Event{
+	for _, event := range []protocol.Event{
+		{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"ls"}`)},
+		{Type: protocol.EventToolStarted, Name: "read", Args: json.RawMessage(`{"path":"a.txt"}`)},
+		{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"false"}`)},
+		{Type: protocol.EventToolFinished, Name: "bash", Result: "a.txt"},
+	} {
+		c.apply(event, false, now)
+	}
+
+	if !c.entries[0].finished || c.entries[0].result != "a.txt" || !c.entries[1].working() || !c.entries[2].working() || !c.working() {
+		t.Fatalf("calls: %+v %+v %+v", c.entries[0], c.entries[1], c.entries[2])
+	}
+
+	c.ask("go on", nil, false, now)
+
+	if c.working() || c.entries[1].why != "it never finished" {
+		t.Fatalf("after a new task: working %v, why %q", c.working(), c.entries[1].why)
+	}
+
+	if shown := plainRows(c, 60); !inOrder(shown, "✓ bash ls", "    a.txt", "· read a.txt  (it never finished)", "· bash false  (it never finished)", "go on") {
+		t.Fatalf("shown:\n%s", shown)
+	}
+}
+
+// A session's history is told before what the conversation shows: each
+// objective before the context its run started with, a call that never
+// finished said to be so, how each run ended, and what they spent.
+func TestAHistoryIsToldBeforeWhatFollows(t *testing.T) {
+	c := newConversation("s1", func(source string) string { return "[" + source + "]" })
+	c.add(&entry{kind: entryAnswer, text: "an answer"})
+
+	c.told([]protocol.Event{
 		{Type: protocol.EventContext, Sections: []string{"environment"}},
 		{Type: protocol.EventObjective, Text: "fix it"},
 		{Type: protocol.EventText, Text: "On it."},
 		{Type: protocol.EventToolStarted, Name: "edit", Args: json.RawMessage(`{"path":"a.go","old":"x","new":"y"}`)},
-		{Type: protocol.EventToolFinished, Name: "edit", Result: "edited a.go (1 replacement(s))"},
-		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 100, Output: 7}, Context: 107},
-		{Type: protocol.EventEnded, Status: protocol.RunDone},
-		{Type: protocol.EventObjective, Text: "and the tests"},
-		{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"go test"}`)},
-	}})
+		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 1200, Output: 40}, Context: 1300, Window: 200000},
+		{Type: protocol.EventEnded, Status: protocol.RunCancelled},
+	}, time.Now())
 
-	if shown := drawn(u); !inOrder(shown, "── session 4cf0261c", "> fix it", "context: environment", "On it.", "✓ edit a.go", "- x", "+ y", "✓ done  1 turn", "> and the tests", "· bash go test  (it never finished)") {
+	want := []int{entryTask, entryContext, entryReply, entryTool, entryEnded, entryAnswer}
+
+	if got := kinds(c); fmt.Sprint(got) != fmt.Sprint(want) || !c.loaded {
+		t.Fatalf("kinds %v, loaded %v", got, c.loaded)
+	}
+
+	if context, window := c.usage.Fill(); context != 1300 || window != 200000 || c.usage.Total().Input != 1200 {
+		t.Fatalf("usage: context %d of %d, %+v", context, window, c.usage.Total())
+	}
+
+	if shown := plainRows(c, 60); !inOrder(shown, "fix it", "context: environment", "On it.", "· edit a.go  (it never finished)", "✗ cancelled  1 turn · 1.2k in, 0 cached, 40 out", "an answer") {
 		t.Fatalf("shown:\n%s", shown)
-	}
-
-	if strings.Contains(drawn(u), "✓ done  0.") {
-		t.Fatal("a run told by a history has a time")
-	}
-
-	if got := u.usage.String(); got != "100 in, 0 cached, 7 out" || u.usage.Context() == "" {
-		t.Fatalf("usage = %q, context %q", got, u.usage.Context())
 	}
 }
 
-// The status bar says what is happening, the model, and the session on the
-// left, and how full the context is and what was spent on the right, and
-// leaves out what does not fit, the least needed first.
-func TestTheStatusBarKeepsWhatMattersMost(t *testing.T) {
-	u := quiet()
-	u.info.Provider, u.info.Model, u.session = "anthropic", "claude-opus-5-5", "4cf0261c"
-	u.usage.Turn(protocol.Event{Usage: &protocol.Usage{Input: 4500, CacheWrite: 1500, CacheRead: 4500, Output: 425}, Context: 84000, Window: 200000})
-
+// What the person said shows in a box on the right of the column, what the
+// model wrote as Markdown, and no row is wider than the column.
+func TestTheConversationIsDrawnInItsColumn(t *testing.T) {
+	c := newConversation("s1", func(string) string { return "" })
 	now := time.Now()
 
-	for width, want := range map[int][]string{
-		120: {"ready · anthropic/claude-opus-5-5 · session 4cf0261c", "▰▰▰▰▱▱▱▱▱▱ 42% of 200k · 6k in, 4.5k cached, 425 out"},
-		80:  {"ready · anthropic/claude-opus-5-5 · session 4cf0261c", "▰▰▰▰▱▱▱▱▱▱ 42% of 200k"},
-		60:  {"ready · anthropic/claude-opus-5-5", "42% of 200k"},
-		30:  {"ready"},
-	} {
-		got := plain(u.status(width, now))
+	c.ask("fix\tthe failing test", nil, false, now)
+	c.apply(protocol.Event{Type: protocol.EventText, Text: "## Plan\nRun **the tests**, which take a long while to finish, and then fix what fails.\n```go\n\tfmt.Println(1)\n```\n"}, false, now)
+	c.end(protocol.RunDone, "", now)
 
-		if visibleWidth(got) > width || !inOrder(got, want...) {
-			t.Errorf("at %d columns: %q, want %q", width, got, want)
-		}
+	rows := c.rows(defaultTheme, 40, now)
 
-		if width == 30 && strings.Contains(got, "session") {
-			t.Errorf("at 30 columns: %q", got)
+	for _, row := range rows {
+		if visibleWidth(row) > 40 {
+			t.Fatalf("a row is wider than the column: %q", stripped(row))
 		}
 	}
 
-	if meter := plain(contextMeter(defaultTheme, 190000, 200000)); meter != "▰▰▰▰▰▰▰▰▰▱ 95% of 200k" || !strings.Contains(contextMeter(defaultTheme, 190000, 200000), styleRed) {
-		t.Fatalf("a full context: %q", meter)
+	shown := plainRows(c, 40)
+	lines := strings.Split(shown, "\n")
+
+	if !strings.HasSuffix(lines[0], "╮") || len([]rune(lines[0])) != 40 || !strings.Contains(lines[1], "│ fix    the failing test │") {
+		t.Fatalf("the person's words are not on the right:\n%s", shown)
 	}
 
-	if meter := contextMeter(defaultTheme, 2200, 0); meter != "context 2.2k" {
-		t.Fatalf("a context of no known size: %q", meter)
-	}
-}
-
-// A run that ends while the terminal is not in front rings its bell and
-// sends a notification; one that ends in front of the person does not.
-func TestARunThatEndsAwayIsNotified(t *testing.T) {
-	u := quiet()
-	written := u.screen.out.(*bytes.Buffer)
-
-	for _, unfocused := range []bool{false, true} {
-		run := &job{label: "fix the parser\nand its tests", tally: tally{started: time.Now()}}
-		u.here = run
-		u.press(key{name: map[bool]string{false: keyFocusIn, true: keyFocusOut}[unfocused]})
-
-		written.Reset()
-		u.end(run, protocol.RunResult{Status: protocol.RunDone}, nil)
-
-		notified := strings.Contains(written.String(), "\a"+escape+"]9;rumbo: done · fix the parser\a")
-
-		if notified != unfocused {
-			t.Fatalf("unfocused %v: notified %v, wrote %q", unfocused, notified, written.String())
-		}
-	}
-}
-
-// A run in the background counts what it takes, and says how it ended and
-// where to see it.
-func TestARunInTheBackgroundSaysHowItEnded(t *testing.T) {
-	u := quiet()
-	away := &job{session: "57ffcc97", tally: tally{started: time.Now()}}
-	u.away = []*job{away}
-
-	u.show(away, protocol.Event{Type: protocol.EventText, Run: 2, Text: "not shown"})
-	u.show(away, protocol.Event{Type: protocol.EventTurn, Run: 2, Usage: &protocol.Usage{Input: 1200, Output: 30}})
-	u.end(away, protocol.RunResult{Status: protocol.RunDone, Session: "57ffcc97"}, nil)
-
-	shown := drawn(u)
-
-	if strings.Contains(shown, "not shown") || !inOrder(shown, "◆ session 57ffcc97, in the background: ✓ done", "1 turn · 1.2k in, 0 cached, 30 out", "/open 57ffcc97 shows it") {
+	if !inOrder(shown, "Plan", "Run the tests, which take a long while\nto finish, and then fix what fails.", "    fmt.Println(1)", "✓ done") {
 		t.Fatalf("shown:\n%s", shown)
-	}
-
-	if len(u.away) != 0 {
-		t.Fatalf("still away: %v", u.away)
-	}
-}
-
-// A run that goes to the background as the session changes leaves what it
-// was showing in the scrollback, its call said to go on there, and nothing
-// of it in the live area.
-func TestARunLeftBehindTakesNothingOfTheLiveArea(t *testing.T) {
-	u := quiet()
-	run := &job{session: "4cf0261c", tally: tally{started: time.Now()}}
-	u.here, u.session = run, "4cf0261c"
-
-	u.tell(run, protocol.Event{Type: protocol.EventText, Text: "Looking at it"})
-	u.tell(run, protocol.Event{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"sleep 2"}`)})
-
-	u.session = ""
-	u.follow()
-	u.footer()
-
-	if u.tool != nil || u.here != nil || len(u.away) != 1 {
-		t.Fatalf("tool %v, here %v, away %v", u.tool, u.here, u.away)
-	}
-
-	if shown := drawn(u); !inOrder(shown, "Looking at it", "· bash sleep 2  (it goes on in the background)") || strings.Count(shown, "sleep 2") != 1 {
-		t.Fatalf("shown:\n%s", shown)
-	}
-}
-
-// Quitting leaves the command that continues the session, and nothing when
-// there is no session to continue.
-func TestQuittingLeavesTheCommandThatContinuesTheSession(t *testing.T) {
-	u := quiet()
-
-	if leaving := u.leaving(); leaving != "" {
-		t.Fatalf("without a session: %q", leaving)
-	}
-
-	u.session = "4cf0261c"
-
-	if leaving := u.leaving(); !strings.Contains(leaving, "rumbo -s 4cf0261c continues this session") {
-		t.Fatalf("with a session: %q", leaving)
 	}
 }
