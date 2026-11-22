@@ -132,6 +132,11 @@ When two results differ, find out what was sent before explaining it:
 `rumbo request <session> <turn>` prints a stored turn's request exactly,
 and a provider that only records the request settles it without a model.
 
+A change for a provider's cache is measured on the provider's server too,
+the same task with and without it on the same day: a request shows what
+was sent, not what the server did with it. The ChatGPT plan's server once
+ignored a cache key that every rebuilt request carried.
+
 Tests never call a real model: the agent uses a scripted `Provider`, and the
 built-in providers are tested against local HTTP servers.
 
