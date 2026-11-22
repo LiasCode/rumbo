@@ -57,6 +57,22 @@ it. The commits hold the reasons.
 - Every built-in provider sends them: Anthropic's API, ChatGPT, and both of
   OpenAI's APIs.
 
+### How the model works
+
+- **The model asks what only you can decide**: what you want, a
+  preference, or which of two readings of a task you mean, when a wrong
+  guess would not be cheap to undo. It asks once, with few questions, each
+  with the answer it recommends, and before it starts when the goal itself
+  is unclear; what it can find out, it looks up. It confirms before
+  something hard to undo or that reaches other people, such as deleting
+  data, publishing, sending, or paying, unless you asked for exactly that.
+- It writes to you in the language you write in, as briefly or as formally
+  as you do, and says so when you are wrong.
+- Your instructions win over rumbo's: what you say in the conversation
+  first, then your `AGENTS.md`.
+- It checks what it did against what you asked, with what its tools show,
+  and its closing report says what it assumed and what it checked.
+
 ### Fixes
 
 - The choice selected in the terminal UI's command menu shows in reverse

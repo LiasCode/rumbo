@@ -165,7 +165,7 @@ providers cache the prefix. The host checks that they do: a response that
 read less from the cache than the request before left there is a cache miss,
 and the person is told, since the rest is paid for again.
 
-**The harness adds as little as it can.** The system prompt is a few lines,
+**The harness adds as little as it can.** The system prompt is short,
 and the only context sent unasked is the environment, the user's
 instructions, and what each of the user's skills is for. Whatever else the
 harness sent would be paid for on every
