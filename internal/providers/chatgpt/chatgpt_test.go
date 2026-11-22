@@ -47,10 +47,11 @@ type fake struct {
 	noPlan bool
 	// limited makes every request of the API go over the usage limit.
 	limited bool
-	// asked are the request bodies of the Responses API, and seen the
-	// tokens they came with.
-	asked []map[string]any
-	seen  []string
+	// asked are the request bodies of the Responses API, seen the tokens
+	// they came with, and sessions their session_id header.
+	asked    []map[string]any
+	seen     []string
+	sessions []string
 }
 
 const (
@@ -127,6 +128,7 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 	case "/v1/responses":
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		f.seen = append(f.seen, token)
+		f.sessions = append(f.sessions, r.Header.Get("session_id"))
 
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
@@ -454,6 +456,44 @@ func TestTheConfiguredEffortApplies(t *testing.T) {
 		if reasoning, _ := f.asked[index]["reasoning"].(map[string]any); reasoning["effort"] != want.sent {
 			t.Errorf("options %s: reasoning = %v, want effort %s", want.options, f.asked[index]["reasoning"], want.sent)
 		}
+	}
+}
+
+// Every request of a conversation names it in the session_id header, with
+// the key its body has too, since the plan's server takes the key from
+// there; so does the request sent again with a renewed sign-in.
+func TestARequestNamesItsConversationForTheCache(t *testing.T) {
+	f := newFake(t)
+	h := f.handler(t)
+	h.login(context.Background(), &person{})
+
+	user := protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "list files"}}}
+	call := protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockToolCall, ID: "c1", Name: "bash", Args: json.RawMessage(`{}`)}}}
+	result := protocol.Message{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockToolResult, ID: "c1", Text: "a b"}}}
+	params := protocol.CompleteParams{Model: "gpt-a", System: "be brief", Messages: []protocol.Message{user}}
+
+	if _, err := h.Complete(context.Background(), params, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Taken back on the server, the token is renewed and the next request
+	// of the conversation sent again.
+	grant, _ := h.store.Grant(resource)
+
+	f.mu.Lock()
+	delete(f.valid, grant.AccessToken)
+	f.mu.Unlock()
+
+	params.Messages = []protocol.Message{user, call, result}
+
+	if _, err := h.Complete(context.Background(), params, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	key, _ := f.asked[0]["prompt_cache_key"].(string)
+
+	if key == "" || len(f.sessions) != 3 || f.sessions[0] != key || f.sessions[1] != key || f.sessions[2] != key {
+		t.Fatalf("the body named %q, the header %q", key, f.sessions)
 	}
 }
 

@@ -28,8 +28,10 @@ import (
 // stream reports means, and whether the server takes a limit on the output.
 type Responses struct {
 	// Post sends a request to the responses endpoint and returns the
-	// successful response, whose body streams the answer.
-	Post func(ctx context.Context, body []byte) (*http.Response, error)
+	// successful response, whose body streams the answer. key is the
+	// request's prompt_cache_key, for a server that takes it from elsewhere
+	// than the body.
+	Post func(ctx context.Context, body []byte, key string) (*http.Response, error)
 	// Failure is what a failure the stream reports means. Without one, it
 	// means what StreamFailure says.
 	Failure func(code, message string) error
@@ -217,7 +219,7 @@ func (r *Responses) post(ctx context.Context, body responsesRequest) (*http.Resp
 		return nil, err
 	}
 
-	return r.Post(ctx, raw)
+	return r.Post(ctx, raw, body.PromptCacheKey)
 }
 
 // responsesFor converts params into a request of the Responses API.

@@ -64,6 +64,11 @@ it. The commits hold the reasons.
 - The computer tool no longer ends a program made with GPUI, such as
   rumbo-gui, when it starts typing in a desktop with no keyboard of its
   own, such as a headless Sway: its keyboard has its keymap from the start.
+- `chatgpt` reads much more of each request from OpenAI's cache. The plan's
+  server ignored the name of the conversation rumbo gave it for its cache
+  and made up another for every request, so most requests, in some
+  sessions nearly all, missed the cache and counted against your ChatGPT
+  plan in full.
 
 ## 0.7.0 (2026-11-21)
 

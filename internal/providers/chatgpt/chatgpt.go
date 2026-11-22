@@ -313,7 +313,7 @@ func (h *Handler) account() (string, error) {
 func (h *Handler) models(ctx context.Context) (protocol.ValuesResult, error) {
 	var result protocol.ValuesResult
 
-	response, err := h.send(ctx, http.MethodGet, "/models", nil)
+	response, err := h.send(ctx, http.MethodGet, "/models", nil, "")
 
 	if err != nil {
 		return result, err
@@ -373,29 +373,30 @@ func (h *Handler) Complete(ctx context.Context, params protocol.CompleteParams, 
 	return result, err
 }
 
-// post sends a request of the Responses API.
-func (h *Handler) post(ctx context.Context, body []byte) (*http.Response, error) {
-	return h.send(ctx, http.MethodPost, "/responses", body)
+// post sends a request of the Responses API, of the conversation key names.
+func (h *Handler) post(ctx context.Context, body []byte, key string) (*http.Response, error) {
+	return h.send(ctx, http.MethodPost, "/responses", body, key)
 }
 
 // send makes a request with the sign-in, renewed when it is about to
-// expire, and once more if ChatGPT does not take it. It returns the
-// successful response, whose body the caller closes.
-func (h *Handler) send(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+// expire, and once more if ChatGPT does not take it. session is the
+// conversation the request belongs to, for the server's cache, or empty. It
+// returns the successful response, whose body the caller closes.
+func (h *Handler) send(ctx context.Context, method, path string, body []byte, session string) (*http.Response, error) {
 	token, err := h.token(ctx, "")
 
 	if err != nil {
 		return nil, err
 	}
 
-	response, err := h.sendWith(ctx, method, path, body, token)
+	response, err := h.sendWith(ctx, method, path, body, session, token)
 
 	if status, ok := errors.AsType[*statusError](err); ok && status.code == http.StatusUnauthorized {
 		if token, err = h.token(ctx, token); err != nil {
 			return nil, err
 		}
 
-		response, err = h.sendWith(ctx, method, path, body, token)
+		response, err = h.sendWith(ctx, method, path, body, session, token)
 	}
 
 	return response, err
@@ -416,7 +417,7 @@ func (e *statusError) Unwrap() error {
 	return e.err
 }
 
-func (h *Handler) sendWith(ctx context.Context, method, path string, body []byte, token string) (*http.Response, error) {
+func (h *Handler) sendWith(ctx context.Context, method, path string, body []byte, session, token string) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, method, h.api+path, bytes.NewReader(body))
 
 	if err != nil {
@@ -428,6 +429,14 @@ func (h *Handler) sendWith(ctx context.Context, method, path string, body []byte
 
 	if path == "/responses" {
 		request.Header.Set("Accept", "text/event-stream")
+	}
+
+	// The plan's server ignores the prompt_cache_key of the body and makes
+	// up one for every request, as its response says, so a request rarely
+	// reaches the server that cached the one before. It takes the key from
+	// this header.
+	if session != "" {
+		request.Header.Set("session_id", session)
 	}
 
 	response, err := h.client.Do(request)

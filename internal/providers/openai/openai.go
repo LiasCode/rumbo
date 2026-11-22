@@ -57,7 +57,8 @@ type Handler struct {
 func New() *Handler {
 	h := &Handler{keys: credentials.Default("openai")}
 
-	h.responses = &Responses{Post: func(ctx context.Context, body []byte) (*http.Response, error) {
+	// OpenAI's API takes the cache key from the body.
+	h.responses = &Responses{Post: func(ctx context.Context, body []byte, _ string) (*http.Response, error) {
 		return h.send(ctx, http.MethodPost, "/responses", body)
 	}}
 
