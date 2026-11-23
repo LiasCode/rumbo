@@ -139,13 +139,9 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 	chosen, id := target.choice, target.id()
 	h.mu.Unlock()
 
-	pool, err := h.pool(chosen.provider)
+	pool, err := h.ready(ctx, chosen.provider)
 
 	if err != nil {
-		return id, err
-	}
-
-	if err := pool.Ready(ctx); err != nil {
 		return id, err
 	}
 
@@ -485,6 +481,29 @@ func (h *host) pool(name string) (*provider.Pool, error) {
 
 	pool := provider.NewPool(command, program.Config, h.conn.Log())
 	h.pools[name] = pool
+
+	return pool, nil
+}
+
+// ready returns the processes of the provider called name with one of them
+// started, so a provider that cannot start fails before any work depends on
+// it, and so does one given a field it has no setting of.
+func (h *host) ready(ctx context.Context, name string) (*provider.Pool, error) {
+	pool, err := h.pool(name)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pool.Ready(ctx); err != nil {
+		return nil, err
+	}
+
+	known := &settingsOf{offers: pool.Description(), inForce: objectFields(pool.Config())}
+
+	if err := checkChosen(h.database, name, known); err != nil {
+		return nil, err
+	}
 
 	return pool, nil
 }

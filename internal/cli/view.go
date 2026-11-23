@@ -245,7 +245,10 @@ func showProvider(database store.Store, name string, session *choice, diagnostic
 	}
 
 	// What the provider does not describe is shown as it is, and one only
-	// the file holds is one the provider says nothing of.
+	// the file holds is one the provider says nothing of, which keeps the
+	// provider from working when it says what its configuration holds.
+	known := &settingsOf{offers: offers, inForce: layers.inForce}
+
 	for _, other := range slices.Sorted(maps.Keys(mergedKeys(layers.chosen, layers.builtin, layers.inForce))) {
 		if shownNames[other] {
 			continue
@@ -256,6 +259,10 @@ func showProvider(database store.Store, name string, session *choice, diagnostic
 
 		if _, read := layers.inForce[other]; !read {
 			about = name + " says nothing of it, and may not read it"
+
+			if known.tells() {
+				about = fmt.Sprintf(`%s has no such setting, and does not work until "rumbo provider set %s %s=" takes it out`, name, name, other)
+			}
 		}
 
 		writeSetting(&out, other, value, source, about, nil)

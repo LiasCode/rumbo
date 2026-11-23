@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -428,6 +429,38 @@ func (known *settingsOf) names() []string {
 	slices.Sort(others)
 
 	return append(names, others...)
+}
+
+// tells reports whether a provider says what its configuration holds: it
+// describes fields of it, or says what is in force. One that says neither
+// gives nothing to check a field against.
+func (known *settingsOf) tells() bool {
+	return len(known.offers.Fields) > 0 || len(known.inForce) > 0
+}
+
+// checkChosen refuses what the user chose for a provider when it holds a
+// field the provider has no setting of, by the rule a change is checked by,
+// so one written in the file by hand, such as a misspelled one, is not
+// ignored. A provider that says nothing of its configuration is taken as it
+// is.
+func checkChosen(database store.Store, name string, known *settingsOf) error {
+	if !known.tells() {
+		return nil
+	}
+
+	chosen, _, err := chosenProgram(database, store.KindProvider, name)
+
+	if err != nil {
+		return err
+	}
+
+	for _, field := range slices.Sorted(maps.Keys(objectFields(chosen.Config))) {
+		if _, err := known.setting(name, field); err != nil {
+			return fmt.Errorf(`%s, under providers, %s, config: %w; "rumbo provider set %s %s=" takes it out`, configFile, name, err, name, field)
+		}
+	}
+
+	return nil
 }
 
 // tryStart starts a provider and stops it, which is the test that it starts.

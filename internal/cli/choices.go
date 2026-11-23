@@ -352,13 +352,9 @@ func settingValues(ctx context.Context, pool *provider.Pool, settings []protocol
 
 // offers starts a provider, if it is not running, for what it says it offers.
 func (h *host) offers(ctx context.Context, name string) (protocol.Description, *provider.Pool, error) {
-	pool, err := h.pool(name)
+	pool, err := h.ready(ctx, name)
 
 	if err != nil {
-		return protocol.Description{}, nil, err
-	}
-
-	if err := pool.Ready(ctx); err != nil {
 		return protocol.Description{}, nil, err
 	}
 

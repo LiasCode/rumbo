@@ -14,6 +14,11 @@ it. The commits hold the reasons.
   misspelled `colr_host`, stops it and says how to take it out, as a value
   it cannot use does, instead of being ignored. `plain`, which has no
   configuration, does the same with any field.
+- A field written by hand in a provider's configuration in `config.yaml`
+  that the provider has no setting of, such as a misspelled
+  `contxt_window`, is refused when the provider starts, saying where it is
+  and how to take it out, instead of being ignored, as one set with
+  `rumbo provider set` already was. `rumbo provider show` marks it.
 
 ## 0.8.0 (2026-11-23)
 

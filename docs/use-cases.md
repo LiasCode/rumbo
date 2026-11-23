@@ -44,7 +44,9 @@ nothing and knows no model API.
   guessing, saying where in the file. A setting of a provider, or an option
   a session chooses, is checked against what the provider describes, and a
   provider's configuration by starting the provider with it, before it is
-  kept.
+  kept. A field written by hand in a provider's configuration that the
+  provider has no setting of is refused when the provider starts, and the
+  provider does no work until it is taken out.
 - Take every change to a setting the same way, at every level, as
   `name=value`, where an empty value gives the setting back to the level
   under it.

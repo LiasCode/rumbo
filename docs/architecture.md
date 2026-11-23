@@ -122,7 +122,8 @@ is all that is kept of it. Every level is changed the same way, as
 `name=value`, where an empty value gives a setting back to the level under
 it (`changes.go`), and every value is checked before it is kept: a
 provider's against what the provider describes, and by starting it with
-the change. What a system setting is, what a provider's options are, and
+the change; and what is written in the file by hand when the provider
+starts. What a system setting is, what a provider's options are, and
 what a registered program is each have one owner there (`settings.go`,
 `options.go`, `programs.go`), and so has what a person is shown of all of
 it, each value with where it comes from (`view.go`). The commands and the

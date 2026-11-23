@@ -480,13 +480,9 @@ func (h *host) describe(ctx context.Context) (protocol.DescribeResult, error) {
 	chosen := h.current.choice
 	h.mu.Unlock()
 
-	pool, err := h.pool(chosen.provider)
+	pool, err := h.ready(ctx, chosen.provider)
 
 	if err != nil {
-		return protocol.DescribeResult{}, err
-	}
-
-	if err := pool.Ready(ctx); err != nil {
 		return protocol.DescribeResult{}, err
 	}
 
@@ -512,7 +508,7 @@ func (h *host) invoke(ctx context.Context, params protocol.InvokeParams, dialog 
 	name := h.current.provider
 	h.mu.Unlock()
 
-	pool, err := h.pool(name)
+	pool, err := h.ready(ctx, name)
 
 	if err != nil {
 		return nil, err

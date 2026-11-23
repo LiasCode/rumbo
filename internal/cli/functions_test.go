@@ -556,6 +556,41 @@ func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 	}
 }
 
+// A field written for a provider in config.yaml that the provider has no
+// setting of, such as a misspelled one, is refused once the provider
+// starts, saying where it is and how to take it out, rather than ignored.
+// A provider that says nothing of its configuration is taken as it is.
+func TestAProviderIsRefusedAFieldItDoesNotHave(t *testing.T) {
+	h := testHost(t)
+	withClaude(t, h.database, `{"efort":"high"}`)
+	call(t, h, "use", `{"provider":"claude","model":"claude-x"}`)
+
+	_, err := h.describe(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "config.yaml, under providers, claude") || !strings.Contains(err.Error(), `"efort"`) || !strings.Contains(err.Error(), `"rumbo provider set claude efort="`) {
+		t.Fatalf("describe with a field claude does not have: %v", err)
+	}
+
+	if err := refused(t, h, "session-values", ""); !strings.Contains(err, `"efort"`) {
+		t.Fatalf("session-values with a field claude does not have: %v", err)
+	}
+
+	// Taking it out lets it work again.
+	call(t, h, "provider-set", `{"provider":"claude","change":"efort="}`)
+
+	if _, err := h.describe(context.Background()); err != nil {
+		t.Fatalf("describe once it is taken out: %v", err)
+	}
+
+	quiet := store.Program{Name: "quiet", Command: []string{selfPlaceholder, "provide", "two-options"}, Config: json.RawMessage(`{"anything":1}`)}
+	h.database.PutProgram(store.KindProvider, quiet)
+	call(t, h, "use", `{"provider":"quiet","model":"any"}`)
+
+	if _, err := h.describe(context.Background()); err != nil {
+		t.Fatalf("describe a provider that says nothing of its configuration: %v", err)
+	}
+}
+
 // Continuing a session from the command line starts with its provider,
 // unless -m chooses another for that start. A new session starts with the
 // provider's own model.

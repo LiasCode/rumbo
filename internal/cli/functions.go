@@ -1233,7 +1233,7 @@ func (h *host) compactNow(ctx context.Context, params map[string]string) (protoc
 
 	defer h.finish(target)
 
-	pool, err := h.pool(chosen.provider)
+	pool, err := h.ready(ctx, chosen.provider)
 
 	if err != nil {
 		return protocol.HostResult{}, err

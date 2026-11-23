@@ -20,15 +20,19 @@ type Pool struct {
 	mu     sync.Mutex
 	idle   []pooled
 	closed bool
-	// description is what the first process said about the provider.
+	// description is what the first process said about the provider, and
+	// config the configuration it said is in force.
 	description protocol.Description
+	config      json.RawMessage
 	described   bool
 }
 
-// pooled is what a pool keeps: a provider process that can say it has
-// exited, so it is not handed out again.
+// pooled is what a pool keeps: a provider process that says the
+// configuration it has in force, and can say it has exited, so it is not
+// handed out again.
 type pooled interface {
 	Provider
+	Config() json.RawMessage
 	Exited() bool
 }
 
@@ -75,6 +79,16 @@ func (p *Pool) Description() protocol.Description {
 	defer p.mu.Unlock()
 
 	return p.description
+}
+
+// Config is the configuration the provider said is in force, with its own
+// default for every field it was not given. It is empty until a process
+// has started, and when the provider says nothing of it.
+func (p *Pool) Config() json.RawMessage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.config
 }
 
 // Ready starts a process if none is idle, so a provider that cannot start
@@ -140,7 +154,7 @@ func (p *Pool) take(ctx context.Context) (pooled, error) {
 	p.mu.Lock()
 
 	if !p.described {
-		p.description, p.described = process.Description(), true
+		p.description, p.config, p.described = process.Description(), process.Config(), true
 	}
 
 	p.mu.Unlock()
