@@ -21,9 +21,10 @@ changes one of those updates it in the same change.
   `tool.Tool`, `ambient.Collector`, `store.Store`, `agent.Observer`, and
   `agent.Inbox`, never on an implementation. Wiring happens only in
   `internal/cli`.
-- **Built-in providers and front ends get no shortcut.** They are separate
-  processes reached through the protocols, like the ones users write. The
-  host never renders anything and never calls a model API.
+- **Built-in providers, front ends, and extensions get no shortcut.** They
+  are separate processes reached through the protocols, like the ones users
+  write. The host never renders anything, never calls a model API, and
+  knows nothing of MCP, which only `internal/extensions/mcp` speaks.
 - **An extension reaches a run only through its tools and its sections.**
   The host declares the tools an extension declares, after its own and in
   an order that does not change, passes it the calls to them, and tells the

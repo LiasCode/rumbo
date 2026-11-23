@@ -41,6 +41,7 @@ Usage:
   rumbo extension ...            add, show, and set extensions, which give the model tools
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
+  rumbo extend mcp [command...]  run the built-in extension for an MCP server on stdin/stdout
   rumbo version                  print the version
 
 Flags:
@@ -96,6 +97,8 @@ func dispatch(args []string) error {
 			return provide(args[1:])
 		case "attach":
 			return attach(args[1:])
+		case "extend":
+			return extend(args[1:])
 		case "serve":
 			return withStore(args[1:], serve)
 		case "provider":

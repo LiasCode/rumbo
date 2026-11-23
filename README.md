@@ -175,6 +175,31 @@ One heading per topic, decisions first, then who does what by when.
 `rumbo skills`, or `/skills` in the terminal UI, lists the skills the model
 is told of where you are, and says why one is left out.
 
+## Use an MCP server
+
+The tools of a [Model Context Protocol](https://modelcontextprotocol.io)
+server become the model's through the built-in `mcp` extension, registered
+once for each server:
+
+```sh
+# one started with a command
+rumbo extension add files {self} extend mcp npx -y @modelcontextprotocol/server-filesystem ~/notes
+
+# one reached at a URL; if it wants a sign-in, /docs-login in the terminal UI
+# signs in with your browser, and /docs-logout forgets it
+rumbo extension add -config '{"url":"https://example.com/mcp"}' docs {self} extend mcp
+
+# one that takes a token of your own instead, kept in an environment variable
+rumbo extension add -config '{"url":"https://example.com/mcp","token_env":"EXAMPLE_TOKEN"}' docs {self} extend mcp
+```
+
+Every tool a server has is declared to the model with every request, so a
+large server costs tokens in every task. `rumbo extension show files` says
+how much, `rumbo extension set files tools=read_text_file,list_directory`
+keeps only those, and `prefix=files_` renames them when two servers call a
+tool the same. A sign-in is kept in `rumbo/credentials/` of your
+configuration directory, readable only by you, and renewed as it expires.
+
 ## Bring your own
 
 - **A provider** answers `initialize` and `complete` on its stdin and

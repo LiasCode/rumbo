@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/LiasCode/rumbo/internal/agent"
+	"github.com/LiasCode/rumbo/internal/extensions/mcp"
 	"github.com/LiasCode/rumbo/internal/frontends/plain"
 	"github.com/LiasCode/rumbo/internal/frontends/tui"
 	"github.com/LiasCode/rumbo/internal/providers/anthropic"
@@ -42,6 +43,35 @@ func provide(args []string) error {
 	}
 
 	return protocol.Serve(context.Background(), os.Stdin, os.Stdout, handler)
+}
+
+// extend runs a built-in extension as a protocol server on stdin and
+// stdout. mcp is the only one: it gives the model the tools of the MCP
+// server the rest of the command starts, or of the one at the url of its
+// configuration.
+func extend(args []string) error {
+	if len(args) == 0 || args[0] != "mcp" {
+		return errors.New("usage: rumbo extend mcp [<command>...]")
+	}
+
+	adapter := mcp.New(args[1:], release(), os.Stderr)
+	defer adapter.Close()
+
+	served := make(chan error, 1)
+
+	go func() {
+		served <- protocol.ServeExtension(context.Background(), os.Stdin, os.Stdout, adapter)
+	}()
+
+	select {
+	case err := <-served:
+		return err
+
+	// Without its server it can answer nothing; the host starts it again,
+	// and the server with it, for the next call.
+	case <-adapter.Lost():
+		return errors.New("the MCP server exited")
+	}
 }
 
 // attach runs a built-in front end on the protocol's file descriptors.
@@ -77,7 +107,7 @@ func attach(args []string) error {
 var programHelp = map[string]string{
 	store.KindProvider:  "A provider is any program that speaks the Agent Provider Protocol on its\nstdin and stdout.",
 	store.KindFrontend:  "A front end is any program that speaks the Agent Frontend Protocol on file\ndescriptors 3 (read) and 4 (write). It keeps the terminal on stdin and stdout.",
-	store.KindExtension: "An extension is any program that speaks the Agent Extension Protocol on its\nstdin and stdout. The tools it declares are the model's, beside rumbo's own,\nand declaring them adds to every request. One of them takes the place of a\ntool of rumbo's, such as bash, when you say so with replaces. It can also\ndeclare sections, which the model is told when a run starts, and functions,\nwhich a front end offers you as commands named after it.",
+	store.KindExtension: "An extension is any program that speaks the Agent Extension Protocol on its\nstdin and stdout. The tools it declares are the model's, beside rumbo's own,\nand declaring them adds to every request. One of them takes the place of a\ntool of rumbo's, such as bash, when you say so with replaces. It can also\ndeclare sections, which the model is told when a run starts, and functions,\nwhich a front end offers you as commands named after it.\n\nrumbo has one built in for the servers of the Model Context Protocol:\n  rumbo extension add files {self} extend mcp <the server's command>...\n  rumbo extension add -config '{\"url\":\"https://...\"}' docs {self} extend mcp\nA server at a url that wants a sign-in offers a login command in a front end.\nIts fields are url; token_env, the environment variable with a token of your\nown for a server at a url that takes one; client_id, for an authorization\nserver that registers no clients by itself; prefix, which goes before each\ntool's name; and tools, the names of the ones the model is given, separated\nby commas.",
 }
 
 func programUsage(kind string) string {

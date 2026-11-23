@@ -159,6 +159,10 @@ extension's tool and not rumbo's.
 **Agent Extension Protocol.** The JSON-RPC contract between the host and an
 extension. Specified in [extension-protocol.md](extension-protocol.md).
 
+**MCP.** The Model Context Protocol, a contract of others' by which a
+server offers tools to any agent. rumbo's built-in `mcp` extension speaks
+it with one server and gives the model that server's tools.
+
 **Computer tool.** The tool that sees and uses the desktop rumbo runs in:
 screenshots, the pointer, and the keyboard. Its coordinates are pixels of
 the last screenshot it showed.

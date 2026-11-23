@@ -74,7 +74,10 @@ the host, so what an extension holds, such as a connection, is there for
 the next call. The extensions are the user's, the same in every project,
 and a run has those registered when it starts: one that does not start, or
 whose tools the model cannot be given, stops the run instead of leaving it
-with tools missing.
+with tools missing. The built-in extension (`internal/extensions/mcp`),
+served by the same binary through `rumbo extend mcp`, gives the model the
+tools of a Model Context Protocol server. It is where MCP ends: the host
+knows only its own protocol, so what comes after MCP is another extension.
 
 **Screen** (`internal/computer`). The desktop rumbo runs in, for the
 computer tool, which is declared only when the user turns on the `computer`

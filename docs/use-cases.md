@@ -280,6 +280,8 @@ nothing and knows no model API.
   (`rumbo extension show`).
 - Pass an extension's diagnostics to the front end, each line with the
   extension's name.
+- Serve the built-in extension itself (`rumbo extend mcp`), over the same
+  protocol as any other.
 
 **System settings**
 
@@ -466,6 +468,52 @@ being asked. It speaks the Agent Extension Protocol on its stdin and stdout.
 - Count on being asked before the model acts some other way: it is told
   what happens, and decides only what its own tools do.
 - Hold up its reading of events, which the host does not wait for.
+
+### Built in
+
+**`mcp`** gives the model the tools of one server of the
+[Model Context Protocol](https://modelcontextprotocol.io). It is registered
+once for each server, under a name of the user's:
+
+- It starts the server its command names
+  (`rumbo extension add files {self} extend mcp <command>...`) and speaks
+  with it on its stdin and stdout, or reaches the one at the `url` of its
+  configuration over MCP's Streamable HTTP transport, keeping the session
+  the server opens.
+- It declares the server's tools as the server describes them. `tools`
+  names the ones the model is given, separated by commas, since a server
+  may have dozens and each is declared with every request; and `prefix`
+  goes before each name, to tell them from the tools of another server.
+- A result's text and images go to the model; a resource with text is its
+  text, a result given only as structured data is that JSON, and what a
+  model cannot be shown, such as audio, is said in a line.
+- A server at a `url` that wants a sign-in gets one as MCP specifies it,
+  with OAuth: the adapter starts with no tools and one command, `login`
+  (`/<name>-login` in the terminal UI), which finds where to sign in from
+  what the server and its authorization server publish, registers rumbo
+  there as a client, and sends the person to their browser, with PKCE and
+  a redirect to the loopback; from another computer, the person pastes the
+  address the browser ended at. What that gives is kept with the other
+  credentials (`rumbo/credentials/mcp.json`), readable only by the user,
+  and renewed as it expires. Once signed in, the adapter is started again
+  with the server's tools and a `logout` command, which forgets the
+  sign-in. A sign-in that ends and cannot be renewed is forgotten, the
+  model is told how the person mends it, and `login` is offered again.
+- `client_id` is the client the user registered by hand, for an
+  authorization server that registers none by itself. An authorization
+  server that is not reached over https, off the loopback, is refused.
+- `token_env` names the environment variable holding a token of the user's
+  own, for a server that takes one instead of a sign-in, so the token is in
+  no file of rumbo's.
+- It answers a server's ping, and offers it nothing else: no sampling, no
+  roots, and no questions for the person. It does not use a server's
+  resources or prompts, and reads its tools once, when it starts.
+- When the server it started exits, it exits too, so the host starts both
+  again for the next call. It refuses a field its configuration does not
+  have, and a name in `tools` the server has no tool of.
+- It does not sign in to a server that describes its authorization server
+  only by a client metadata document, nor end a sign-in on the server's
+  side when the person signs out.
 
 ## Front end
 
