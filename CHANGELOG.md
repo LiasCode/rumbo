@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.8.1 (2026-11-23)
+
 ### Fixes
 
 - A slip in `rumbo config`, such as `rumbo confg`, says which command you
