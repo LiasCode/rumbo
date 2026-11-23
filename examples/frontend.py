@@ -40,9 +40,9 @@ def show(event):
         print(f"[log] {event['text']}")
 
 
-def run(objective, request_id):
-    """Send one objective and show events until the host answers the request."""
-    send({"id": request_id, "method": "run", "params": {"objective": objective}})
+def run(params, request_id):
+    """Start one run and show events until the host answers the request."""
+    send({"id": request_id, "method": "run", "params": params})
 
     for line in from_host:
         frame = json.loads(line)
@@ -50,6 +50,12 @@ def run(objective, request_id):
         if frame.get("method") == "event":
             show(frame["params"])
         elif frame.get("id") == request_id:
+            # A run the host does not start, such as one with no model
+            # chosen, is answered at once with an error.
+            if "error" in frame:
+                print(f"\n[refused] {frame['error']['message']}")
+                return
+
             # The answer to `run` arrives when the run is over: its status is
             # done, failed, or cancelled.
             result = frame["result"]
@@ -60,16 +66,24 @@ def run(objective, request_id):
 # The host speaks first: it says which directory, session, and model this
 # front end is attached to, and passes an objective given on the command line.
 # The answer gives back the configuration in force, with a default for every
-# field left out; this one has none.
+# field left out. This one has none, so a field it was given is a mistake,
+# which it says rather than ignore.
 hello = json.loads(from_host.readline())
-config = hello["params"].get("config") or {}
-send({"id": hello["id"], "result": {"protocol": 1, "name": "simple", "config": config}})
+send({"id": hello["id"], "result": {"protocol": 1, "name": "simple", "config": {}}})
+
+if hello["params"].get("config"):
+    raise SystemExit("simple has no configuration, and was given: " + ", ".join(hello["params"]["config"]))
 
 info = hello["params"]
 print(f"rumbo in {info['dir']} with {info['provider']}/{info['model']}")
 
 objective = info.get("objective", "")
 request_id = 0
+
+# With rumbo -r, the host asks to continue the session's unfinished run.
+if info.get("resume"):
+    request_id += 1
+    run({"resume": True}, request_id)
 
 while True:
     if not objective:
@@ -80,7 +94,7 @@ while True:
 
     if objective:
         request_id += 1
-        run(objective, request_id)
+        run({"objective": objective}, request_id)
 
     objective = ""
 
