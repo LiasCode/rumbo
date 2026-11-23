@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 520" width="1000" height="520" role="img" aria-labelledby="title desc">
   <title id="title">How rumbo works</title>
-  <desc id="desc">Front ends such as the terminal UI, a plain printer, an editor, or one you write speak the Agent Frontend Protocol with the rumbo host: tasks and steers go in, events come out. The host runs the agent loop: it builds each request from the session, asks a provider for a message, and runs its tool calls, until the model calls no tool. It has four tools, read, write, edit, and bash, keeps each session as an append-only log in a file you can read, sends the environment and the AGENTS.md files as context, and applies settings from the system down to the session. Providers such as anthropic, openai, or one you write speak the Agent Provider Protocol with the host: the conversation goes in, the next message comes out. Every one of them is a separate program, the built-in ones included.</desc>
+  <desc id="desc">Front ends such as the terminal UI, a plain printer, an editor, or one you write speak the Agent Frontend Protocol with the rumbo host: tasks and steers go in, events come out. The host runs the agent loop: it builds each request from the session, asks a provider for a message, and runs its tool calls, until the model calls no tool. It has four tools, read, write, edit, and bash, keeps each session as an append-only log in a file you can read, sends the environment, the AGENTS.md files, and what each skill is for as context, and applies settings from the system down to the session. Providers such as anthropic, openai, or one you write speak the Agent Provider Protocol with the host: the conversation goes in, the next message comes out. Every one of them is a separate program, the built-in ones included.</desc>
   <style>
     text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -95,7 +95,7 @@
   <text class="label" x="364" y="330">session</text>
   <text class="step" x="440" y="330">an append-only log, in a file</text>
   <text class="label" x="364" y="362">context</text>
-  <text class="step" x="440" y="362">environment, AGENTS.md</text>
+  <text class="step" x="440" y="362">environment, AGENTS.md, skills</text>
   <text class="label" x="364" y="394">settings</text>
   <text class="step" x="440" y="394">system, then the session's own</text>
 
