@@ -14,6 +14,7 @@ func TestMistypedCommandsAreNotTasks(t *testing.T) {
 		"lgo":      "log",
 		"sytsem":   "system",
 		"provdier": "provider",
+		"confg":    "config",
 	} {
 		if command, ok := mistyped(word); !ok || command != meant {
 			t.Errorf("mistyped(%q) = %q, %v; want %q", word, command, ok, meant)

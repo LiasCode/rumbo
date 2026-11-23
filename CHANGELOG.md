@@ -5,6 +5,12 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Fixes
+
+- A slip in `rumbo config`, such as `rumbo confg`, says which command you
+  meant, as one in the other commands does, instead of going to the model
+  as a task.
+
 ## 0.8.0 (2026-11-23)
 
 ### Terminal UI
