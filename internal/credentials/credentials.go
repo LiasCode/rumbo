@@ -1,7 +1,7 @@
-// Package credentials keeps what the built-in providers need to reach a
-// server: an API key a person gave to a provider's login, or what signing in
-// with OAuth gave it. It is the providers' own: each keeps a file that only
-// the user can read, and the host never sees it.
+// Package credentials keeps what the built-in providers and extensions need
+// to reach a server: an API key a person gave to a provider's login, or
+// what signing in with OAuth gave it. It is theirs: each keeps a file that
+// only the user can read, and the host never sees it.
 package credentials
 
 import (
@@ -14,16 +14,17 @@ import (
 	"time"
 )
 
-// Store is the file of one provider, which holds the credentials of each
-// server it reaches, by the server's address.
+// Store is the file of one provider, or of one built-in extension, which
+// holds the credentials of each server it reaches, by the server's address.
 type Store struct {
 	// Path is the file. Empty means there is nowhere to keep credentials,
 	// so none are found and none can be stored.
 	Path string
 }
 
-// Default returns the store of the named provider, in the user's
-// configuration directory. It is empty when that directory is not known.
+// Default returns the store of the named provider, or extension, in the
+// user's configuration directory. It is empty when that directory is not
+// known.
 func Default(provider string) Store {
 	dir, err := os.UserConfigDir()
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LiasCode/rumbo/internal/providers/credentials"
+	"github.com/LiasCode/rumbo/internal/credentials"
 	"github.com/LiasCode/rumbo/protocol"
 )
 

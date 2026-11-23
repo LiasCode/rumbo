@@ -18,7 +18,7 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
 
-	"github.com/LiasCode/rumbo/internal/providers/credentials"
+	"github.com/LiasCode/rumbo/internal/credentials"
 	"github.com/LiasCode/rumbo/protocol"
 )
 

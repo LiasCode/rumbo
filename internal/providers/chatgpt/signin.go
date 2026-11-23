@@ -6,25 +6,21 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/LiasCode/rumbo/internal/providers/credentials"
+	"github.com/LiasCode/rumbo/internal/credentials"
+	"github.com/LiasCode/rumbo/internal/signin"
 )
 
 // Signing in follows OpenAI's Sign in with ChatGPT for open-source apps: an
@@ -113,15 +109,7 @@ type attempt struct {
 }
 
 func newAttempt() attempt {
-	return attempt{state: random(), nonce: random(), verifier: random()}
-}
-
-// random is 32 random bytes, as base64url without padding.
-func random() string {
-	value := make([]byte, 32)
-	_, _ = rand.Read(value)
-
-	return base64.RawURLEncoding.EncodeToString(value)
+	return attempt{state: signin.Random(), nonce: signin.Random(), verifier: signin.Random()}
 }
 
 // newHostID names this installation to OpenAI, without saying anything of
@@ -172,68 +160,6 @@ type callback struct {
 	err            error
 }
 
-// listener waits on the loopback for the browser to come back from signing
-// in.
-type listener struct {
-	redirect string
-	result   chan callback
-	server   *http.Server
-}
-
-// listen starts waiting for the browser, on a port of the loopback the
-// system chooses, before the browser is sent anywhere.
-func listen(state string) (*listener, error) {
-	socket, err := net.Listen("tcp", "127.0.0.1:0")
-
-	if err != nil {
-		return nil, fmt.Errorf("the sign-in could not listen for the browser: %w", err)
-	}
-
-	host := socket.Addr().String()
-	waiting := &listener{redirect: "http://" + host + callbackPath, result: make(chan callback, 1)}
-
-	waiting.server = &http.Server{
-		ReadHeaderTimeout: 10 * time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("Referrer-Policy", "no-referrer")
-
-			if r.Method != http.MethodGet || r.Host != host || r.URL.Path != callbackPath {
-				http.NotFound(w, r)
-				return
-			}
-
-			// Something else on the loopback cannot end this sign-in.
-			if !sameState(r.URL.Query(), state) {
-				http.Error(w, "This is not the sign-in rumbo started. Go back to the browser tab that it opened.", http.StatusBadRequest)
-				return
-			}
-
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><title>Back to rumbo</title><body style="font:17px system-ui;max-width:32rem;margin:18vh auto"><h1>Back to rumbo</h1><p>Go back to the terminal and press Enter, and rumbo finishes signing in. You can close this tab.</p>`)
-
-			select {
-			case waiting.result <- answered(r.URL.Query()):
-			default:
-			}
-		}),
-	}
-
-	go waiting.server.Serve(socket)
-
-	return waiting, nil
-}
-
-func (l *listener) close() {
-	_ = l.server.Close()
-}
-
-// sameState reports whether an answer carries the state of this sign-in,
-// once.
-func sameState(query url.Values, state string) bool {
-	return len(query["state"]) == 1 && subtle.ConstantTimeCompare([]byte(query.Get("state")), []byte(state)) == 1
-}
-
 // answered reads what the browser came back with.
 func answered(query url.Values) callback {
 	if failure := query.Get("error"); failure != "" {
@@ -263,7 +189,7 @@ func pasted(text, state string) (callback, bool) {
 
 	query := address.Query()
 
-	if !sameState(query, state) {
+	if !signin.SameState(query, state) {
 		return callback{err: errors.New("the address pasted is not of this sign-in; /login tries again")}, true
 	}
 
@@ -635,28 +561,4 @@ func (a *auth) getJSON(ctx context.Context, address string, into any) error {
 	}
 
 	return json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(into)
-}
-
-// openBrowser opens address in the person's browser, where there is one to
-// open: on Linux, only in a graphical session, so a browser that would run
-// in the terminal is never started.
-func openBrowser(address string) error {
-	var command *exec.Cmd
-
-	switch {
-	case runtime.GOOS == "darwin":
-		command = exec.Command("open", address)
-	case os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "":
-		command = exec.Command("xdg-open", address)
-	default:
-		return errors.New("there is no browser here to open")
-	}
-
-	if err := command.Start(); err != nil {
-		return err
-	}
-
-	go command.Wait()
-
-	return nil
 }

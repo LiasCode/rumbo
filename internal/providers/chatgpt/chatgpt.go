@@ -19,8 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LiasCode/rumbo/internal/providers/credentials"
+	"github.com/LiasCode/rumbo/internal/credentials"
 	"github.com/LiasCode/rumbo/internal/providers/openai"
+	"github.com/LiasCode/rumbo/internal/signin"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -61,7 +62,7 @@ func New() *Handler {
 		auth:   &auth{issuer: "https://auth.openai.com", client: client},
 		api:    resource,
 		client: client,
-		open:   openBrowser,
+		open:   signin.OpenBrowser,
 	}
 
 	h.responses = &openai.Responses{Post: h.post, Failure: failure, Unlimited: true}
@@ -165,15 +166,15 @@ func (h *Handler) login(ctx context.Context, dialog protocol.Dialog) (string, er
 	}
 
 	try := newAttempt()
-	waiting, err := listen(try.state)
+	waiting, err := signin.Listen(callbackPath, try.state)
 
 	if err != nil {
 		return "", err
 	}
 
-	defer waiting.close()
+	defer waiting.Close()
 
-	address := try.authorization(at, waiting.redirect, asked, hostID, email)
+	address := try.authorization(at, waiting.Redirect, asked, hostID, email)
 	dialog.Say("Continue with ChatGPT in your browser, at:\n" + address)
 
 	if err := h.open(address); err != nil {
@@ -190,7 +191,8 @@ func (h *Handler) login(ctx context.Context, dialog protocol.Dialog) (string, er
 
 	if !found {
 		select {
-		case back = <-waiting.result:
+		case query := <-waiting.Result:
+			back = answered(query)
 		case <-time.After(3 * time.Second):
 			return "", errors.New("the browser did not come back to rumbo; /login tries again, and over ssh, paste the address the browser ended at")
 		}
@@ -217,7 +219,7 @@ func (h *Handler) login(ctx context.Context, dialog protocol.Dialog) (string, er
 		"client_id":     {clientID},
 		"code":          {back.code},
 		"code_verifier": {try.verifier},
-		"redirect_uri":  {waiting.redirect},
+		"redirect_uri":  {waiting.Redirect},
 	})
 
 	if err != nil {
