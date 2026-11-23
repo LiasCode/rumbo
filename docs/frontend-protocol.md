@@ -54,16 +54,7 @@ progress to end.
 
 ## Lifecycle
 
-```
-front end                                   host
- |<------------------------- initialize ------|
- |-- result --------------------------------->|
- |-- run (id 1) ----------------------------->|
- |<----------------- event (notification) ----|   many
- |<----------------------------- result ------|   when the run ends
- |            ... more runs ...               |
- |-- (closes the connection) ---------------->|
-```
+![The host sends initialize and the front end answers; the front end sends run, and the host sends many event notifications, then the result when the run ends; more runs follow, until the front end closes the connection.](frontend-lifecycle.svg)
 
 ## Methods
 

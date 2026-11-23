@@ -22,17 +22,7 @@ The Go types are in the [`protocol`](../protocol) package, which also contains
 
 ## Lifecycle
 
-```
-host                                   provider
- |-- initialize ------------------------->|
- |<------------------------- result ------|
- |-- complete (id 2) -------------------->|
- |<-------------- delta (notification) ---|   zero or more
- |<------------------------- result ------|
- |            ... more completes ...      |
- |-- shutdown --------------------------->|
- |<------------------------- result ------|   then the provider exits
-```
+![The host sends initialize and the provider answers; for each complete, the provider sends zero or more delta notifications, then the result; more completes follow, until the host sends shutdown, the provider answers, and exits.](provider-lifecycle.svg)
 
 ## Methods
 

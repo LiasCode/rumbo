@@ -6,23 +6,7 @@ others. Two of them cross a process boundary through a protocol, which is what
 lets users bring their own: the front end a person uses, and the provider that
 reaches the model.
 
-```
- front end process  (built-in tui or plain, or written by the user)
-   ^
-   |  Agent Frontend Protocol: JSON-RPC, tasks in, events out
-   v
- +------------------- host process (rumbo) --------------------+
- |  Observer                                                   |
- |     ^                                                       |
- |  +--+-------- agent loop (internal/agent) -----------+      |
- |  |              |               |                    |      |
- | Provider       Tool         Collector              Store    |
- |  |           (actions)   (ambient context)       (history)  |
- +--+----------------------------------------------------------+
-    |  Agent Provider Protocol: JSON-RPC, conversation in, message out
-    v
- provider process  (built-in anthropic, openai, or chatgpt, or the user's)
-```
+![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop reports to an Observer and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process.](architecture.svg)
 
 The host is the only part that is always rumbo. It owns the sessions, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied
