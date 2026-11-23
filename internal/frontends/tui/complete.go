@@ -42,26 +42,10 @@ func listValues(conn *protocol.FrontendConn, option protocol.Option, target stri
 		return choices, ""
 	}
 
-	var listed []protocol.Value
+	listed, _, err := listFrom(conn, target, option.Values, params)
 
-	if target == protocol.TargetHost {
-		result, err := conn.InvokeHost(option.Values, params)
-
-		if err != nil {
-			return nil, err.Error()
-		}
-
-		listed = result.Values
-	} else {
-		raw, err := conn.Invoke(option.Values, params)
-
-		if err != nil {
-			return nil, err.Error()
-		}
-
-		var result protocol.ValuesResult
-		_ = json.Unmarshal(raw, &result)
-		listed = result.Values
+	if err != nil {
+		return nil, err.Error()
 	}
 
 	choices := make([]choice, len(listed))
@@ -71,6 +55,33 @@ func listValues(conn *protocol.FrontendConn, option protocol.Option, target stri
 	}
 
 	return choices, ""
+}
+
+// listFrom calls the function of target that lists values, the host's, the
+// provider's, or an extension's, and returns them with what the host said.
+func listFrom(conn *protocol.FrontendConn, target, function string, params json.RawMessage) ([]protocol.Value, string, error) {
+	if target == protocol.TargetHost {
+		result, err := conn.InvokeHost(function, params)
+
+		return result.Values, result.Text, err
+	}
+
+	var raw json.RawMessage
+	var err error
+
+	if extension, named := extensionOf(target); named {
+		raw, err = conn.InvokeExtension(extension, function, params, nil, nil)
+	} else {
+		raw, err = conn.Invoke(function, params)
+	}
+
+	var result protocol.ValuesResult
+
+	if err == nil {
+		err = json.Unmarshal(raw, &result)
+	}
+
+	return result.Values, "", err
 }
 
 // passedTo is what the function name, among functions, is given to list
@@ -125,6 +136,14 @@ func commandChoicesOf(host []protocol.Function, described *protocol.DescribeResu
 		}
 	}
 
+	for _, each := range extensionCommands(described) {
+		name := "/" + each.function.Name
+
+		if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == name }) {
+			choices = append(choices, choice{value: name, description: each.function.Description})
+		}
+	}
+
 	slices.SortFunc(choices, func(a, b choice) int { return strings.Compare(a.value, b.value) })
 
 	return choices
@@ -145,6 +164,10 @@ func lacksParams(host []protocol.Function, described *protocol.DescribeResult, l
 
 	if described != nil {
 		functions = append(slices.Clone(functions), described.Offers.Functions...)
+	}
+
+	for _, each := range extensionCommands(described) {
+		functions = append(functions, each.function)
 	}
 
 	index := slices.IndexFunc(functions, func(function protocol.Function) bool { return function.Name == name })

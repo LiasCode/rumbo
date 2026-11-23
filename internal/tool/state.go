@@ -44,6 +44,13 @@ func (s *Set) Computer() Tool {
 	return Computer{display: s.display}
 }
 
+// Clip bounds text a tool of another kind, such as an extension's, puts in
+// the context, as a command's output is bounded: its beginning and end, with
+// the whole of it saved to a file the model can search.
+func (s *Set) Clip(text string) string {
+	return clip(text, s.saved)
+}
+
 // Close stops the processes the model started in the background, removes
 // the files the tools saved, which those processes wrote to, and lets go of
 // the screen.

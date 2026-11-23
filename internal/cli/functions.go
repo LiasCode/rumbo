@@ -1239,7 +1239,7 @@ func (h *host) compactNow(ctx context.Context, params map[string]string) (protoc
 		return protocol.HostResult{}, err
 	}
 
-	worker, err := h.agent(pool, chosen, nil, target.tools, h.conn.Report(session.ID))
+	worker, err := h.agent(ctx, pool, chosen, nil, target.tools, h.conn.Report(session.ID))
 
 	if err != nil {
 		return protocol.HostResult{}, err

@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,7 +57,8 @@ func connect(t *testing.T, objective string) (*Conn, *protocol.FrontendConn, pro
 
 // working is the handler of a host whose runs work as their objective says:
 // "fail" fails, "hang" waits to be cancelled, "listen" waits until it is
-// told something, and "busy" is refused before it starts. Every run works
+// told something, "ask" asks the person, and "busy" is refused before it
+// starts. Every run works
 // in the session named after its objective.
 func working(params protocol.RunParams, run *Run) (Work, error) {
 	objective := params.Objective
@@ -80,6 +83,20 @@ func working(params protocol.RunParams, run *Run) (Work, error) {
 			<-ctx.Done()
 
 			return "s-hang", ctx.Err()
+
+		// A tool of the run says what it is doing and asks the person.
+		case "ask":
+			run.Progress("bash", "checking")
+
+			answer, err := run.Ask(ctx, "bash", "go on?", false)
+
+			if err != nil {
+				answer = "nothing: " + err.Error()
+			}
+
+			run.Text("answered " + answer)
+
+			return "s-ask", nil
 
 		case "listen":
 			run.Notice("waiting to be told")
@@ -649,4 +666,100 @@ func TestImagesArePreparedWhereTheyArrive(t *testing.T) {
 
 	front.Cancel()
 	<-ended
+}
+
+// What is tapped hears what the front end is sent and, besides, what each
+// run was asked and how it ended, which the front end knows without events.
+func TestATapHearsTheRunsWhole(t *testing.T) {
+	host, front, _ := connect(t, "")
+
+	var mu sync.Mutex
+	var heard []string
+
+	host.Tap(func(event protocol.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		heard = append(heard, fmt.Sprintf("%s %s %s%s", event.Type, event.Session, event.Text, event.Status))
+	})
+
+	go host.Serve(Handlers{Run: working})
+
+	var sent []protocol.Event
+
+	for _, objective := range []string{"task", "fail"} {
+		if _, err := front.Run(objective, func(event protocol.Event) { sent = append(sent, event) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	want := []string{
+		"objective s-task task", "text s-task working on task", "tool_finished s-task ", "ended s-task done",
+		"objective s-fail fail", "ended s-fail no creditfailed",
+	}
+
+	if !slices.Equal(heard, want) {
+		t.Fatalf("heard %q", heard)
+	}
+
+	// The front end is sent no more than before.
+	if len(sent) != 2 {
+		t.Fatalf("the front end was sent %d events", len(sent))
+	}
+}
+
+// A tool of a run asks the person through the front end that follows the
+// run, which is told the run, its session, and the tool; a front end that
+// answers no runs declines, and the tool is told so.
+func TestAToolOfARunAsksThePerson(t *testing.T) {
+	host, front, _ := connect(t, "")
+
+	go host.Serve(Handlers{
+		Run: working,
+		Invoke: func(_ context.Context, params protocol.InvokeParams, _ protocol.Dialog) (json.RawMessage, error) {
+			return json.Marshal(params.Target + " " + params.Extension + " " + params.Name)
+		},
+	})
+
+	said := func() string {
+		t.Helper()
+
+		var texts []string
+
+		if _, err := front.Run("ask", func(event protocol.Event) { texts = append(texts, event.Type+" "+event.Name+event.Text) }); err != nil {
+			t.Fatal(err)
+		}
+
+		return strings.Join(texts, "; ")
+	}
+
+	if got := said(); got != "tool_progress bashchecking; text answered nothing: nobody is here to answer for that run" {
+		t.Fatalf("with nobody answering: %q", got)
+	}
+
+	var asked protocol.FrontendAskParams
+
+	front.AnswerRuns(func(_ context.Context, question protocol.FrontendAskParams) (string, error) {
+		asked = question
+
+		return "yes", nil
+	})
+
+	if got := said(); got != "tool_progress bashchecking; text answered yes" {
+		t.Fatalf("answered: %q", got)
+	}
+
+	if asked.Run == 0 || asked.Session != "s-ask" || asked.Name != "bash" || asked.Text != "go on?" {
+		t.Fatalf("asked %+v", asked)
+	}
+
+	// A function of an extension is passed on with whose it is.
+	raw, err := front.InvokeExtension("notes", "forget", nil, nil, nil)
+
+	if err != nil || string(raw) != `"extension notes forget"` {
+		t.Fatalf("invoke = %s, err = %v", raw, err)
+	}
 }

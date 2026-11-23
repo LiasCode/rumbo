@@ -19,20 +19,23 @@ var ErrLocked = errors.New("in use by another rumbo process")
 
 // Kinds of registered programs.
 const (
-	KindProvider = "provider"
-	KindFrontend = "frontend"
+	KindProvider  = "provider"
+	KindFrontend  = "frontend"
+	KindExtension = "extension"
 )
 
-// Program is a provider or a front end as the user registered it: the
-// command that starts it, and the configuration the user chose for it, a
-// JSON object or nothing. Both may be empty for a program rumbo has built
+// Program is a provider, a front end, or an extension as the user registered
+// it: the command that starts it, and the configuration the user chose for
+// it, a JSON object or nothing. Both may be empty for a program rumbo has built
 // in, whose command is rumbo's own. Model is the model a new session starts
-// with when it uses a provider; a front end has none.
+// with when it uses a provider, and Replaces the tools of rumbo's own an
+// extension takes the place of; no other kind has either.
 type Program struct {
-	Name    string
-	Command []string
-	Model   string
-	Config  json.RawMessage
+	Name     string
+	Command  []string
+	Model    string
+	Replaces []string
+	Config   json.RawMessage
 }
 
 // Session is one conversation. Dir is the directory it works in; Project is

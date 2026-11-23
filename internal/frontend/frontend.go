@@ -55,6 +55,9 @@ type Conn struct {
 	stopped atomic.Bool
 	// config is the start configuration the front end said is in force.
 	config json.RawMessage
+	// tap, when set, is told every event too, and how each run starts and
+	// ends, which the front end knows without an event.
+	tap func(protocol.Event)
 
 	mu  sync.Mutex
 	out *json.Encoder
@@ -258,7 +261,7 @@ func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitG
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	run := &Run{conn: c, id: id, cancel: cancel, listening: true}
+	run := &Run{conn: c, id: id, cancel: cancel, listening: true, objective: params.Objective}
 	work, err := handlers.Run(params, run)
 
 	if err != nil {
@@ -291,6 +294,10 @@ func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitG
 		}
 
 		run.deafen()
+
+		if c.tap != nil {
+			c.tap(protocol.Event{Type: protocol.EventEnded, Run: id, Session: session, Status: result.Status, Text: result.Error})
+		}
 
 		c.running.Lock()
 		delete(c.runs, id)
@@ -579,22 +586,42 @@ func (c *Conn) reading() <-chan read {
 // A provider process serves whichever run needs it, so the lines name no
 // run.
 func (c *Conn) Log() io.Writer {
-	return logWriter{conn: c}
+	return logWriter{conn: c, source: protocol.TargetProvider}
+}
+
+// LogExtension returns a writer as Log does, for the stderr of the
+// extension called name. An extension serves whichever run calls it, and
+// there may be several, so each line says whose it is.
+func (c *Conn) LogExtension(name string) io.Writer {
+	return logWriter{conn: c, source: protocol.TargetExtension, prefix: name + ": "}
 }
 
 type logWriter struct {
-	conn *Conn
+	conn   *Conn
+	source string
+	prefix string
 }
 
 func (w logWriter) Write(data []byte) (int, error) {
 	if text := string(bytes.TrimRight(data, "\n")); text != "" {
-		w.conn.event(protocol.Event{Type: protocol.EventLog, Text: text, Source: protocol.TargetProvider})
+		w.conn.event(protocol.Event{Type: protocol.EventLog, Text: w.prefix + text, Source: w.source})
 	}
 
 	return len(data), nil
 }
 
+// Tap has told hear every event the front end is sent, and besides, in
+// the events a session's history has for them, the objective of each run
+// once its session is known and how each run ended. It is set before Serve.
+func (c *Conn) Tap(told func(protocol.Event)) {
+	c.tap = told
+}
+
 func (c *Conn) event(event protocol.Event) {
+	if c.tap != nil {
+		c.tap(event)
+	}
+
 	params, _ := json.Marshal(event)
 
 	// A failed write means the front end is gone; Serve ends on its own.

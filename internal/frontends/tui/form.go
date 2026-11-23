@@ -159,7 +159,9 @@ type form struct {
 	focus       int
 	// problem says why it was not run.
 	problem string
-	// host and provider are the functions that can list a field's values.
+	// host and provider are the functions that can list a field's values:
+	// the host's, and those of whose function the form is for when it is
+	// not the host's, the provider or an extension.
 	host     []protocol.Function
 	provider []protocol.Function
 	// function is the function a form of its parameters calls, and source
@@ -173,11 +175,8 @@ type form struct {
 func functionForm(function protocol.Function, source string, host, provider []protocol.Function) *form {
 	shown := &form{title: function.Name, description: function.Description, host: host, provider: provider, function: function, source: source}
 
-	target := protocol.TargetHost
-
-	if source == fromProvider {
-		target = protocol.TargetProvider
-	}
+	// A source is the target its functions are called with.
+	target := source
 
 	for _, param := range function.Params {
 		empty := ""
@@ -217,7 +216,7 @@ func (f *form) wanted() []wanted {
 
 		functions := f.host
 
-		if each.target == protocol.TargetProvider {
+		if each.target != protocol.TargetHost {
 			functions = f.provider
 		}
 

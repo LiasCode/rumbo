@@ -1,5 +1,5 @@
-// Package protocol defines the two wire contracts of rumbo. Both are JSON-RPC
-// 2.0, one JSON object per line.
+// Package protocol defines the three wire contracts of rumbo. All are
+// JSON-RPC 2.0, one JSON object per line.
 //
 // The Agent Provider Protocol connects the host to a provider process that
 // talks to a model. It is specified in docs/protocol.md; this file holds its
@@ -7,6 +7,10 @@
 //
 // The Agent Frontend Protocol connects the host to a front end. It is
 // specified in docs/frontend-protocol.md and lives in frontend.go.
+//
+// The Agent Extension Protocol connects the host to an extension process
+// that gives the model tools. It is specified in docs/extension-protocol.md
+// and lives in extension.go.
 package protocol
 
 import (
@@ -104,9 +108,12 @@ type Usage struct {
 
 // InitializeParams opens the connection. Config is the provider's own
 // configuration as registered in the host; the host does not interpret it.
+// Name is told to an extension: the name the user registered it under,
+// which a front end names its commands after.
 type InitializeParams struct {
 	Protocol int             `json:"protocol"`
 	Config   json.RawMessage `json:"config,omitempty"`
+	Name     string          `json:"name,omitempty"`
 }
 
 // InitializeResult identifies the provider, or the front end, and carries
@@ -192,14 +199,17 @@ type InvokeParams struct {
 	Name   string          `json:"name"`
 	Params json.RawMessage `json:"params,omitempty"`
 	// Target says whose function it is, on the frontend protocol: the
-	// provider's, which is the default, or the host's.
-	Target string `json:"target,omitempty"`
+	// provider's, which is the default, the host's, or an extension's,
+	// which Extension then names.
+	Target    string `json:"target,omitempty"`
+	Extension string `json:"extension,omitempty"`
 }
 
 // Targets of an invoke on the frontend protocol.
 const (
-	TargetProvider = "provider"
-	TargetHost     = "host"
+	TargetProvider  = "provider"
+	TargetHost      = "host"
+	TargetExtension = "extension"
 )
 
 // ValuesResult is the answer of a function that an Option names in Values.

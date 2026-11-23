@@ -83,3 +83,16 @@ func TestLongInstructionsAreBounded(t *testing.T) {
 		t.Fatalf("short instructions were changed: %q", short)
 	}
 }
+
+// A section whose collector is gone, as when the user takes out the
+// extension that had it, is removed.
+func TestASectionNoCollectorHasIsRemoved(t *testing.T) {
+	collectors := []Collector{Func("kept", func(context.Context, string) string { return "same" })}
+	known := map[string]string{"kept": "same", "zeta": "old", "alpha": "old"}
+
+	changes := Changes(context.Background(), t.TempDir(), collectors, known)
+
+	if len(changes) != 2 || changes[0].Name != "alpha" || changes[1].Name != "zeta" || changes[0].Text != "" || changes[1].Text != "" {
+		t.Fatalf("changes = %+v", changes)
+	}
+}

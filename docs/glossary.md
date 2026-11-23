@@ -99,12 +99,13 @@ a provider takes is kept with the provider, and so is the model a new
 session that uses it starts with.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
-listing its models, or by the host, such as changing session or quitting. A
-front end learns both from descriptions and knows neither beforehand. A
-function of the host says what it acts on: the system, a session, or the
-providers, and one there to list the values a parameter takes says so, for
-a front end to offer its values and not it as a command. A provider's
-function can talk with the person while it works, saying things and asking
+listing its models, by an extension, such as signing in to the service it
+reaches, or by the host, such as changing session or quitting. A front end
+learns them from descriptions and knows none beforehand. A function of the
+host says what it acts on: the system, a session, or the providers, and one
+there to list the values a parameter takes says so, for a front end to
+offer its values and not it as a command. A function of a provider or of an
+extension can talk with the person while it works, saying things and asking
 questions, whose answers may be secret.
 
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
@@ -135,16 +136,28 @@ lets a front end show a session it opens as if it had followed every run.
 steers, newest first and each once, which a front end brings back to its
 input. It is read from the sessions, so it keeps nothing of its own.
 
-**Program.** A provider or front end rumbo can start: a name, the command
-that starts it, and its configuration, which for a provider holds the values
-of its options too; a provider also has the model a new session that uses it
-starts with. The built-in ones are always there; the user registers others.
+**Program.** A provider, front end, or extension rumbo can start: a name,
+the command that starts it, and its configuration, which for a provider
+holds the values of its options too; a provider also has the model a new
+session that uses it starts with. The built-in ones are always there; the
+user registers others, and every extension is one of those.
 Only what the user chose is kept of a configuration: what is not chosen is
 the program's own default, which the program says when it starts.
 
 **Tool.** An action the model can request: `read`, `write`, `edit`, `bash`,
-and `computer` when the user turns it on. A tool's result is text, and may
-show images too.
+`computer` when the user turns it on, and those the user's extensions
+declare. A tool's result is text, and may show images too.
+
+**Extension.** A program the user registers that gives the model tools of
+its own, and sections of ambient context, by speaking the Agent Extension
+Protocol. One process of it serves every session of a host.
+
+**Replacement.** A tool of an extension that takes the place of one of
+rumbo's own of the same name, because the user said so. A run then has the
+extension's tool and not rumbo's.
+
+**Agent Extension Protocol.** The JSON-RPC contract between the host and an
+extension. Specified in [extension-protocol.md](extension-protocol.md).
 
 **Computer tool.** The tool that sees and uses the desktop rumbo runs in:
 screenshots, the pointer, and the keyboard. Its coordinates are pixels of
@@ -164,7 +177,7 @@ each one is for, and reads the rest when a task needs it.
 **Collector.** The source of one section of ambient context.
 
 **Section.** A named piece of ambient context: `environment`,
-`instructions`, or `skills`. A new
+`instructions`, `skills`, or one an extension declares. A new
 version of a section replaces the previous one.
 
 **Project.** The directory tree the work belongs to, identified by its root:

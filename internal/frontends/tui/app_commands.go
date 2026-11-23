@@ -107,7 +107,8 @@ func (a *app) command(line string) tea.Cmd {
 }
 
 // execute runs a command: one of the terminal UI's own, or a function of
-// the host or of the provider, which has to say what it offers first.
+// the host, of the provider, or of an extension; what is not the host's has
+// to be said first by the host, which asks them.
 func (a *app) execute(line string) tea.Cmd {
 	words := strings.Fields(line)
 	name, args := strings.TrimPrefix(words[0], "/"), words[1:]
@@ -136,6 +137,12 @@ func (a *app) execute(line string) tea.Cmd {
 		return a.call(fromProvider, a.described.Offers.Functions[index], args)
 	}
 
+	for _, each := range extensionCommands(a.described) {
+		if each.function.Name == name {
+			return a.call(each.source, each.function, args)
+		}
+	}
+
 	a.shown.add(&entry{kind: entryAnswer, text: fmt.Sprintf("there is no command %s; see %s", words[0], commandHelp), failed: true})
 
 	return nil
@@ -154,9 +161,9 @@ func (a *app) call(source string, function protocol.Function, args []string) tea
 	return a.request(source, function, params)
 }
 
-// invoke calls a function of the host or of the provider, whose answer
-// shows in conv unless quiet. What a provider's function says and asks
-// while it works shows there too.
+// invoke calls a function of the host, of the provider, or of an
+// extension, whose answer shows in conv unless quiet. What a function of
+// the last two says and asks while it works shows there too.
 func (a *app) invoke(source, name string, params json.RawMessage, conv *conversation, quiet bool) tea.Cmd {
 	conn, send, label := a.conn, a.send, a.label(source)
 
@@ -172,16 +179,31 @@ func (a *app) invoke(source, name string, params json.RawMessage, conv *conversa
 		}
 	}
 
-	talking := talk{send: send, conv: conv, label: label}
+	talking := talk{send: send, conv: conv, label: label, who: "the provider"}
+	extension, extended := extensionOf(source)
+
+	// An extension's command is named after it, and its function is not.
+	if extended {
+		talking.who, name = "the extension "+extension, strings.TrimPrefix(name, extension+"-")
+	}
 
 	return func() tea.Msg {
-		raw, err := conn.InvokeWith(name, params, func(id int64) { send(invokingMsg{id}) }, talking)
+		named := func(id int64) { send(invokingMsg{id}) }
 
-		if err != nil {
-			return answeredMsg{conv: conv, label: label, err: err, quiet: quiet}
+		var raw json.RawMessage
+		var err error
+
+		if extended {
+			raw, err = conn.InvokeExtension(extension, name, params, named, talking)
+		} else {
+			raw, err = conn.InvokeWith(name, params, named, talking)
 		}
 
-		return answeredMsg{conv: conv, label: label, text: answerText(raw), quiet: quiet}
+		if err != nil {
+			return answeredMsg{conv: conv, label: label, err: err, quiet: quiet, stale: extended}
+		}
+
+		return answeredMsg{conv: conv, label: label, text: answerText(raw), quiet: quiet, stale: extended}
 	}
 }
 
@@ -209,6 +231,11 @@ func answerText(raw json.RawMessage) string {
 func (a *app) answered(msg answeredMsg) tea.Cmd {
 	a.asking = false
 	a.invoking = 0
+
+	// What is offered is asked again before the next command that needs it.
+	if msg.stale {
+		a.described = nil
+	}
 
 	// What was done before a failure, as when the picker changes several
 	// things, shows before it.
@@ -284,6 +311,16 @@ func (a *app) help() string {
 	} else {
 		for _, function := range commands(a.described.Offers.Functions) {
 			fmt.Fprintf(&out, "%s\n", usage(function))
+		}
+	}
+
+	for _, extension := range a.extensions() {
+		fmt.Fprintf(&out, "\n%s  a program of yours; rumbo extension show %s says what it gives.\n", a.label(fromExtension(extension)), extension)
+
+		for _, each := range extensionCommands(a.described) {
+			if each.source == fromExtension(extension) {
+				fmt.Fprintf(&out, "%s\n", usage(each.function))
+			}
 		}
 	}
 
@@ -419,6 +456,20 @@ func (a *app) refreshMenu() tea.Cmd {
 	return a.offer(asked)
 }
 
+// extensions are the names of the extensions that offer commands, as the
+// host listed them.
+func (a *app) extensions() []string {
+	var names []string
+
+	for _, each := range extensionCommands(a.described) {
+		if name, _ := extensionOf(each.source); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
 // offer asks what the word after a menu's head can be, with what describes
 // each, or a hint saying what it is or why there is nothing to offer.
 func (a *app) offer(asked *menu) tea.Cmd {
@@ -448,11 +499,7 @@ func (a *app) offer(asked *menu) tea.Cmd {
 		}
 
 		param := function.Params[position]
-		functions := host
-
-		if target == protocol.TargetProvider && described != nil {
-			functions = described.Offers.Functions
-		}
+		functions := functionsOf(target, host, described)
 
 		var params json.RawMessage
 
@@ -472,7 +519,8 @@ func (a *app) offer(asked *menu) tea.Cmd {
 }
 
 // lookup finds what a command names: one of the terminal UI's own, a
-// function of the host, or one the provider described, and whose it is.
+// function of the host, or one the provider or an extension described, and
+// whose it is.
 func lookup(command string, host []protocol.Function, described *protocol.DescribeResult) (protocol.Function, string, bool) {
 	name := strings.TrimPrefix(command, "/")
 	named := func(function protocol.Function) bool { return function.Name == name }
@@ -488,6 +536,12 @@ func lookup(command string, host []protocol.Function, described *protocol.Descri
 	if described != nil {
 		if index := slices.IndexFunc(described.Offers.Functions, named); index >= 0 {
 			return described.Offers.Functions[index], protocol.TargetProvider, true
+		}
+	}
+
+	for _, each := range extensionCommands(described) {
+		if named(each.function) {
+			return each.function, each.source, true
 		}
 	}
 
@@ -531,13 +585,16 @@ func (a *app) pasteImage() tea.Cmd {
 	}
 }
 
-// talk is the Dialog of a provider's function: what it says shows in the
+// talk is the Dialog of a function of the provider or of an extension:
+// what it says shows in the
 // conversation it was called from, and what it asks opens over everything,
 // with a line of its own for the answer.
 type talk struct {
 	send  func(tea.Msg)
 	conv  *conversation
 	label string
+	// who asks, in words.
+	who string
 }
 
 func (t talk) Say(text string) {
@@ -546,7 +603,7 @@ func (t talk) Say(text string) {
 
 func (t talk) Ask(ctx context.Context, text string, secret bool) (string, error) {
 	asked := &question{secret: secret, answer: make(chan string, 1)}
-	t.send(askedMsg{t.conv, t.label, asked, text})
+	t.send(askedMsg{t.conv, t.label, asked, text, t.who})
 
 	select {
 	case answer := <-asked.answer:

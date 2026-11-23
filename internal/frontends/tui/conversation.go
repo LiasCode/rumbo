@@ -244,6 +244,12 @@ func (c *conversation) apply(event protocol.Event, told bool, now time.Time) {
 
 		c.add(&entry{kind: entryTool, call: called})
 
+	case protocol.EventToolProgress:
+		// What a call says it is doing shows on its line while it works.
+		if index := c.workingOn(event.Name); index >= 0 {
+			c.entries[index].call.doing = render.FirstLine(strings.TrimSpace(event.Text))
+		}
+
 	case protocol.EventToolFinished:
 		c.finish(event, now)
 
@@ -263,12 +269,16 @@ func (c *conversation) apply(event protocol.Event, told bool, now time.Time) {
 		c.end(event.Status, event.Text, now)
 
 	case protocol.EventLog:
-		// A log line is the provider's own output or something the host
-		// did; which one is said, since they call for different fixes.
+		// A log line is the provider's own output, an extension's, or
+		// something the host did; which one is said, since they call for
+		// different fixes.
 		source := fromHost
 
-		if event.Source == protocol.TargetProvider {
+		switch event.Source {
+		case protocol.TargetProvider:
 			source = fromProvider
+		case protocol.TargetExtension:
+			source = fromExtensions
 		}
 
 		c.add(&entry{kind: entryLog, text: event.Text, label: c.label(source)})
@@ -280,9 +290,7 @@ func (c *conversation) apply(event protocol.Event, told bool, now time.Time) {
 // they started. A call that started while nothing followed it is known by
 // its name alone.
 func (c *conversation) finish(event protocol.Event, now time.Time) {
-	index := slices.IndexFunc(c.entries, func(each *entry) bool {
-		return each.kind == entryTool && each.working() && each.call.name == event.Name
-	})
+	index := c.workingOn(event.Name)
 
 	if index < 0 {
 		c.add(&entry{kind: entryTool, call: running{name: event.Name}})
@@ -292,6 +300,14 @@ func (c *conversation) finish(event protocol.Event, now time.Time) {
 	done := c.entries[index]
 	done.result, done.failed, done.finished, done.ended = event.Result, event.Failed, true, now
 	done.rows = nil
+}
+
+// workingOn returns the oldest call of the tool called name still working,
+// or -1.
+func (c *conversation) workingOn(name string) int {
+	return slices.IndexFunc(c.entries, func(each *entry) bool {
+		return each.kind == entryTool && each.working() && each.call.name == name
+	})
 }
 
 // working reports whether an entry is a call that may still finish.

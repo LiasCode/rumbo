@@ -2,11 +2,11 @@
 
 rumbo is a loop around a model, and the things the loop depends on. Each
 dependency is an interface, so any of them can be replaced without touching the
-others. Two of them cross a process boundary through a protocol, which is what
-lets users bring their own: the front end a person uses, and the provider that
-reaches the model.
+others. Three of them cross a process boundary through a protocol, which is
+what lets users bring their own: the front end a person uses, the provider
+that reaches the model, and the extensions that give the model more tools.
 
-![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process.](architecture.svg)
+![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process, and Tool the Agent Extension Protocol with the user's extension processes.](architecture.svg)
 
 The host is the only part that is always rumbo. It owns the sessions, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied
@@ -53,6 +53,28 @@ model has seen, so a model cannot replace a file whole without knowing what
 is in it, even one another session's model read. The processes left running
 in the background, and the files the tools save for the model, are the
 host's: they go when it exits.
+
+**Extensions** (`internal/extension`, `protocol`). How a user gives the model
+tools rumbo does not have. An extension is a program the user registers,
+which declares tools and runs the calls to them, over the Agent Extension
+Protocol. The host declares its tools after its own, in an order that does
+not change, and bounds their results as it bounds its own; it knows nothing
+else of them. A tool called as one of the host's takes its place when the
+user says so, which is how someone runs commands in a sandbox, or limits
+them, without the host having a notion of either. An extension may also
+have sections of ambient context, which the model is told as it is told
+the host's own; call the host's own tools while it answers a call, so a
+replacement wraps the tool it replaces; and be told the events a front end
+is told. Those are all the ways it reaches a run: it decides what its tools
+return and its sections say, and nothing else. It reaches the person too,
+through the front end and without the host reading any of it: a call says
+what it is doing and asks them something, such as whether to go on, and
+its functions are commands in any front end, as a provider's are. One process of each serves every session and lasts as long as
+the host, so what an extension holds, such as a connection, is there for
+the next call. The extensions are the user's, the same in every project,
+and a run has those registered when it starts: one that does not start, or
+whose tools the model cannot be given, stops the run instead of leaving it
+with tools missing.
 
 **Screen** (`internal/computer`). The desktop rumbo runs in, for the
 computer tool, which is declared only when the user turns on the `computer`
@@ -153,7 +175,8 @@ and the person is told, since the rest is paid for again.
 
 **The harness adds as little as it can.** The system prompt is short,
 and the only context sent unasked is the environment, the user's
-instructions, and what each of the user's skills is for. Whatever else the
+instructions, what each of the user's skills is for, and the sections of
+the extensions the user registered. Whatever else the
 harness sent would be paid for on every
 request, by every task, whether it helped that task or not.
 

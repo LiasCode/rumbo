@@ -9,15 +9,15 @@ import (
 	"sync"
 )
 
-// Invoker is what a provider that describes functions also implements. The
-// result is sent to the caller as JSON.
+// Invoker is what a provider, or an extension, that describes functions
+// also implements. The result is sent to the caller as JSON.
 type Invoker interface {
 	Invoke(ctx context.Context, name string, params json.RawMessage) (any, error)
 }
 
-// DialogInvoker is what a provider implements whose functions talk with the
-// person while they work, through dialog. Serve uses it instead of Invoker
-// when a provider has both.
+// DialogInvoker is what a provider, or an extension, implements whose
+// functions talk with the person while they work, through dialog. Serve
+// uses it instead of Invoker when one has both.
 type DialogInvoker interface {
 	InvokeDialog(ctx context.Context, name string, params json.RawMessage, dialog Dialog) (any, error)
 }
@@ -33,13 +33,24 @@ type Handler interface {
 // closes the stream. What is still running then is cancelled and waited
 // for.
 func Serve(ctx context.Context, r io.Reader, w io.Writer, handler Handler) error {
-	server := &server{
-		handler: handler,
+	server := newServer(w)
+	server.handler, server.functions = handler, handler
+
+	return server.serve(ctx, r, server.dispatch)
+}
+
+func newServer(w io.Writer) *server {
+	return &server{
 		out:     json.NewEncoder(w),
 		running: map[int64]context.CancelFunc{},
 		asked:   map[int64]chan Frame{},
 	}
+}
 
+// serve reads frames from r until dispatch says to shut down or the stream
+// closes, giving each request to dispatch and each answer to the question
+// it belongs to.
+func (s *server) serve(ctx context.Context, r io.Reader, dispatch func(ctx context.Context, frame Frame) bool) error {
 	reader := bufio.NewReader(r)
 
 	for {
@@ -51,20 +62,20 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, handler Handler) error
 			if json.Unmarshal(line, &frame) == nil {
 				switch {
 				case frame.Method != "":
-					if server.dispatch(ctx, frame) {
-						server.stop()
+					if dispatch(ctx, frame) {
+						s.stop()
 						return nil
 					}
 
 				// The host answers a question a function asked.
 				case frame.ID != nil:
-					server.answered(frame)
+					s.answered(frame)
 				}
 			}
 		}
 
 		if err != nil {
-			server.stop()
+			s.stop()
 
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -77,7 +88,10 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, handler Handler) error
 
 type server struct {
 	handler Handler
-	wait    sync.WaitGroup
+	// functions is what may implement Invoker or DialogInvoker: the handler
+	// of whichever protocol is served.
+	functions any
+	wait      sync.WaitGroup
 
 	mu      sync.Mutex
 	out     *json.Encoder
@@ -128,6 +142,17 @@ func (s *server) dispatch(ctx context.Context, frame Frame) bool {
 			return s.handler.Complete(ctx, params, emit)
 		})
 
+	default:
+		return s.common(frame)
+	}
+
+	return false
+}
+
+// common handles what every protocol served here has: cancel, shutdown, and
+// a method that is not known. It reports whether to shut down.
+func (s *server) common(frame Frame) bool {
+	switch frame.Method {
 	case MethodCancel:
 		var params CancelParams
 
@@ -154,19 +179,19 @@ func (s *server) dispatch(ctx context.Context, frame Frame) bool {
 	return false
 }
 
-// invoke calls a function, with a dialog when the provider's functions talk
-// with the person.
+// invoke calls a function, with a dialog when the functions talk with the
+// person.
 func (s *server) invoke(ctx context.Context, id int64, params InvokeParams) {
 	s.background(ctx, id, func(ctx context.Context) (any, error) {
-		if talker, able := s.handler.(DialogInvoker); able {
+		if talker, able := s.functions.(DialogInvoker); able {
 			return talker.InvokeDialog(ctx, params.Name, params.Params, dialog{server: s, id: id})
 		}
 
-		if invoker, able := s.handler.(Invoker); able {
+		if invoker, able := s.functions.(Invoker); able {
 			return invoker.Invoke(ctx, params.Name, params.Params)
 		}
 
-		return nil, &Error{Code: CodeMethodNotFound, Message: "this provider has no functions"}
+		return nil, &Error{Code: CodeMethodNotFound, Message: "there are no functions here"}
 	})
 }
 
@@ -230,7 +255,16 @@ func (d dialog) Say(text string) {
 }
 
 func (d dialog) Ask(ctx context.Context, question string, secret bool) (string, error) {
-	s := d.server
+	var result AskResult
+
+	err := d.server.ask(ctx, MethodAsk, AskParams{ID: d.id, Text: question, Secret: secret}, &result)
+
+	return result.Text, err
+}
+
+// ask sends the host a request of the server's own and waits for its
+// answer, which it reads into result.
+func (s *server) ask(ctx context.Context, method string, params, result any) error {
 	answer := make(chan Frame, 1)
 
 	s.mu.Lock()
@@ -245,25 +279,19 @@ func (d dialog) Ask(ctx context.Context, question string, secret bool) (string, 
 		s.mu.Unlock()
 	}()
 
-	raw, _ := json.Marshal(AskParams{ID: d.id, Text: question, Secret: secret})
-	s.send(Frame{ID: &id, Method: MethodAsk, Params: raw})
+	raw, _ := json.Marshal(params)
+	s.send(Frame{ID: &id, Method: method, Params: raw})
 
 	select {
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return ctx.Err()
 
 	case frame := <-answer:
 		if frame.Error != nil {
-			return "", frame.Error
+			return frame.Error
 		}
 
-		var result AskResult
-
-		if err := json.Unmarshal(frame.Result, &result); err != nil {
-			return "", err
-		}
-
-		return result.Text, nil
+		return json.Unmarshal(frame.Result, result)
 	}
 }
 

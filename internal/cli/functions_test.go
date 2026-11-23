@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LiasCode/rumbo/internal/extension"
 	"github.com/LiasCode/rumbo/internal/provider"
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/internal/tool"
@@ -77,6 +79,8 @@ func hostOn(t *testing.T, database store.Store) *host {
 		places: map[string]*place{},
 		busy:   map[*place]string{},
 		pools:  map[string]*provider.Pool{},
+
+		extensions: extension.NewSet(func(string) io.Writer { return io.Discard }, tools.Clip),
 	}
 
 	t.Cleanup(created.close)
@@ -545,7 +549,7 @@ func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 		t.Fatalf("options in force = %s, err = %v", options, err)
 	}
 
-	worker, err := h.agent(nil, h.current.choice, options, h.current.tools, nil)
+	worker, err := h.agent(context.Background(), nil, h.current.choice, options, h.current.tools, nil)
 
 	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"effort":"low"}` {
 		t.Fatalf("worker = %+v, err = %v", worker, err)

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/LiasCode/rumbo/internal/extension"
 	"github.com/LiasCode/rumbo/internal/frontend"
 	"github.com/LiasCode/rumbo/internal/provider"
 	"github.com/LiasCode/rumbo/internal/store"
@@ -37,6 +38,7 @@ Usage:
   rumbo system ...               show and set the system settings
   rumbo provider ...             add, show, and set providers: their model, configuration, and options
   rumbo frontend ...             add, show, and set front ends
+  rumbo extension ...            add, show, and set extensions, which give the model tools
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
   rumbo version                  print the version
@@ -100,6 +102,8 @@ func dispatch(args []string) error {
 			return withStore(args[1:], programCommands(store.KindProvider))
 		case "frontend":
 			return withStore(args[1:], programCommands(store.KindFrontend))
+		case "extension":
+			return withStore(args[1:], programCommands(store.KindExtension))
 		case "system":
 			return withStore(args[1:], systemCommands)
 		case "config":
@@ -234,6 +238,9 @@ type host struct {
 	busy map[*place]string
 	// pools are the provider processes, by provider name.
 	pools map[string]*provider.Pool
+	// extensions are the extension processes, which start with the first
+	// run after one is registered.
+	extensions *extension.Set
 }
 
 // newHost resolves the session and the settings from the command line.
@@ -334,6 +341,10 @@ func newHost(database store.Store, args []string) (*host, error) {
 		busy:   map[*place]string{},
 		pools:  map[string]*provider.Pool{},
 	}
+
+	// An extension starts once a front end is attached, which is where its
+	// diagnostics go.
+	created.extensions = extension.NewSet(func(name string) io.Writer { return created.conn.LogExtension(name) }, tools.Clip)
 
 	// What the command line chose is the session's from now on, as use
 	// makes it; a session still to be made stores it when it is made.
@@ -437,6 +448,15 @@ func (h *host) serve(r io.Reader, w io.Writer) error {
 
 	h.conn = conn
 
+	// An extension that asks is told what the front end is told, but for
+	// what the extensions themselves print, which one that printed what it
+	// heard would be told without end.
+	conn.Tap(func(event protocol.Event) {
+		if event.Type != protocol.EventLog || event.Source != protocol.TargetExtension {
+			h.extensions.Tell(event)
+		}
+	})
+
 	// Before the front end is attached there is nothing to stop but the
 	// process, which the signals still do by themselves.
 	stops := make(chan os.Signal, 1)
@@ -493,17 +513,41 @@ func (h *host) describe(ctx context.Context) (protocol.DescribeResult, error) {
 	}
 
 	return protocol.DescribeResult{
-		Provider: chosen.provider,
-		Model:    chosen.model,
-		Options:  options,
-		Offers:   pool.Description(),
+		Provider:   chosen.provider,
+		Model:      chosen.model,
+		Options:    options,
+		Offers:     pool.Description(),
+		Extensions: h.extensionFunctions(ctx),
 	}, nil
 }
 
-// invoke calls a function of the current session's provider, passed on as
-// it is. What the function says and asks while it works goes through
+// extensionFunctions says the functions the extensions offer, which starts
+// them, as a run does. When they do not all start the person is told why,
+// and what the provider offers is said all the same.
+func (h *host) extensionFunctions(ctx context.Context) []protocol.ExtensionOffer {
+	programs, err := extensionPrograms(h.database)
+
+	if err == nil {
+		_, err = h.extensions.Start(ctx, programs, reserved())
+	}
+
+	if err != nil {
+		fmt.Fprintf(h.conn.LogExtension("extensions"), "their functions are not offered: %v\n", err)
+
+		return nil
+	}
+
+	return h.extensions.Functions()
+}
+
+// invoke calls a function of the current session's provider, or of the
+// extension the call names, passed on as it is. What the function says and asks while it works goes through
 // dialog, unread.
 func (h *host) invoke(ctx context.Context, params protocol.InvokeParams, dialog protocol.Dialog) (json.RawMessage, error) {
+	if params.Target == protocol.TargetExtension {
+		return h.extensions.Invoke(ctx, params.Extension, params.Name, params.Params, dialog)
+	}
+
 	h.mu.Lock()
 	name := h.current.provider
 	h.mu.Unlock()
@@ -519,6 +563,7 @@ func (h *host) invoke(ctx context.Context, params protocol.InvokeParams, dialog 
 
 func (h *host) close() {
 	h.tools.Close()
+	h.extensions.Close()
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -1,12 +1,14 @@
 # Use cases
 
-What each of the three parts of rumbo must do, can do, and must not do. The
-host is rumbo itself. Providers and front ends are separate programs that
-speak a protocol with it, whether they are built in or written by a user.
+What each of the four parts of rumbo must do, can do, and must not do. The
+host is rumbo itself. Providers, front ends, and extensions are separate
+programs that speak a protocol with it, whether they are built in or written
+by a user.
 
 [architecture.md](architecture.md) explains how the parts fit together,
-[protocol.md](protocol.md) and [frontend-protocol.md](frontend-protocol.md)
-specify the messages between them, and the code holds the details.
+[protocol.md](protocol.md), [frontend-protocol.md](frontend-protocol.md),
+and [extension-protocol.md](extension-protocol.md) specify the messages
+between them, and the code holds the details.
 
 ## Host
 
@@ -226,6 +228,59 @@ nothing and knows no model API.
   text, the tools it calls and what they return, the context sent, the
   tokens spent, and diagnostics.
 
+**Extensions**
+
+- Register, set, show, and remove extensions (`rumbo extension`), which are
+  the user's and the same in every project. One is started when it is
+  added, when it is shown, and with a change to its configuration, together
+  with the others, which is the test that it works and that the model can
+  be given its tools with theirs; one that fails it is not kept.
+- Give a run the tools of the extensions registered when it starts,
+  declared after its own, by extension and then by tool, and pass the
+  model's calls to them with the directory the session works in.
+- Have an extension's tool take the place of one of its own, such as
+  `bash`, where the user said so (`rumbo extension add -replaces bash`, or
+  `rumbo extension set <name> replaces=bash`): the run then has the
+  extension's and not rumbo's.
+- Run one of its own tools for an extension that asks while it answers a
+  call, where that call was made and for its session, the replaced ones
+  included.
+- Say with each call, and each request for a section, the session it is
+  for.
+- Relay what a call says it is doing, and what it asks the person, to the
+  front end that follows the run, and the answer back; and tell the
+  extension there is no one to ask when nobody follows it. None of it is
+  recorded, and the model sees only what the call returns.
+- Pass the extensions' functions to the front end with what the provider
+  offers, relay calls to them, and what they say and ask while they work,
+  as it does a provider's, understanding none of them.
+- Tell an extension the events of the types it asked for, of every session,
+  as a front end is told them, and besides what each run was asked and how
+  it ended; without waiting for it, so one that reads too slowly misses
+  some. What extensions print is not told to them.
+- Tell the model the sections of the extensions when a run starts, after
+  its own: each the first time, and again only when it changed. A section
+  that says nothing, or whose extension was removed, is taken away, and one
+  whose extension could not say it stays as it was told last, with the
+  person told why. A long one is cut.
+- Refuse a tool whose name another extension already has, or one of its
+  own tools has and the user did not have it replace, or that a model API
+  would not take, and a section called as another; and not start a run
+  while an extension does not start or declares one of those, saying which
+  and how to remove it.
+- Keep one process of each extension for every session, start it again
+  when it died, when it said that what it declares changed, or when its
+  command or configuration changed, and stop it when it is removed and
+  when the host exits.
+- Tell an extension the name the user registered it under.
+- Bound what an extension's result adds to the conversation as it bounds
+  its own tools', and prepare its images as it does any other.
+- Say the tools and the sections an extension declares, the tools of its
+  own it replaces, and what declaring its tools adds to every request
+  (`rumbo extension show`).
+- Pass an extension's diagnostics to the front end, each line with the
+  extension's name.
+
 **System settings**
 
 - Store the system settings, rumbo's own and the same everywhere: the
@@ -245,9 +300,11 @@ nothing and knows no model API.
 - Judge the model's work. A run ends when the model stops calling tools,
   and the host runs no checks of its own.
 - Send context nobody asked for, beyond the environment, the user's
-  instructions, and what the user's skills are for.
+  instructions, what the user's skills are for, and the sections of the
+  extensions the user registered.
 - Limit what the agent may do. It acts with the rights of the user who
-  started it, inside whatever sandbox the user chose.
+  started it, inside whatever sandbox the user chose; a limit is the user's
+  to bring, in an extension that replaces the tool it limits.
 - Track the files the model changes. A session keeps the conversation, not
   the disk.
 - Call a model API, render anything, or see a provider's credentials.
@@ -352,6 +409,64 @@ the Agent Provider Protocol on its stdin and stdout.
 - Anthropic's terms do not let other applications use a Claude
   subscription, so no built-in provider does; `anthropic` takes an API key.
 
+## Extension
+
+An extension gives the model tools of its own, and tells it things without
+being asked. It speaks the Agent Extension Protocol on its stdin and stdout.
+
+### Must
+
+- Answer `initialize` with protocol version 1, its name, the tools it
+  declares, each with a name no other extension's tool has, a description
+  for the model, and a JSON Schema for its arguments, and the names of its
+  sections; or with an error when it cannot work with the configuration it
+  was given.
+- Answer `section` with what one of its sections says for the directory a
+  run starts in, within a few seconds, and with the same text while nothing
+  changed.
+- Answer each `call` with what the model reads, saying how to recover when
+  the call failed. The arguments are the model's, and it checks them.
+- Answer `shutdown` and exit.
+- Write only protocol messages to stdout. Diagnostics go to stderr, which
+  reaches the user.
+- Hold its own credentials, and keep them where it chooses.
+
+### Can
+
+- Keep what it needs from one call to the next, in any session: it is
+  started once and lasts as long as the host.
+- Answer calls made at once in any order, or one at a time.
+- Show the model images with a result.
+- Stop the work of a call it was told was cancelled.
+- Read what the user chose for it, its configuration.
+- Declare a tool called as one of rumbo's own, to do it another way: in a
+  container, on another machine, or only what it allows. It takes rumbo's
+  place once the user says so.
+- Call rumbo's own tools while it answers a call, so a tool that replaces
+  one of them does something before and after it instead of all its work.
+- Keep something for each session, which every call names.
+- Be told what the runs do, in the events it names when it starts: to
+  notify when one ends, to count what it cost, or to record what it did.
+- Say what a call is doing while it works, and ask the person who follows
+  the run something, such as whether a command may run, deciding itself
+  what no answer means.
+- Offer the person functions, such as a sign-in, which a front end shows
+  as commands named after the extension, and which talk with the person as
+  a provider's do. They cost no tokens.
+- Say that what it declares changed, as when a sign-in gives it tools, to
+  be started again and heard anew.
+- Tell the model something when a run starts, in a section, and take it
+  away by saying nothing.
+
+### Must not
+
+- Declare more than a task is likely to use: every declaration is sent with
+  every request, and paid for by tasks that never call it. A section is
+  paid for the same way.
+- Count on being asked before the model acts some other way: it is told
+  what happens, and decides only what its own tools do.
+- Hold up its reading of events, which the host does not wait for.
+
 ## Front end
 
 A front end is what a person uses to give objectives and follow the work. It
@@ -371,8 +486,9 @@ speaks the Agent Frontend Protocol with the host.
 - Decide what Ctrl-C means, and cancel through the protocol.
 - Show the confirmation a function asks for, and call the function only
   after the person agrees.
-- Answer a question a provider's function asks through it, with what the
-  person typed or with an error, and neither show nor keep a secret answer.
+- Answer a question a function, or a tool of a run it follows, asks through
+  it, with what the person typed or with an error, and neither show nor
+  keep a secret answer. One nobody is at answers a tool's with an error.
 - Wait for an answer when one request has to take effect before another.
 
 ### Can
@@ -396,6 +512,9 @@ speaks the Agent Frontend Protocol with the host.
   that it takes.
 - Show what a provider's function says while it works, ask the person what
   it asks, and give the function up.
+- Offer the extensions' functions as commands, each named after its
+  extension, and call them at the extension, as it does the provider's.
+- Show what a call in progress says it is doing.
 - Take what it is attached to, its directory, session, provider, and model,
   from the host's answers instead of remembering it.
 - Be started by rumbo, with the terminal and with the protocol on file
@@ -467,11 +586,11 @@ speaks the Agent Frontend Protocol with the host.
   OSC 52, so it also works over ssh, in the terminals that take it; in
   tmux, with `set-clipboard on`. With Shift, the terminal selects as it
   does elsewhere.
-- Its commands are the functions the host and the provider describe, but
-  for those there to list a parameter's values, and its own, which come
-  before one of theirs of the same name: `/help`, `/copy`, and `/export`.
-  `/help` lists the host's by what they act on: the system, the session,
-  and the providers.
+- Its commands are the functions the host, the provider, and the
+  extensions describe, but for those there to list a parameter's values,
+  and its own, which come before one of theirs of the same name: `/help`,
+  `/copy`, and `/export`. `/help` lists the host's by what they act on: the
+  system, the session, and the providers.
 - `/copy` puts the model's last answer in the clipboard, and `/copy code`
   only its last code block.
 - `/export` writes the current session as Markdown, from its history: what
@@ -490,12 +609,21 @@ speaks the Agent Frontend Protocol with the host.
   models of `openai`. After `/session-set `, `/provider-set <provider> `,
   and `/system-set `, the menu offers the changes each takes as
   `name=value`, with those in force marked.
-- Answers, errors, and diagnostics are marked `[host]` or `[provider
-  <name>]`, by where they come from.
+- Answers, errors, and diagnostics are marked `[host]`, `[provider
+  <name>]`, or `[extension <name>]`, by where they come from; what an
+  extension prints is marked `[extension]` and starts with its name.
 - What a provider's function says shows marked as the provider's. Its
   question opens in a dialog with a line of its own for the answer, so
   what was typed in the composer stays; a secret answer shows as dots and
   is kept nowhere, not even in the history.
+- An extension's functions are commands named after it, such as
+  `/notes-forget`, in the menu, the palette, and `/help`, and talk with the
+  person as the provider's do.
+- What a tool asks during a run opens in the same dialog, naming the tool,
+  in the conversation that shows the run. Escape declines to answer, which
+  leaves the tool to decide and the run going; the question goes when its
+  run ends.
+- A call in progress shows what it last said it is doing, on its line.
 - The composer takes several lines: Enter sends them, and Alt-Enter,
   Shift-Enter, or Ctrl-J starts a new line. Pasted text keeps its line
   breaks. It grows to ten rows, or a third of a short screen, and then

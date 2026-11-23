@@ -5,6 +5,43 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Features
+
+- Extensions give the model tools of your own. An extension is any program
+  that declares its tools and answers the calls to them on its stdin and
+  stdout: `rumbo extension add notes python3 examples/extension.py`, and the
+  runs that start from then on have them, in every project. `rumbo
+  extension show` says the tools one declares and what declaring them adds
+  to every request, and `list`, `set`, and `rm` work as they do for a
+  provider. rumbo keeps one process of each while it runs, so an extension
+  can hold a connection from one call to the next. The specification is
+  `docs/extension-protocol.md`.
+- An extension can take the place of one of rumbo's own tools: `rumbo
+  extension add -replaces bash sandbox <command>`, or `rumbo extension set
+  sandbox replaces=bash`, and the model's `bash` is the extension's, to run
+  commands in a container or to refuse some of them. Without it, an
+  extension that declares a tool rumbo has is refused, so none replaces
+  one by its name alone.
+- An extension can tell the model something when a run starts, in a
+  section of its own, such as the notes it keeps: the first time, and again
+  only when it changed. Removing the extension takes its section away.
+- An extension can call rumbo's own tools while it answers a call, so one
+  that replaces `bash` passes on what it lets through; is told the session
+  each call is for; and can ask to be told what the runs do, to notify you
+  when one ends, count what it cost, or keep a record.
+- An extension can talk with you. A tool of its own asks you something
+  while it works, such as whether a command may run: `examples/guard.py`
+  asks before any `rm -rf`, in a dialog of the terminal UI that Escape
+  declines, and refuses it where nobody is there to answer, as in a script.
+  A call shows what it says it is doing on its line. And an extension
+  offers commands of its own, named after it, such as `/notes-forget`,
+  which say things and ask as a provider's `/login` does.
+
+### Terminal UI
+
+- What an extension prints is marked `[extension]`, and what its commands
+  answer `[extension <name>]`.
+
 ## 0.8.1 (2026-11-23)
 
 ### Fixes

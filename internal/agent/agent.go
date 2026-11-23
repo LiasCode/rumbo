@@ -105,6 +105,7 @@ type Agent struct {
 // Run works on objective, and the images given with it, in the given
 // session until the model stops, a limit is reached, or ctx is cancelled.
 func (a *Agent) Run(ctx context.Context, session store.Session, objective string, images ...protocol.Image) error {
+	ctx = tool.InSession(ctx, session.ID)
 	given := transcript.Text{Text: objective, Images: images}
 	err := a.prepare(ctx, session)
 
@@ -122,6 +123,7 @@ func (a *Agent) Run(ctx context.Context, session store.Session, objective string
 // Resume continues the session's last run, which ended by failure, cancel,
 // or the death of the process, without a new objective.
 func (a *Agent) Resume(ctx context.Context, session store.Session) error {
+	ctx = tool.InSession(ctx, session.ID)
 	state, err := a.state(session)
 
 	if err != nil {

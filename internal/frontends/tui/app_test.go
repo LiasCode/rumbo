@@ -841,3 +841,173 @@ func TestARunThatEndsAwayIsSaidAndNotified(t *testing.T) {
 		t.Fatal("notified in front")
 	}
 }
+
+// An extension's functions are commands named after it, said by the host
+// with what the provider offers; one is called at the extension, and what
+// it answers is marked as the extension's.
+func TestAnExtensionsFunctionsAreCommands(t *testing.T) {
+	handlers := frontend.Handlers{
+		Describe: func(context.Context) (protocol.DescribeResult, error) {
+			return protocol.DescribeResult{Provider: "toy", Extensions: []protocol.ExtensionOffer{{Name: "notes", Functions: []protocol.Function{
+				{Name: "forget", Description: "Forget every note"},
+				{Name: "tags", Lists: true},
+			}}}}, nil
+		},
+		Invoke: func(_ context.Context, params protocol.InvokeParams, _ protocol.Dialog) (json.RawMessage, error) {
+			return json.Marshal(params.Target + " " + params.Extension + " was asked to " + params.Name)
+		},
+	}
+
+	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
+	s.run(s.a.describe(""))
+
+	names := func(choices []choice) string {
+		var names []string
+
+		for _, each := range choices {
+			names = append(names, each.value)
+		}
+
+		return strings.Join(names, " ")
+	}
+
+	// A function there to list values is no command.
+	if offered := names(commandChoicesOf(nil, s.a.described)); !strings.Contains(offered, "/notes-forget") || strings.Contains(offered, "/notes-tags") {
+		t.Fatalf("the commands offered: %s", offered)
+	}
+
+	s.typing("/notes-forget")
+
+	if screen := s.screen(); !inOrder(screen, "› /notes-forget", "[extension notes]", "extension notes was asked to forget") {
+		t.Fatalf("the screen:\n%s", screen)
+	}
+
+	// What the function did may have changed what its extension offers, so
+	// that is asked again before it is next needed.
+	if s.a.described != nil {
+		t.Fatal("what the extensions offer is still taken as it was before the function")
+	}
+
+	s.run(s.a.describe(""))
+
+	if help := stripped(s.a.help()); !inOrder(help, "[extension notes]", "/notes-forget", "Forget every note", "the terminal UI's own") {
+		t.Fatalf("the help:\n%s", help)
+	}
+
+	s.apply(ctrl('p'))
+
+	if screen := s.screen(); !inOrder(screen, "extension notes", "notes-forget") {
+		t.Fatalf("the palette:\n%s", screen)
+	}
+}
+
+// A tool of a run tells what it is doing on its line, and what it asks
+// opens over everything, naming the tool; Escape declines, which leaves
+// the tool to decide and the run going. What an extension prints is marked
+// as an extension's.
+func TestAToolOfARunAsksInADialog(t *testing.T) {
+	handlers := frontend.Handlers{
+		Run: func(_ protocol.RunParams, run *frontend.Run) (frontend.Work, error) {
+			return func(ctx context.Context) (string, error) {
+				run.Attach("s1")
+				run.ToolStarted("bash", json.RawMessage(`{"command":"rm -rf build"}`))
+				run.Progress("bash", "checking the command")
+
+				answer, err := run.Ask(ctx, "bash", "Run rm -rf build?", false)
+
+				if err != nil {
+					answer = "nothing, since " + err.Error()
+				}
+
+				run.ToolFinished("bash", "the answer was "+answer, err != nil)
+
+				return "s1", nil
+			}, nil
+		},
+	}
+
+	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
+
+	inbox := make(chan tea.Msg, 64)
+	s.a.send = func(msg tea.Msg) { inbox <- msg }
+
+	start := func(cmd tea.Cmd) {
+		if cmd != nil {
+			go func() { inbox <- cmd() }()
+		}
+	}
+
+	key := func(msg tea.KeyPressMsg) {
+		_, cmd := s.a.Update(msg)
+		start(cmd)
+	}
+
+	await := func(done func() bool) {
+		deadline := time.After(5 * time.Second)
+
+		for !done() {
+			select {
+			case msg := <-inbox:
+				if batch, ok := msg.(tea.BatchMsg); ok {
+					for _, each := range batch {
+						start(each)
+					}
+
+					continue
+				}
+
+				_, cmd := s.a.Update(msg)
+				start(cmd)
+			case <-deadline:
+				t.Fatalf("waited too long:\n%s", s.screen())
+			}
+		}
+	}
+
+	ask := func() {
+		for _, r := range "clean" {
+			key(tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+
+		// The events and the question come their own ways, in either order.
+		key(tea.KeyPressMsg{Code: tea.KeyEnter})
+		await(func() bool {
+			index := s.a.shown.workingOn("bash")
+
+			return s.a.question != nil && index >= 0 && s.a.shown.entries[index].call.doing != ""
+		})
+	}
+
+	ask()
+
+	if screen := s.screen(); !inOrder(screen, "the tool bash asks", "[tool bash] Run rm -rf build?", "Esc declines") || !strings.Contains(screen, "bash rm -rf build  0.0s  checking the command") {
+		t.Fatalf("the question:\n%s", screen)
+	}
+
+	key(tea.KeyPressMsg{Code: tea.KeyEscape})
+	await(func() bool { return s.a.here() == nil })
+
+	// The question and the call come their own ways, so either shows first.
+	if screen := s.screen(); !inOrder(screen, "✗ bash rm -rf build", "the answer was nothing, since the person declined to answer", "✓ done") || !inOrder(screen, "Run rm -rf build?", "› (declined)", "✓ done") || s.a.question != nil {
+		t.Fatalf("declined:\n%s", screen)
+	}
+
+	ask()
+
+	for _, r := range "yes" {
+		key(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	key(tea.KeyPressMsg{Code: tea.KeyEnter})
+	await(func() bool { return s.a.here() == nil })
+
+	if screen := s.screen(); !inOrder(screen, "✓ bash rm -rf build", "the answer was yes") || !inOrder(screen, "› (declined)", "Run rm -rf build?", "› yes") {
+		t.Fatalf("answered:\n%s", screen)
+	}
+
+	s.a.shown.apply(protocol.Event{Type: protocol.EventLog, Source: protocol.TargetExtension, Text: "notes: kept one"}, false, s.a.now)
+
+	if screen := s.screen(); !strings.Contains(screen, "[extension] notes: kept one") {
+		t.Fatalf("an extension's line:\n%s", screen)
+	}
+}

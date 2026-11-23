@@ -3,6 +3,7 @@ package frontend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/LiasCode/rumbo/protocol"
@@ -17,6 +18,8 @@ type Run struct {
 	// asked for, such as a compaction.
 	id     int64
 	cancel context.CancelFunc
+	// objective is what the run was asked, for the tap.
+	objective string
 
 	// mu guards session, steers, and listening. steers are what the front
 	// end told the run and the loop has not taken yet; listening is true
@@ -46,9 +49,13 @@ func (c *Conn) Report(session string) *Run {
 // run that starts a session learns it only once the session is made.
 func (r *Run) Attach(session string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.session = session
+	r.mu.Unlock()
+
+	// Work that no run request asked for has no objective to tell.
+	if r.conn.tap != nil && r.id != 0 {
+		r.conn.tap(protocol.Event{Type: protocol.EventObjective, Run: r.id, Session: session, Text: r.objective})
+	}
 }
 
 // Take implements agent.Inbox. Each steer is answered once it is recorded,
@@ -127,6 +134,26 @@ func (r *Run) ToolStarted(name string, args json.RawMessage) {
 // ToolFinished implements agent.Observer.
 func (r *Run) ToolFinished(name, result string, failed bool) {
 	r.event(protocol.Event{Type: protocol.EventToolFinished, Name: name, Result: result, Failed: failed})
+}
+
+// Progress implements tool.Person: what a call says it is doing.
+func (r *Run) Progress(tool, text string) {
+	r.event(protocol.Event{Type: protocol.EventToolProgress, Name: tool, Text: text})
+}
+
+// Ask implements tool.Person: it asks the front end for the person, naming
+// the run and the tool. Neither the question nor the answer is recorded.
+func (r *Run) Ask(ctx context.Context, tool, question string, secret bool) (string, error) {
+	r.mu.Lock()
+	session := r.session
+	r.mu.Unlock()
+
+	// Work that no run request asked for has nobody following it.
+	if r.id == 0 {
+		return "", errors.New("there is no one to ask")
+	}
+
+	return r.conn.ask(ctx, protocol.FrontendAskParams{Run: r.id, Session: session, Name: tool, Text: question, Secret: secret})
 }
 
 // TurnFinished implements agent.Observer.

@@ -178,9 +178,15 @@ provider it knows nothing about.
 - `offers` is the provider's own description, passed on unchanged. Its format
   is specified in [the provider protocol](protocol.md#describing-the-provider).
   Any part of it may be absent.
+- `extensions`, when there are any, are the extensions that offer functions:
+  `[{"name": "notes", "functions": [...]}]`, each function described as a
+  provider's is. A front end offers them as commands too; since two
+  extensions can each have a function called the same, it names each
+  command after its extension, as the terminal UI's `/notes-forget`.
 
 The first `describe` starts the provider, so it can fail for the same reasons
-a first run can.
+a first run can. It starts the extensions too; when they do not all start,
+a `log` event says why, and the answer has no `extensions`.
 
 ### `history` (request, front end to host)
 
@@ -250,14 +256,16 @@ function takes, so what it lists can depend on them: after the `provider`
 of `use`, the models of that provider.
 
 With `"target": "host"` the call goes to a function of the host instead; see
-[Functions of the host](#functions-of-the-host).
+[Functions of the host](#functions-of-the-host). With `"target":
+"extension"` and `"extension": "notes"` it goes to a function of that
+extension, which answers and talks as a provider's does.
 
 Runs do not keep `describe` and `invoke` waiting: a provider answers one
 request at a time, so the host starts another process of it when every one
 it has is busy.
 
-A provider's function can talk with the person while it works, as a login
-does. What it says arrives as `text` events whose `invoke` is the id of this
+A function of a provider or of an extension can talk with the person
+while it works, as a login does. What it says arrives as `text` events whose `invoke` is the id of this
 request, and what it asks as an [`ask`](#ask-request-host-to-front-end).
 It takes as long as the person does; `cancel` with its `invoke` gives it
 up.
@@ -279,6 +287,18 @@ or with an error when the person declines. With `secret` the answer, such as
 a password, is not shown while it is typed, nor kept afterwards. A front end
 that is not following that `invoke` answers with an error. The host does not
 record questions or answers.
+
+A tool the model called can ask too, while it works: a tool of an extension
+that asks before it runs a command, for one. The question then names no
+`invoke`, but the run, its session, and the tool:
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"ask","params":{"run":4,"session":"517cc41a","name":"bash","text":"Run `rm -rf build`?"}}
+```
+
+An error leaves the tool to decide what no answer means, and the run goes
+on; so a front end nobody is at, such as one in a script, answers with one.
+The question is over once it is answered or its run ends.
 
 ### `cancel` (notification, front end to host)
 
@@ -325,11 +345,12 @@ selects the other fields:
 | `type` | Fields | Meaning |
 |---|---|---|
 | `context` | `sections` | Ambient context sent to the model, by section name. |
-| `text` | `text` | A piece of the model's visible answer, in order. With `invoke` instead of `run`, something a provider's function says while it works. |
+| `text` | `text` | A piece of the model's visible answer, in order. With `invoke` instead of `run`, something a function of a provider or of an extension says while it works. |
 | `tool_started` | `name`, `args` | The agent calls a tool. |
+| `tool_progress` | `name`, `text` | What a call in progress says it is doing, when its tool says. Not kept, and not in a history. |
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |
-| `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output and `host` for what the host has to say, such as a request it retried or one that missed the provider's cache. |
+| `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output, `extension` for an extension's, which starts with the extension's name, and `host` for what the host has to say, such as a request it retried or one that missed the provider's cache. |
 | `objective` | `text`, `images` | The objective a run was given, and the images given with it. Only in a [history](#history-request-front-end-to-host). |
 | `steer` | `text`, `images` | What the person told a run while it worked. Only in a history. |
 | `ended` | `status`, `text` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. Only in a history. |

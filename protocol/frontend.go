@@ -39,6 +39,8 @@ const (
 	EventText         = "text"
 	EventToolStarted  = "tool_started"
 	EventToolFinished = "tool_finished"
+	// What a tool says it is doing while it works, when it says.
+	EventToolProgress = "tool_progress"
 	EventTurn         = "turn"
 	EventLog          = "log"
 	// What only a session's history holds: what the person asked, and how
@@ -126,12 +128,16 @@ type CancelRunParams struct {
 
 // FrontendAskParams is a question the host asks the front end for the
 // person, on behalf of the function called with the invoke whose id is
-// Invoke. A Secret answer is not shown while it is typed, and is not
-// recorded.
+// Invoke; or, when Invoke is zero, of the tool called Name that the model
+// called in the run with the id Run, in Session. A Secret answer is not
+// shown while it is typed, and is not recorded.
 type FrontendAskParams struct {
-	Invoke int64  `json:"invoke"`
-	Text   string `json:"text"`
-	Secret bool   `json:"secret,omitempty"`
+	Invoke  int64  `json:"invoke,omitempty"`
+	Run     int64  `json:"run,omitempty"`
+	Session string `json:"session,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Text    string `json:"text"`
+	Secret  bool   `json:"secret,omitempty"`
 }
 
 // SteerParams is what the user says to a run in progress, named by the id of
@@ -152,6 +158,15 @@ type DescribeResult struct {
 	Options json.RawMessage `json:"options,omitempty"`
 	// Offers is what the provider said can be chosen and asked of it.
 	Offers Description `json:"offers"`
+	// Extensions are the extensions that have functions, by name, which an
+	// invoke reaches with the extension target.
+	Extensions []ExtensionOffer `json:"extensions,omitempty"`
+}
+
+// ExtensionOffer is what an extension offers the person: its functions.
+type ExtensionOffer struct {
+	Name      string     `json:"name"`
+	Functions []Function `json:"functions"`
 }
 
 // RunResult is sent when the run ends, however it ends. Error explains a
@@ -173,11 +188,13 @@ type RunResult struct {
 //   - text: Text, a piece of the model's visible answer.
 //   - tool_started: Name, Args.
 //   - tool_finished: Name, Result, Failed.
+//   - tool_progress: Name, and Text, what the call says it is doing.
 //   - turn: Usage of one model response; Context, the tokens the
 //     conversation now takes; and Window, how many the model holds, when the
 //     provider said.
 //   - log: Text, and Source saying whose line it is: the provider's own
-//     output, or something the host did, such as retrying a request.
+//     output, an extension's, which starts with its name, or something the
+//     host did, such as retrying a request.
 //   - objective: Text, the objective a run was given, and the Images given
 //     with it.
 //   - steer: Text, what the person told a run while it worked, and Images.
@@ -247,6 +264,10 @@ type FrontendConn struct {
 	// talking are the dialogs of the functions called with InvokeWith and
 	// not answered yet, by the id of their invoke request.
 	talking map[int64]talking
+	// asker answers what a tool asks the person during a run, and asking
+	// are the ends of the questions still open, by the id of their run.
+	asker  func(ctx context.Context, question FrontendAskParams) (string, error)
+	asking map[int64][]context.CancelFunc
 }
 
 // talking is the dialog of one function call, and a context that ends with
@@ -284,7 +305,7 @@ func DialFrontendConfigured(r io.Reader, w io.Writer, name string, inForce func(
 		return nil, params, fmt.Errorf("host speaks protocol %d, front end speaks %d", params.Protocol, Version)
 	}
 
-	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}, talking: map[int64]talking{}}
+	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}, talking: map[int64]talking{}, asking: map[int64][]context.CancelFunc{}}
 	answer := InitializeResult{Protocol: Version, Name: name}
 
 	if inForce != nil {
@@ -378,6 +399,36 @@ func (c *FrontendConn) Invoke(name string, params json.RawMessage) (json.RawMess
 // is told the id of the invoke request, which names the call to
 // CancelInvoke.
 func (c *FrontendConn) InvokeWith(name string, params json.RawMessage, onID func(int64), dialog Dialog) (json.RawMessage, error) {
+	return c.invokeWith(InvokeParams{Name: name, Params: params}, onID, dialog)
+}
+
+// InvokeExtension calls a function of the extension called extension, as
+// InvokeWith calls one of the provider. A nil dialog lets it say and ask
+// nothing.
+func (c *FrontendConn) InvokeExtension(extension, name string, params json.RawMessage, onID func(int64), dialog Dialog) (json.RawMessage, error) {
+	asked := InvokeParams{Name: name, Params: params, Target: TargetExtension, Extension: extension}
+
+	if dialog == nil {
+		var result json.RawMessage
+
+		return result, c.exchange(MethodInvoke, asked, &result, onID, nil)
+	}
+
+	return c.invokeWith(asked, onID, dialog)
+}
+
+// AnswerRuns has asked answer what a tool asks the person during a run:
+// the question names the run, its session, and the tool, and the context
+// ends when the run does. Without it such a question is declined, which is
+// right for a front end nobody is at. It is set before any run is started.
+func (c *FrontendConn) AnswerRuns(asked func(ctx context.Context, question FrontendAskParams) (string, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.asker = asked
+}
+
+func (c *FrontendConn) invokeWith(asked InvokeParams, onID func(int64), dialog Dialog) (json.RawMessage, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -409,7 +460,7 @@ func (c *FrontendConn) InvokeWith(name string, params json.RawMessage, onID func
 
 	var result json.RawMessage
 
-	return result, c.exchange(MethodInvoke, InvokeParams{Name: name, Params: params}, &result, named, said)
+	return result, c.exchange(MethodInvoke, asked, &result, named, said)
 }
 
 // CancelInvoke asks the host to stop a function called with InvokeWith,
@@ -557,8 +608,22 @@ func (c *FrontendConn) read(reader *bufio.Reader) {
 		delete(c.waiting, id)
 	}
 
+	for run := range c.asking {
+		c.unask(run)
+	}
+
 	c.runs = nil
 	c.gone = true
+}
+
+// unask ends the questions still open of a run that is over. The caller
+// holds the lock.
+func (c *FrontendConn) unask(run int64) {
+	for _, end := range c.asking[run] {
+		end()
+	}
+
+	delete(c.asking, run)
 }
 
 // route returns the channel of the request a frame belongs to, or nil when
@@ -600,23 +665,30 @@ func (c *FrontendConn) route(frame Frame) chan Frame {
 	frames := c.waiting[*frame.ID]
 	delete(c.waiting, *frame.ID)
 	c.runs = slices.DeleteFunc(c.runs, func(run int64) bool { return run == *frame.ID })
+	c.unask(*frame.ID)
 
 	return frames
 }
 
-// question answers a question the host asks for a function called with
-// InvokeWith, through that call's dialog. The answer waits for the person,
-// so it is given in the background.
+// question answers a question the host asks: for a function called with
+// InvokeWith, through that call's dialog, or for a tool of a run, through
+// what AnswerRuns was given. The answer waits for the person, so it is
+// given in the background.
 func (c *FrontendConn) question(frame Frame) {
 	var params FrontendAskParams
 
 	_ = json.Unmarshal(frame.Params, &params)
 
+	id := *frame.ID
+
+	if params.Invoke == 0 {
+		c.runQuestion(id, params)
+		return
+	}
+
 	c.mu.Lock()
 	call, found := c.talking[params.Invoke]
 	c.mu.Unlock()
-
-	id := *frame.ID
 
 	go func() {
 		reply := Frame{ID: &id}
@@ -624,6 +696,38 @@ func (c *FrontendConn) question(frame Frame) {
 		if !found {
 			reply.Error = &Error{Code: CodeInvalidParams, Message: "this front end is not following that function, so it cannot answer for it"}
 		} else if answer, err := call.dialog.Ask(call.ctx, params.Text, params.Secret); err != nil {
+			reply.Error = &Error{Code: CodeInternal, Message: err.Error()}
+		} else {
+			reply.Result, _ = json.Marshal(AskResult{Text: answer})
+		}
+
+		_ = c.send(reply)
+	}()
+}
+
+// runQuestion answers what a tool asks during a run, until the run ends.
+func (c *FrontendConn) runQuestion(id int64, params FrontendAskParams) {
+	c.mu.Lock()
+	asker := c.asker
+	following := slices.Contains(c.runs, params.Run)
+
+	var ctx context.Context
+
+	if asker != nil && following {
+		var end context.CancelFunc
+
+		ctx, end = context.WithCancel(context.Background())
+		c.asking[params.Run] = append(c.asking[params.Run], end)
+	}
+
+	c.mu.Unlock()
+
+	go func() {
+		reply := Frame{ID: &id}
+
+		if ctx == nil {
+			reply.Error = &Error{Code: CodeInvalidParams, Message: "nobody is here to answer for that run"}
+		} else if answer, err := asker(ctx, params); err != nil {
 			reply.Error = &Error{Code: CodeInternal, Message: err.Error()}
 		} else {
 			reply.Result, _ = json.Marshal(AskResult{Text: answer})

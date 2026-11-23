@@ -73,7 +73,7 @@ func describeConfig(database store.Store, session *sessionLayer, later string) (
 	fmt.Fprintf(table, "\nsystem\n")
 	writeSettings(table, settings, "  ")
 
-	for _, kind := range []string{store.KindProvider, store.KindFrontend} {
+	for _, kind := range []string{store.KindProvider, store.KindFrontend, store.KindExtension} {
 		if err := describePrograms(table, database, kind); err != nil {
 			return "", err
 		}
@@ -111,6 +111,11 @@ func describePrograms(table io.Writer, database store.Store, kind string) error 
 		return err
 	}
 
+	// There are extensions only when the user registered some.
+	if len(programs) == 0 {
+		return nil
+	}
+
 	fmt.Fprintf(table, "\n%ss\n", kindNames[kind])
 
 	for _, program := range programs {
@@ -136,6 +141,10 @@ func describePrograms(table io.Writer, database store.Store, kind string) error 
 
 		if chosen.Model != "" {
 			fmt.Fprintf(table, "    %s\t%s\t%s\n", settingModel, chosen.Model, sourceFile)
+		}
+
+		if len(chosen.Replaces) > 0 {
+			fmt.Fprintf(table, "    %s\t%s\t%s\n", settingReplaces, strings.Join(chosen.Replaces, ", "), sourceFile)
 		}
 
 		base, mine := builtinFields(kind, chosen), objectFields(chosen.Config)

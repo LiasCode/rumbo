@@ -3,8 +3,8 @@
 Read [docs/architecture.md](docs/architecture.md) first. The rules below are
 the ones a change must not break.
 
-[docs/use-cases.md](docs/use-cases.md) says what the host, providers, and
-front ends must, can, and must not do. A change that adds, removes, or
+[docs/use-cases.md](docs/use-cases.md) says what the host, providers,
+front ends, and extensions must, can, and must not do. A change that adds, removes, or
 changes one of those updates it in the same change.
 
 ## Invariants
@@ -24,13 +24,25 @@ changes one of those updates it in the same change.
 - **Built-in providers and front ends get no shortcut.** They are separate
   processes reached through the protocols, like the ones users write. The
   host never renders anything and never calls a model API.
+- **An extension reaches a run only through its tools and its sections.**
+  The host declares the tools an extension declares, after its own and in
+  an order that does not change, passes it the calls to them, and tells the
+  model what its sections say when a run starts (`internal/extension`). An
+  extension may call rumbo's own tools and talk with the person while it
+  answers a call, offer the person functions, and be told the events a
+  front end is told, but nothing it does changes a message, another
+  extension's tool, or when a run ends, and no run waits for a listener.
+  What it asks the person and is answered is recorded nowhere. One of its tools takes the place of rumbo's own only where the
+  user said so (`replaces`), never by its name alone. A run never starts
+  with some of its extensions' tools missing.
 - **The host does not touch the terminal.** No prints to stdout or stderr
   once a front end is attached, and no signal handling beyond ignoring the
   interrupt, and shutting down on SIGTERM and SIGHUP as a disconnect does.
   What the user must see is an event.
 - **The protocols are public contracts.** Changes to `protocol/` are
   additive. An incompatible change needs a new protocol version and an update
-  to `docs/protocol.md` or `docs/frontend-protocol.md` in the same change.
+  to `docs/protocol.md`, `docs/frontend-protocol.md`, or
+  `docs/extension-protocol.md` in the same change.
 - **Stored data keeps working.** Everything rumbo stores is a file a person
   can read: `config.yaml`, and a directory for each session
   (`internal/store`). A change to what a file holds adds a key or a field
@@ -73,11 +85,14 @@ rumbo is a general agent harness. These are decisions, not gaps:
   nothing. Measured over the evaluation set, checks never changed an outcome
   and cost a great deal of machinery.
 - **It sends no context unasked** beyond the environment, the user's
-  instructions, and what each of the user's skills is for. The model looks
-  at the project, and reads a skill, with its tools when it needs to.
+  instructions, what each of the user's skills is for, and the sections of
+  the extensions the user registered, which are theirs to ask for. The
+  model looks at the project, and reads a skill, with its tools when it
+  needs to.
 - **It has no permission system.** The agent acts with the rights of the
   user who started it. Limiting what it may write or run is out of scope;
-  someone who needs that runs rumbo inside a sandbox of their choice.
+  someone who needs that runs rumbo inside a sandbox of their choice, or
+  has an extension of theirs replace the tool to limit.
 - **It uses a subscription only where its maker allows it.** `chatgpt`
   signs in with ChatGPT as OpenAI offers open-source apps. Anthropic's terms
   keep a Claude subscription to its own apps, so no provider signs in to

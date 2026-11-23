@@ -38,6 +38,8 @@ type running struct {
 	// started is zero for a call told by a session's history, whose time is
 	// not known.
 	started time.Time
+	// doing is what the call last said it is doing, while it works.
+	doing string
 }
 
 // title names a call by what it acts on, with the name in bold.
@@ -53,6 +55,10 @@ func (r *running) working(t theme, now time.Time) string {
 
 	if !r.started.IsZero() {
 		line += styleDim + "  " + elapsed(now.Sub(r.started)) + styleWeightOff
+	}
+
+	if r.doing != "" {
+		line += styleDim + "  " + r.doing + styleWeightOff
 	}
 
 	return line

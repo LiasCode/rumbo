@@ -192,13 +192,37 @@ is told of where you are, and says why one is left out.
   [examples/frontend.py](examples/frontend.py); the specification is
   [docs/frontend-protocol.md](docs/frontend-protocol.md).
 
+- **An extension** gives the model tools of its own: it declares them on
+  `initialize` and answers each `call`, on its stdin and stdout. Start from
+  [examples/extension.py](examples/extension.py); the specification is
+  [docs/extension-protocol.md](docs/extension-protocol.md). Its tools are
+  declared to the model with every request, so they cost tokens in every
+  task: `rumbo extension show` says how much.
+
+  ```sh
+  rumbo extension add notes python3 /path/to/examples/extension.py
+  rumbo "remember that the deploy is on Friday"
+  ```
+
+  It can also tell the model something when a run starts, in a section of
+  its own, as that example does with its notes; offer you commands, such as
+  its `/notes-forget`; and be told what the runs do, to notify you when one
+  ends or to keep a record. And a tool of its own called as one of rumbo's
+  takes its place when you say so, which is how you run the model's
+  commands in a container, or are asked before some of them run, as
+  [examples/guard.py](examples/guard.py) does around rumbo's own bash:
+
+  ```sh
+  rumbo extension add -replaces bash guard python3 /path/to/examples/guard.py
+  ```
+
 ## Learn more
 
 - `rumbo help`, `rumbo config`, and `rumbo provider show <name>`: the
   commands, everything that is set with where each value comes from, and a
   provider's settings with its defaults.
 - [docs/use-cases.md](docs/use-cases.md): everything the host, providers,
-  and front ends can do.
+  front ends, and extensions can do.
 - [docs/architecture.md](docs/architecture.md) and
   [docs/glossary.md](docs/glossary.md): how the parts fit, and the terms.
 - [CHANGELOG.md](CHANGELOG.md): what each release changes. Until 1.0,

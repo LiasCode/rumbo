@@ -169,6 +169,10 @@ func (a *app) paletteEntries() []paletteEntry {
 		entries = append(entries, paletteEntry{group: provider, name: function.Name, description: function.Description, action: actionFunction, function: function, source: fromProvider})
 	}
 
+	for _, each := range extensionCommands(a.described) {
+		entries = append(entries, paletteEntry{group: each.source, name: each.function.Name, description: each.function.Description, action: actionFunction, function: each.function, source: each.source})
+	}
+
 	return entries
 }
 
@@ -212,13 +216,7 @@ func (a *app) choose(chosen paletteEntry) tea.Cmd {
 	switch chosen.action {
 	case actionFunction:
 		if len(chosen.function.Params) > 0 {
-			var provider []protocol.Function
-
-			if a.described != nil {
-				provider = a.described.Offers.Functions
-			}
-
-			return a.openForm(functionForm(chosen.function, chosen.source, a.info.Functions, provider))
+			return a.openForm(functionForm(chosen.function, chosen.source, a.info.Functions, functionsOf(chosen.source, nil, a.described)))
 		}
 
 		return a.run(chosen.source, chosen.function, nil, "/"+chosen.function.Name)
@@ -343,22 +341,7 @@ func (a *app) lists(asking *form) tea.Cmd {
 		cmds = append(cmds, func() tea.Msg {
 			listed := formListedMsg{form: asking, field: each.field, generation: each.generation}
 
-			if each.target == protocol.TargetHost {
-				result, err := conn.InvokeHost(each.function, each.params)
-				listed.values, listed.said, listed.err = result.Values, result.Text, err
-
-				return listed
-			}
-
-			raw, err := conn.Invoke(each.function, each.params)
-
-			var result protocol.ValuesResult
-
-			if err == nil {
-				err = json.Unmarshal(raw, &result)
-			}
-
-			listed.values, listed.err = result.Values, err
+			listed.values, listed.said, listed.err = listFrom(conn, each.target, each.function, each.params)
 
 			return listed
 		})
@@ -553,15 +536,19 @@ func (a *app) change(changes []pickChange) tea.Cmd {
 	}
 }
 
-// questionKey applies a key to a question of a provider's function: Enter
-// sends what is typed, and Escape gives the function up.
+// questionKey applies a key to a question: Enter sends what is typed, and
+// Escape gives up the function that asked, or declines to answer a tool.
 func (a *app) questionKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 	switch stroke {
 	case "enter":
 		a.answer()
 
 	case "esc", "ctrl+c":
-		a.cancel()
+		if a.question.declined != nil {
+			a.decline()
+		} else {
+			a.cancel()
+		}
 
 	default:
 		edit(&a.reply, key, stroke)
@@ -583,7 +570,7 @@ func (a *app) float(rows []string) ([]string, *tea.Cursor) {
 
 	switch {
 	case a.question != nil:
-		border, title = a.theme.warning, "the provider asks"
+		border, title = a.theme.warning, a.questionFrom+" asks"
 		body = append(wrapAll(a.questionLabel+" "+a.questionText, inner), "")
 
 		typed, _, column := a.reply.view(inner-2, 1, a.question.secret)
@@ -591,6 +578,10 @@ func (a *app) float(rows []string) ([]string, *tea.Cursor) {
 		body = append(body, a.theme.warning+"› "+styleColorOff+typed[0], "")
 
 		hint := "Enter sends the answer · Esc gives up"
+
+		if a.question.declined != nil {
+			hint = "Enter sends the answer · Esc declines"
+		}
 
 		if a.question.secret {
 			hint = "the answer is not shown, nor kept · " + hint

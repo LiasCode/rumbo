@@ -6,9 +6,11 @@ package ambient
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +23,14 @@ import (
 type Collector interface {
 	Name() string
 	Collect(ctx context.Context, dir string) string
+}
+
+// Fallible is a Collector that may be unable to say its section, such as
+// one that asks another program. Try reports whether it could; when it
+// could not, the section stays as the model was last told it.
+type Fallible interface {
+	Collector
+	Try(ctx context.Context, dir string) (text string, said bool)
 }
 
 // Func adapts a function to a Collector.
@@ -52,15 +62,36 @@ func Defaults() []Collector {
 
 // Changes runs the collectors and returns the sections that differ from
 // known, including removals. Only changes are sent, so an unchanged project
-// costs no tokens on later turns.
+// costs no tokens on later turns. A known section that no collector has any
+// more, such as one of an extension the user took out, is removed.
 func Changes(ctx context.Context, dir string, collectors []Collector, known map[string]string) []transcript.Section {
 	var changed []transcript.Section
 
-	for _, collector := range collectors {
-		text := strings.TrimSpace(collector.Collect(ctx, dir))
+	collected := map[string]bool{}
 
-		if text != known[collector.Name()] {
+	for _, collector := range collectors {
+		collected[collector.Name()] = true
+
+		text, said := "", true
+
+		if fallible, may := collector.(Fallible); may {
+			text, said = fallible.Try(ctx, dir)
+		} else {
+			text = collector.Collect(ctx, dir)
+		}
+
+		if !said {
+			continue
+		}
+
+		if text = strings.TrimSpace(text); text != known[collector.Name()] {
 			changed = append(changed, transcript.Section{Name: collector.Name(), Text: text})
+		}
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(known)) {
+		if !collected[name] {
+			changed = append(changed, transcript.Section{Name: name})
 		}
 	}
 

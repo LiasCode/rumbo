@@ -16,10 +16,10 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// This file owns the programs rumbo starts, providers and front ends: the
-// ones it has built in and the ones the user registers, adding one, changing
-// its configuration, and asking a provider what it offers. The command line
-// and the host's functions both go through it.
+// This file owns the programs rumbo starts, providers, front ends, and
+// extensions: the ones it has built in and the ones the user registers,
+// adding one, changing its configuration, and asking a provider what it
+// offers. The command line and the host's functions both go through it.
 //
 // A program's configuration holds what the user chose for it, and nothing
 // else. What is not chosen is the program's own default, which only the
@@ -51,8 +51,9 @@ var builtins = []struct {
 
 // kindNames are what a person calls each kind of program.
 var kindNames = map[string]string{
-	store.KindProvider: "provider",
-	store.KindFrontend: "front end",
+	store.KindProvider:  "provider",
+	store.KindFrontend:  "front end",
+	store.KindExtension: "extension",
 }
 
 // builtin returns the program of a kind that rumbo has built in under name.
@@ -234,12 +235,14 @@ const settingModel = "model"
 
 // setProgram changes what is chosen for a program: for a provider, its
 // model, a field of its configuration, or one of its options; for a front
-// end, a field of its configuration. Each change is name=value, where an
-// empty value gives the setting back to its default. A provider is started
-// first, for what it says of its settings, and then with the changes, which
-// is the test that it takes them: when it does not, nothing is stored. A
-// front end needs the terminal to start, so what it is given is checked when
-// it next starts. It returns a line saying each change.
+// end or an extension, a field of its configuration, and for an extension
+// the tools of rumbo's it replaces too. Each change is
+// name=value, where an empty value gives the setting back to its default. A
+// provider is started first, for what it says of its settings, and then with
+// the changes, which is the test that it takes them: when it does not,
+// nothing is stored. An extension is started with the changes too. A front
+// end needs the terminal to start, so what it is given is checked when it
+// next starts. It returns a line saying each change.
 func setProgram(database store.Store, kind, name string, written []string, diagnostics io.Writer) ([]string, error) {
 	changes, err := parseChanges(written)
 
@@ -282,6 +285,21 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 
 			if each.back() {
 				said[index] = settingModel + ": taken out; a new session that uses " + name + " has to be given one"
+			}
+
+			continue
+		}
+
+		if each.name == settingReplaces && kind == store.KindExtension {
+			if each.back() && len(chosen.Replaces) == 0 {
+				return nil, fmt.Errorf("%s replaces nothing in %s, so there is nothing to give back", name, configFile)
+			}
+
+			chosen.Replaces = replacing(each.value)
+			said[index] = settingReplaces + " = " + strings.Join(chosen.Replaces, ", ") + "; they are in place of rumbo's own"
+
+			if each.back() {
+				said[index] = settingReplaces + ": taken out; rumbo's own tools are the model's again"
 			}
 
 			continue
@@ -330,6 +348,14 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 		}
 
 		if err := tryStart(next, diagnostics); err != nil {
+			return nil, fmt.Errorf("%s did not start with that, so nothing was changed: %w", name, err)
+		}
+	}
+
+	// An extension is tried with any change, since what it replaces is
+	// checked against what it declares.
+	if kind == store.KindExtension {
+		if _, err := tryExtension(database, chosen, diagnostics); err != nil {
 			return nil, fmt.Errorf("%s did not start with that, so nothing was changed: %w", name, err)
 		}
 	}

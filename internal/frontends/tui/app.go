@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -88,6 +89,7 @@ type app struct {
 	questionIn    *conversation
 	questionLabel string
 	questionText  string
+	questionFrom  string
 	reply         inputLine
 	// palette, form, and confirming are what floats over the screen while
 	// they are open, after a question.
@@ -117,11 +119,14 @@ type app struct {
 	afterLoad func() tea.Cmd
 }
 
-// question is what a provider's function asked the person, and where the
-// answer goes. A secret one is not shown while it is typed, nor kept.
+// question is what a function, or a tool of a run, asked the person, and
+// where the answer goes. A secret one is not shown while it is typed, nor
+// kept. A tool's can be declined, which leaves the tool to decide what that
+// means and the run going; a function's is given up with the function.
 type question struct {
-	secret bool
-	answer chan string
+	secret   bool
+	answer   chan string
+	declined chan struct{}
 }
 
 // flight is a run this front end started: the id of its request, the
@@ -185,6 +190,9 @@ type (
 		// then goes on once the answer is taken in, unless it failed, as
 		// asking again in a branch does.
 		then func() tea.Cmd
+		// stale is true for the answer of an extension's function, which
+		// may have changed what the extension offers, as a sign-in does.
+		stale bool
 	}
 	choicesMsg struct {
 		menu    *menu
@@ -202,6 +210,14 @@ type (
 		label    string
 		question *question
 		text     string
+		// who asks, in words: the provider, an extension, or a tool.
+		who string
+	}
+	// toolAskedMsg is what a tool asked during a run, before it is known
+	// which conversation shows the run.
+	toolAskedMsg struct {
+		asked    protocol.FrontendAskParams
+		question *question
 	}
 	askGoneMsg struct{ question *question }
 	pastedMsg  struct {
@@ -228,6 +244,8 @@ func newApp(conn *protocol.FrontendConn, info protocol.FrontendInitializeParams,
 	a.shown = a.conversationOf(info.Session)
 	a.sessions.choose(info.Session)
 
+	conn.AnswerRuns(a.askForTool)
+
 	return a
 }
 
@@ -252,14 +270,21 @@ func (a *app) conversationOf(session string) *conversation {
 	return made
 }
 
-// label is the mark put on what comes from the host or from the provider,
-// saying the source in words as well as in color.
+// label is the mark put on what comes from the host, from the provider, or
+// from an extension, saying the source in words as well as in color. An
+// extension is the user's own, as the provider is, and has its color.
 func (a *app) label(source string) string {
 	switch source {
 	case fromHost:
 		return a.theme.host + "[host]" + styleReset
 	case fromProvider:
 		return a.theme.provider + "[provider " + a.info.Provider + "]" + styleReset
+	case fromExtensions:
+		return a.theme.provider + "[extension]" + styleReset
+	}
+
+	if name, named := extensionOf(source); named {
+		return a.theme.provider + "[extension " + name + "]" + styleReset
 	}
 
 	return ""
@@ -398,6 +423,15 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case askedMsg:
 		cmd = a.asked(msg)
+
+	case toolAskedMsg:
+		cmd = a.asked(askedMsg{
+			conv:     a.following(msg.asked.Run, msg.asked.Session),
+			label:    a.theme.provider + "[tool " + msg.asked.Name + "]" + styleReset,
+			question: msg.question,
+			text:     msg.asked.Text,
+			who:      "the tool " + msg.asked.Name,
+		})
 
 	case askGoneMsg:
 		// What was typed of the answer goes with the question.
@@ -826,12 +860,54 @@ func (a *app) learned(msg describedMsg) tea.Cmd {
 // conversation it was called from and in a question over everything else,
 // whose line the answer is typed in.
 func (a *app) asked(msg askedMsg) tea.Cmd {
-	a.question, a.questionIn, a.questionLabel, a.questionText = msg.question, msg.conv, msg.label, msg.text
+	a.question, a.questionIn, a.questionLabel, a.questionText, a.questionFrom = msg.question, msg.conv, msg.label, msg.text, msg.who
 	a.reply.clear()
 	a.palette, a.form, a.confirming = nil, nil, nil
 	msg.conv.add(&entry{kind: entrySaid, label: msg.label, text: msg.text})
 
-	return a.notify("rumbo: the provider asks: " + msg.text)
+	return a.notify("rumbo: " + msg.who + " asks: " + msg.text)
+}
+
+// following returns the conversation that shows a run: the one it was
+// started from, or else its session's.
+func (a *app) following(run int64, session string) *conversation {
+	for _, flying := range a.runs {
+		if flying.id == run {
+			return flying.conv
+		}
+	}
+
+	return a.conversationOf(session)
+}
+
+// askForTool is what answers a tool's question during a run: it opens the
+// question, and waits for the answer, for the person to decline, or for
+// the run to end.
+func (a *app) askForTool(ctx context.Context, asked protocol.FrontendAskParams) (string, error) {
+	opened := &question{secret: asked.Secret, answer: make(chan string, 1), declined: make(chan struct{})}
+	a.send(toolAskedMsg{asked, opened})
+
+	select {
+	case answer := <-opened.answer:
+		return answer, nil
+
+	case <-opened.declined:
+		return "", errors.New("the person declined to answer")
+
+	case <-ctx.Done():
+		a.send(askGoneMsg{opened})
+
+		return "", ctx.Err()
+	}
+}
+
+// decline closes a tool's question without an answer.
+func (a *app) decline() {
+	close(a.question.declined)
+
+	a.question = nil
+	a.reply.clear()
+	a.questionIn.add(&entry{kind: entryTyped, text: "(declined)"})
 }
 
 // answer gives what was typed to the question waiting for it. A secret

@@ -40,13 +40,76 @@ var ownCommands = []protocol.Function{
 
 // Where a command acts and where an answer comes from. The host is rumbo
 // itself and is the same with any provider; the provider is whatever reaches
-// the model, and what it offers changes with it. The two are always shown
-// apart, so it is clear which one a setting or a message belongs to.
+// the model, and what it offers changes with it; an extension is a program
+// of the user's, named after fromExtensions. They are always shown apart,
+// so it is clear which one a setting or a message belongs to.
 const (
-	fromHost     = "host"
-	fromProvider = "provider"
-	fromHere     = ""
+	fromHost       = "host"
+	fromProvider   = "provider"
+	fromExtensions = protocol.TargetExtension
+	fromHere       = ""
 )
+
+// fromExtension is the source that names one extension.
+func fromExtension(name string) string {
+	return fromExtensions + " " + name
+}
+
+// extensionOf returns the extension a source names, if it names one.
+func extensionOf(source string) (string, bool) {
+	return strings.CutPrefix(source, fromExtensions+" ")
+}
+
+// offered is a function of an extension as a command: whose it is, and the
+// function, named after its extension as "<extension>-<function>", so that
+// two extensions can each have one called the same.
+type offered struct {
+	source   string
+	function protocol.Function
+}
+
+// extensionCommands are the functions the extensions described, as
+// commands.
+func extensionCommands(described *protocol.DescribeResult) []offered {
+	if described == nil {
+		return nil
+	}
+
+	var all []offered
+
+	for _, extension := range described.Extensions {
+		for _, function := range commands(extension.Functions) {
+			function.Name = extension.Name + "-" + function.Name
+			all = append(all, offered{source: fromExtension(extension.Name), function: function})
+		}
+	}
+
+	return all
+}
+
+// functionsOf returns the functions of a source as the source names them,
+// which are the ones a parameter names to list its values.
+func functionsOf(source string, host []protocol.Function, described *protocol.DescribeResult) []protocol.Function {
+	if source == fromHost {
+		return host
+	}
+
+	if described == nil {
+		return nil
+	}
+
+	if name, named := extensionOf(source); named {
+		for _, extension := range described.Extensions {
+			if extension.Name == name {
+				return extension.Functions
+			}
+		}
+
+		return nil
+	}
+
+	return described.Offers.Functions
+}
 
 var commandName = regexp.MustCompile(`^/[a-z][a-z0-9_-]*$`)
 

@@ -30,6 +30,47 @@ type Result struct {
 	Images []protocol.Image
 }
 
+// sessionKey is where a context carries the session a call is made in.
+type sessionKey struct{}
+
+// InSession returns ctx naming the session the calls made with it belong
+// to, for a tool that keeps something for each session.
+func InSession(ctx context.Context, session string) context.Context {
+	return context.WithValue(ctx, sessionKey{}, session)
+}
+
+// SessionOf returns the session ctx names, or "" when it names none.
+func SessionOf(ctx context.Context) string {
+	session, _ := ctx.Value(sessionKey{}).(string)
+
+	return session
+}
+
+// Person is how a tool reaches the person following the run it is called
+// in, when someone is.
+type Person interface {
+	// Progress shows what the call to tool is doing while it works.
+	Progress(tool, text string)
+	// Ask asks the person something for tool, and waits for the answer. It
+	// fails when they decline, when nobody is there, or when ctx ends.
+	Ask(ctx context.Context, tool, question string, secret bool) (string, error)
+}
+
+// personKey is where a context carries the person of a run.
+type personKey struct{}
+
+// WithPerson returns ctx with the person the calls made with it can reach.
+func WithPerson(ctx context.Context, person Person) context.Context {
+	return context.WithValue(ctx, personKey{}, person)
+}
+
+// PersonOf returns the person ctx carries, or nil when it carries none.
+func PersonOf(ctx context.Context) Person {
+	person, _ := ctx.Value(personKey{}).(Person)
+
+	return person
+}
+
 // text is a result of text alone.
 func text(value string) Result {
 	return Result{Text: value}

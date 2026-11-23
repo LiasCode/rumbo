@@ -75,8 +75,9 @@ func attach(args []string) error {
 
 // programHelp explains what each kind of program must speak.
 var programHelp = map[string]string{
-	store.KindProvider: "A provider is any program that speaks the Agent Provider Protocol on its\nstdin and stdout.",
-	store.KindFrontend: "A front end is any program that speaks the Agent Frontend Protocol on file\ndescriptors 3 (read) and 4 (write). It keeps the terminal on stdin and stdout.",
+	store.KindProvider:  "A provider is any program that speaks the Agent Provider Protocol on its\nstdin and stdout.",
+	store.KindFrontend:  "A front end is any program that speaks the Agent Frontend Protocol on file\ndescriptors 3 (read) and 4 (write). It keeps the terminal on stdin and stdout.",
+	store.KindExtension: "An extension is any program that speaks the Agent Extension Protocol on its\nstdin and stdout. The tools it declares are the model's, beside rumbo's own,\nand declaring them adds to every request. One of them takes the place of a\ntool of rumbo's, such as bash, when you say so with replaces. It can also\ndeclare sections, which the model is told when a run starts, and functions,\nwhich a front end offers you as commands named after it.",
 }
 
 func programUsage(kind string) string {
@@ -93,8 +94,15 @@ func programUsage(kind string) string {
 		fmt.Fprintln(&out, strings.TrimRight(fmt.Sprintf("  %-50s %s", written, about), " "))
 	}
 
+	// There are no extensions but the ones the user added.
+	listed, removed := "the "+kindNames[kind]+"s there are, built in and yours", "remove one you added, or what you set for a built-in one"
+
+	if kind == store.KindExtension {
+		listed, removed = "the extensions you added", "remove one"
+	}
+
 	out.WriteString("usage:\n")
-	line("list", "the "+kindNames[kind]+"s there are, built in and yours")
+	line("list", listed)
 
 	if kind == store.KindProvider {
 		line("show <name>", "start it, and say each setting, where its value comes from,")
@@ -102,14 +110,25 @@ func programUsage(kind string) string {
 		line("models <name>", "the models it offers, asking it")
 		line("set <name> <setting>=<value>...", "its model, a field of its configuration, or one of its")
 		line("", "options; an empty value gives one back to its default")
+	} else if kind == store.KindExtension {
+		line("show <name>", "start it, and say what is set for it and the tools it")
+		line("", "gives the model")
+		line("set <name> <field>=<value>...", "a field of its configuration, or replaces, the tools of")
+		line("", "rumbo's own it takes the place of, checked by starting")
+		line("", "it; an empty value gives one back")
 	} else {
 		line("show <name>", "how it is started, and what is set for it")
 		line("set <name> <field>=<value>...", "a field of its configuration, checked when it starts;")
 		line("", "an empty value gives one back to its default")
 	}
 
-	line("add [-config <json>] <name> <command>...", "")
-	line("rm <name>", "remove one you added, or what you set for a built-in one")
+	if kind == store.KindExtension {
+		line("add [-config <json>] [-replaces <tools>] <name> <command>...", "")
+	} else {
+		line("add [-config <json>] <name> <command>...", "")
+	}
+
+	line("rm <name>", removed)
 
 	fmt.Fprintf(&out, "\n%s\n\"{self}\" as the command stands for the rumbo executable.\n", programHelp[kind])
 	fmt.Fprintf(&out, "What you set is kept in %s; what you do not is the %s's own default.", configFile, kindNames[kind])
@@ -144,6 +163,11 @@ func manageProgram(database store.Store, kind string, args []string) error {
 	case "add":
 		flags := flag.NewFlagSet(kind+" add", flag.ContinueOnError)
 		config := flags.String("config", "{}", "")
+		replaces := ""
+
+		if kind == store.KindExtension {
+			flags.StringVar(&replaces, settingReplaces, "", "")
+		}
 
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -153,6 +177,18 @@ func manageProgram(database store.Store, kind string, args []string) error {
 
 		if len(rest) < 2 {
 			return errors.New(help)
+		}
+
+		if kind == store.KindExtension {
+			added, err := registerExtension(database, rest[0], rest[1:], json.RawMessage(*config), replacing(replaces), os.Stderr)
+
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(added)
+
+			return nil
 		}
 
 		if kind != store.KindProvider {
@@ -189,6 +225,18 @@ func manageProgram(database store.Store, kind string, args []string) error {
 
 		if kind == store.KindProvider {
 			shown, err := showProvider(database, args[1], nil, os.Stderr)
+
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(shown)
+
+			return nil
+		}
+
+		if kind == store.KindExtension {
+			shown, err := showExtension(database, args[1], os.Stderr)
 
 			if err != nil {
 				return err
@@ -334,7 +382,7 @@ func systemCommands(database store.Store, args []string) error {
 // anything.
 func configCommand(database store.Store, args []string) error {
 	if len(args) > 0 {
-		return errors.New(`"rumbo config" takes nothing: it shows what is chosen and what applies. "rumbo system set", "rumbo provider set", and "rumbo frontend set" change it`)
+		return errors.New(`"rumbo config" takes nothing: it shows what is chosen and what applies. "rumbo system set", "rumbo provider set", "rumbo frontend set", and "rumbo extension set" change it`)
 	}
 
 	shown, err := describeConfig(database, nil, `"rumbo provider show <name>"`)

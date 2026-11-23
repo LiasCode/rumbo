@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/LiasCode/rumbo/internal/agent"
@@ -160,7 +161,7 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		return id, err
 	}
 
-	worker, err := h.agent(pool, chosen, options, target.tools, run)
+	worker, err := h.agent(ctx, pool, chosen, options, target.tools, run)
 
 	if err != nil {
 		return id, err
@@ -182,6 +183,9 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 	run.Attach(session.ID)
 	worker.Inbox = run
 
+	// A tool reaches the person who follows the run through it.
+	ctx = tool.WithPerson(ctx, run)
+
 	if params.Resume {
 		return session.ID, worker.Resume(ctx, session)
 	}
@@ -193,7 +197,7 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 // settings as they stand when it starts: a change to them applies to the
 // work that starts after it. options are the option values the work gets
 // with every request.
-func (h *host) agent(pool *provider.Pool, chosen choice, options json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
+func (h *host) agent(ctx context.Context, pool *provider.Pool, chosen choice, options json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
 	settings, err := loadLimits(h.database)
 
 	if err != nil {
@@ -206,12 +210,35 @@ func (h *host) agent(pool *provider.Pool, chosen choice, options json.RawMessage
 		declared = append(declared, tools.Computer())
 	}
 
+	extensions, err := extensionPrograms(h.database)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// An extension's tool can call the tools of rumbo's own the run has,
+	// the ones it replaces among them.
+	rumbo := reserved()
+	rumbo.Own = slices.Clone(declared)
+
+	offers, err := h.extensions.Start(ctx, extensions, rumbo)
+
+	if err != nil {
+		return nil, fmt.Errorf(`%w; "rumbo extension rm <name>" takes one out`, err)
+	}
+
+	// A tool of rumbo's that an extension replaces is not declared. Theirs
+	// come after rumbo's own, so one that is added or removed leaves the
+	// start of the declarations as it was.
+	declared = slices.DeleteFunc(declared, func(own tool.Tool) bool { return slices.Contains(offers.Replaced, own.Def().Name) })
+	declared = append(declared, offers.Tools...)
+
 	return &agent.Agent{
 		Store:        h.database,
 		Provider:     pool,
 		Observer:     observer,
 		Tools:        declared,
-		Collectors:   ambient.Defaults(),
+		Collectors:   append(ambient.Defaults(), offers.Collectors...),
 		ProviderName: chosen.provider,
 		Model:        chosen.model,
 		Options:      options,

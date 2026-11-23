@@ -31,19 +31,25 @@ import (
 //	  tui:
 //	    config:
 //	      theme: plain
+//	extensions:
+//	  sandbox:
+//	    command: [python3, /path/to/sandbox.py]
+//	    replaces: [bash]
 
 const (
 	sectionSystem = "system"
 
-	fieldCommand = "command"
-	fieldModel   = "model"
-	fieldConfig  = "config"
+	fieldCommand  = "command"
+	fieldModel    = "model"
+	fieldReplaces = "replaces"
+	fieldConfig   = "config"
 )
 
 // sections are where each kind of program is registered.
 var sections = map[string]string{
-	KindProvider: "providers",
-	KindFrontend: "frontends",
+	KindProvider:  "providers",
+	KindFrontend:  "frontends",
+	KindExtension: "extensions",
 }
 
 func sectionOf(kind string) (string, error) {
@@ -199,7 +205,7 @@ func (f *Files) wrong(node *yaml.Node, format string, args ...any) error {
 // meant: a key it does not know, or a value of another shape.
 func (f *Files) check(root *yaml.Node) error {
 	if root.Kind != yaml.MappingNode {
-		return f.wrong(root, "it holds system, providers, and frontends, each with what is under it")
+		return f.wrong(root, "it holds system, providers, frontends, and extensions, each with what is under it")
 	}
 
 	if err := f.checkKeys(root); err != nil {
@@ -229,7 +235,7 @@ func (f *Files) check(root *yaml.Node) error {
 				}
 			}
 
-		case sections[KindProvider], sections[KindFrontend]:
+		case sections[KindProvider], sections[KindFrontend], sections[KindExtension]:
 			for at := 0; at+1 < len(value.Content); at += 2 {
 				if err := f.checkProgram(key.Value, value.Content[at].Value, actual(value.Content[at+1])); err != nil {
 					return err
@@ -237,7 +243,7 @@ func (f *Files) check(root *yaml.Node) error {
 			}
 
 		default:
-			return f.wrong(key, "%q is not something rumbo reads; it reads system, providers, and frontends", key.Value)
+			return f.wrong(key, "%q is not something rumbo reads; it reads system, providers, frontends, and extensions", key.Value)
 		}
 	}
 
@@ -245,12 +251,16 @@ func (f *Files) check(root *yaml.Node) error {
 }
 
 // checkProgram checks what a section of the file holds of one program. A
-// provider has a model too.
+// provider has a model too, and an extension the tools it replaces.
 func (f *Files) checkProgram(section, name string, entry *yaml.Node) error {
 	fields := []string{fieldCommand, fieldConfig}
 
-	if section == sections[KindProvider] {
+	switch section {
+	case sections[KindProvider]:
 		fields = []string{fieldCommand, fieldModel, fieldConfig}
+
+	case sections[KindExtension]:
+		fields = []string{fieldCommand, fieldReplaces, fieldConfig}
 	}
 
 	known := strings.Join(fields[:len(fields)-1], ", ") + " and " + fields[len(fields)-1]
@@ -283,6 +293,13 @@ func (f *Files) checkProgram(section, name string, entry *yaml.Node) error {
 		case key.Value == fieldModel && slices.Contains(fields, fieldModel):
 			if value.Kind != yaml.ScalarNode {
 				return f.wrong(value, "the model of %s is one name", name)
+			}
+
+		case key.Value == fieldReplaces && slices.Contains(fields, fieldReplaces):
+			var replaces []string
+
+			if err := value.Decode(&replaces); err != nil {
+				return f.wrong(value, "what %s replaces is a list of tools, such as [bash]", name)
 			}
 
 		case key.Value == fieldConfig:
@@ -507,6 +524,12 @@ func (f *Files) Programs(kind string) ([]Program, error) {
 			program.Model = model.Value
 		}
 
+		if replaces := lookup(entry, fieldReplaces); replaces != nil && !isNull(replaces) {
+			if err := replaces.Decode(&program.Replaces); err != nil {
+				return nil, f.wrong(replaces, "what %s replaces: %v", program.Name, err)
+			}
+		}
+
 		if config := lookup(entry, fieldConfig); config != nil {
 			if program.Config, err = configOf(config); err != nil {
 				return nil, f.wrong(config, "the config of %s: %v", program.Name, err)
@@ -565,6 +588,26 @@ func (f *Files) PutProgram(kind string, program Program) error {
 
 		case written == nil || written.Value != program.Model:
 			putBefore(entry, fieldModel, text(program.Model), fieldConfig)
+		}
+
+		var replaces []string
+
+		if written := lookup(entry, fieldReplaces); written != nil {
+			_ = written.Decode(&replaces)
+		}
+
+		switch {
+		case len(program.Replaces) == 0:
+			remove(entry, fieldReplaces)
+
+		case !slices.Equal(replaces, program.Replaces):
+			words := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+
+			for _, word := range program.Replaces {
+				words.Content = append(words.Content, text(word))
+			}
+
+			putBefore(entry, fieldReplaces, words, fieldConfig)
 		}
 
 		if len(desired) == 0 {
