@@ -41,6 +41,11 @@ var defaultConfig = Config{
 	Success: "green", Failure: "red", Warning: "yellow", Progress: "cyan",
 }
 
+// retiredFields are fields the configuration had, which one written then
+// may still hold. It is read without them: layout chose between drawing
+// inline and taking the whole screen, before the inline drawing went.
+var retiredFields = []string{"layout"}
+
 // configured reads the configuration chosen, over the defaults. Every field
 // is text, and a number, such as a color of the 256 written in YAML as 214,
 // is read as the text it is. A field the configuration does not have is
@@ -62,6 +67,11 @@ func configured(given json.RawMessage) (Config, error) {
 	names := fieldNames()
 
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		if slices.Contains(retiredFields, name) {
+			delete(fields, name)
+			continue
+		}
+
 		if !slices.Contains(names, name) {
 			return defaultConfig, fmt.Errorf(`there is no field %q, which "rumbo frontend set tui %s=" takes out; the fields are %s`, name, name, strings.Join(names, ", "))
 		}

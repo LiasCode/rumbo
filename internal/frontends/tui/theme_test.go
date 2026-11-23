@@ -41,6 +41,11 @@ func TestTheConfigurationGoesOverTheDefaults(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `"colr_host"`) || !strings.Contains(err.Error(), "rumbo frontend set tui colr_host=") || !strings.Contains(err.Error(), "color_host") {
 		t.Fatalf("a field it does not have: err = %v", err)
 	}
+
+	// One it had, which a configuration may still hold, is read without.
+	if kept, err := configured(json.RawMessage(`{"layout":"inline","theme":"plain"}`)); err != nil || kept.Theme != "plain" {
+		t.Fatalf("a field it had = %+v, %v", kept, err)
+	}
 }
 
 // The default colors are the default theme; plain has none, and so has
