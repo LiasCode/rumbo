@@ -1,6 +1,4 @@
 /rumbo
-*.db
-*.db-*
 /baseline.jsonl
 /results*.jsonl
 /dist
