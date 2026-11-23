@@ -38,6 +38,15 @@ type Program struct {
 	Config   json.RawMessage
 }
 
+// Plugin is a plugin as the user added it: Source is where it comes from,
+// a directory or the address of a Git repository, and Replaces the tools
+// of rumbo's own the user agreed its extensions take the place of.
+type Plugin struct {
+	Name     string
+	Source   string
+	Replaces []string
+}
+
 // Session is one conversation. Dir is the directory it works in; Project is
 // the root that directory belongs to, which is what sessions are listed and
 // continued by. Provider and Model are what the session uses. Options are
@@ -86,6 +95,11 @@ type Store interface {
 	DeleteProgram(kind, name string) error
 	// Programs lists what the user registered, by name.
 	Programs(kind string) ([]Program, error)
+
+	// Plugins lists the plugins the user added, by name.
+	Plugins() ([]Plugin, error)
+	PutPlugin(plugin Plugin) error
+	DeletePlugin(name string) error
 
 	CreateSession(dir, project, title string) (Session, error)
 	Session(id string) (Session, error)

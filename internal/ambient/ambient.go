@@ -51,12 +51,13 @@ func (f funcCollector) Collect(ctx context.Context, dir string) string {
 	return f.collect(ctx, dir)
 }
 
-// Defaults returns the built-in collectors.
-func Defaults() []Collector {
+// Defaults returns the built-in collectors. skillPlaces are where the
+// user's plugins keep skills, besides the user's own and the project's.
+func Defaults(skillPlaces ...string) []Collector {
 	return []Collector{
 		Func("environment", environment),
 		Func("instructions", instructions),
-		Func("skills", skills),
+		Func("skills", func(ctx context.Context, dir string) string { return skills(ctx, dir, skillPlaces) }),
 	}
 }
 

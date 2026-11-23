@@ -52,12 +52,12 @@ type Skills struct {
 	Left []LeftOut
 }
 
-// FindSkills returns the user's own skills, in skills beside rumbo's
-// settings, and the project's, in .agents/skills from the project's root
-// down to dir. A skill with the name of another one replaces it in a more
-// specific place.
-func FindSkills(ctx context.Context, dir string) Skills {
-	var found Skills
+// FindSkills returns the skills the user's plugins bring, in the places
+// given, the user's own, in skills beside rumbo's settings, and the
+// project's, in .agents/skills from the project's root down to dir. A
+// skill with the name of another one replaces it in a more specific place.
+func FindSkills(ctx context.Context, dir string, plugins []string) Skills {
+	found := Skills{Places: slices.Clone(plugins)}
 
 	if user, ok := userDir(); ok {
 		found.Places = append(found.Places, filepath.Join(user, "skills"))
@@ -90,9 +90,10 @@ func FindSkills(ctx context.Context, dir string) Skills {
 	return found
 }
 
-// skills tells the model of the skills that apply in dir.
-func skills(ctx context.Context, dir string) string {
-	found := FindSkills(ctx, dir).Found
+// skills tells the model of the skills that apply in dir, those in the
+// places the user's plugins have among them.
+func skills(ctx context.Context, dir string, plugins []string) string {
+	found := FindSkills(ctx, dir, plugins).Found
 
 	if len(found) == 0 {
 		return ""

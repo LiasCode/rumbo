@@ -39,6 +39,7 @@ Usage:
   rumbo provider ...             add, show, and set providers: their model, configuration, and options
   rumbo frontend ...             add, show, and set front ends
   rumbo extension ...            add, show, and set extensions, which give the model tools
+  rumbo plugin ...               add, show, update, and remove plugins, which bring programs and skills
   rumbo provide <name>           run a built-in provider on stdin/stdout
   rumbo attach <name>            run a built-in front end on descriptors 3/4
   rumbo extend mcp [command...]  run the built-in extension for an MCP server on stdin/stdout
@@ -113,8 +114,10 @@ func dispatch(args []string) error {
 			return withStore(args[1:], configCommand)
 		case "sessions":
 			return withStore(args[1:], sessionCommands)
+		case "plugin":
+			return withStore(args[1:], pluginCommands)
 		case "skills":
-			return printSkills(args[1:])
+			return withStore(args[1:], printSkills)
 		case "log":
 			return withStore(args[1:], printLog)
 		case "request":

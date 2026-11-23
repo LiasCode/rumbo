@@ -50,6 +50,15 @@ it. The commits hold the reasons.
   offers commands of its own, named after it, such as `/notes-forget`,
   which say things and ask as a provider's `/login` does.
 
+- Plugins bring extensions, providers, front ends, and skills at once:
+  `rumbo plugin add <directory or Git address>` adds one, after starting
+  what it brings, and `rumbo plugin show`, `update`, and `rm` say what it
+  brings, bring it up to date, and take it out. What it brings is set like
+  anything else (`rumbo extension set`), and `config.yaml` keeps only where
+  the plugin comes from. A plugin whose extension takes the place of one of
+  rumbo's own tools says so and is added only with `-replaces <tool>`.
+  `examples/plugin` is one to start from.
+
 ### Terminal UI
 
 - What an extension prints is marked `[extension]`, and what its commands

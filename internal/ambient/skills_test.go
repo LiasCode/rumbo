@@ -48,7 +48,7 @@ func TestSkillsComeFromTheUserAndTheProject(t *testing.T) {
 	review := writeSkill(t, filepath.Join(repository, ".agents", "skills"), "review", "---\nname: review\ndescription: This project's way to review.\n---\n")
 	deploy := writeSkill(t, filepath.Join(dir, ".agents", "skills"), "deploy", "---\nname: deploy\ndescription: >\n  Deploy the service\n  to staging.\n---\n")
 
-	got := skills(context.Background(), dir)
+	got := skills(context.Background(), dir, nil)
 	want := skillsIntro + "\n\n" +
 		"[" + deploy + "]\ndeploy: Deploy the service to staging.\n\n" +
 		"[" + pdf + "]\npdf: Read and fill PDF forms.\n\n" +
@@ -58,7 +58,17 @@ func TestSkillsComeFromTheUserAndTheProject(t *testing.T) {
 		t.Fatalf("skills section:\n%s\n\nwant:\n%s", got, want)
 	}
 
-	found := FindSkills(context.Background(), dir)
+	// A plugin's skills are the least specific: the user's of the same name
+	// replaces one, and the others are told with the rest.
+	plugin := filepath.Join(t.TempDir(), "skills")
+	lint := writeSkill(t, plugin, "lint", "---\nname: lint\ndescription: The plugin's way to lint.\n---\n")
+	writeSkill(t, plugin, "pdf", "---\nname: pdf\ndescription: The plugin's PDFs.\n---\n")
+
+	if with := skills(context.Background(), dir, []string{plugin}); !strings.Contains(with, "["+lint+"]\nlint: The plugin's way to lint.") || strings.Contains(with, "The plugin's PDFs") || !strings.Contains(with, "pdf: Read and fill PDF forms.") {
+		t.Fatalf("with a plugin's skills:\n%s", with)
+	}
+
+	found := FindSkills(context.Background(), dir, nil)
 	places := []string{user, filepath.Join(repository, ".agents", "skills"), filepath.Join(dir, ".agents", "skills")}
 
 	if !slices.Equal(found.Places, places) {
@@ -86,13 +96,13 @@ func TestSkillsWithoutADescriptionAreLeftOut(t *testing.T) {
 	os.MkdirAll(filepath.Join(place, "scripts"), 0o755)
 	os.WriteFile(filepath.Join(place, "notes.md"), []byte("not a skill"), 0o644)
 
-	if got := skills(ctx, dir); got != "" {
+	if got := skills(ctx, dir, nil); got != "" {
 		t.Fatalf("no usable skill, yet the section is %q", got)
 	}
 
 	reasons := map[string]string{}
 
-	for _, left := range FindSkills(ctx, dir).Left {
+	for _, left := range FindSkills(ctx, dir, nil).Left {
 		reasons[left.Path] = left.Reason
 	}
 
@@ -114,7 +124,7 @@ func TestSkillsWithoutADescriptionAreLeftOut(t *testing.T) {
 
 	unnamed := writeSkill(t, place, "unnamed", "\ufeff---\r\ndescription: Named after its directory.\r\n---\r\n")
 
-	if got := skills(ctx, dir); !strings.HasSuffix(got, "["+unnamed+"]\nunnamed: Named after its directory.") || strings.Count(got, "[/") != 1 {
+	if got := skills(ctx, dir, nil); !strings.HasSuffix(got, "["+unnamed+"]\nunnamed: Named after its directory.") || strings.Count(got, "[/") != 1 {
 		t.Fatalf("a skill without a name takes its directory's, got %q", got)
 	}
 }

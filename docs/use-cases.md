@@ -101,9 +101,10 @@ nothing and knows no model API.
   project's root down to the working directory, and the user's own in
   `~/.config/rumbo/`. A long one is cut, saying where the rest is.
 - The user's skills: the name, the description, and the path of each
-  `SKILL.md` in `~/.config/rumbo/skills/<name>/`, and in
-  `.agents/skills/<name>/` from the project's root down to the working
-  directory, where one of the same name replaces the user's. The model reads
+  `SKILL.md` in the `skills/<name>/` of each plugin the user added, in
+  `~/.config/rumbo/skills/<name>/`, where one of the same name replaces a
+  plugin's, and in `.agents/skills/<name>/` from the project's root down to
+  the working directory, where one of the same name replaces the user's. The model reads
   a skill when a task needs it. One without a description in its
   frontmatter is left out, and a long description is cut; a value with a
   colon in it that YAML rejects unquoted is read anyway.
@@ -282,6 +283,40 @@ nothing and knows no model API.
   extension's name.
 - Serve the built-in extension itself (`rumbo extend mcp`), over the same
   protocol as any other.
+
+**Plugins**
+
+- Add a plugin from a directory, which is read as it is each time, or from
+  the address of a Git repository, which is copied into the user's data
+  (`rumbo plugin add`). A plugin is a directory with a `plugin.yaml` that
+  names the providers, front ends, and extensions it brings, each with the
+  command that starts it, where `{plugin}` stands for the plugin's
+  directory, and the configuration the plugin gives it; and with skills in
+  `skills/`.
+- Start what a plugin brings before it is added, its providers and, with
+  all the others, its extensions, which is the test that it works; one that
+  does not pass is not added, and a copy made for it is not left behind.
+- Have what a plugin brings there without being registered, as what is
+  built in is: listed, shown, and set like any other program, with what the
+  user sets for it over what the plugin gives it, and only that kept.
+- Refuse a plugin whose name is taken, that brings a program another
+  plugin brings, the user registered, or rumbo has built in, or whose
+  manifest has a key it does not know.
+- Let an extension of a plugin take the place of one of its own tools only
+  when the user agreed to it by name as they added the plugin
+  (`-replaces bash`), saying which it asks for when they did not.
+- Bring a plugin added from an address up to date (`rumbo plugin update`),
+  and leave it as it was when what it is now does not pass, or asks to
+  replace a tool the user did not agree to.
+- Take a plugin out (`rumbo plugin rm`), with what the user had set for the
+  programs it brought and the copy of its repository; a directory it was
+  added from is left as it is.
+- List the plugins and say what each brings (`rumbo plugin list`, `rumbo
+  plugin show`), and stop with a plugin whose manifest can no longer be
+  read, saying how to take it out, instead of going on without what it
+  brought.
+- Keep of a plugin, in the configuration file, only where it comes from
+  and the replacements the user agreed to.
 
 **System settings**
 

@@ -339,8 +339,16 @@ func printPrograms(database store.Store, kind string) error {
 	for _, program := range programs {
 		started := strings.Join(program.Command, " ")
 
-		if _, built := builtin(kind, program.Name); built && program.Command[0] == selfPlaceholder {
-			started = sourceBuiltin
+		// One that is there without being registered says where it comes
+		// from instead of how it is started.
+		chosen, _, err := chosenProgram(database, kind, program.Name)
+
+		if err != nil {
+			return err
+		}
+
+		if _, origin, _ := provided(database, kind, program.Name); origin != "" && len(chosen.Command) == 0 {
+			started = origin
 		}
 
 		if program.Model == "" {

@@ -1,0 +1,27 @@
+# A plugin is a directory with this file, which names what the plugin brings.
+# Add it, and all of it is there at once:
+#
+#     rumbo plugin add /path/to/examples/plugin
+#     rumbo plugin show notes
+#
+# A person adds a plugin from a directory, as here, or from the address of a
+# Git repository that has this file at its root.
+
+# The plugin's name: lowercase letters, digits, _ and -.
+name: notes
+description: Keeps notes between runs, and knows how you like meeting notes written.
+
+# The programs it brings, by kind and name. {plugin} stands for the directory
+# the plugin is in, wherever it was added from. Each is there once the plugin
+# is added, as what rumbo has built in is, and is set the same way:
+# rumbo extension set notes field=value.
+extensions:
+  notes:
+    command: [python3, "{plugin}/../extension.py"]
+    # `config` would be the configuration the plugin gives it, which what the
+    # user sets goes over; `replaces: [bash]` would ask to take the place of a
+    # tool of rumbo's own, which the user agrees to when adding the plugin.
+
+# `providers:` and `frontends:` bring those, written the same way.
+
+# Its skills are the directories in skills/, each with a SKILL.md.

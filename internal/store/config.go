@@ -35,9 +35,14 @@ import (
 //	  sandbox:
 //	    command: [python3, /path/to/sandbox.py]
 //	    replaces: [bash]
+//	plugins:
+//	  notes:
+//	    source: https://example.com/notes.git
 
 const (
-	sectionSystem = "system"
+	sectionSystem  = "system"
+	sectionPlugins = "plugins"
+	fieldSource    = "source"
 
 	fieldCommand  = "command"
 	fieldModel    = "model"
@@ -205,7 +210,7 @@ func (f *Files) wrong(node *yaml.Node, format string, args ...any) error {
 // meant: a key it does not know, or a value of another shape.
 func (f *Files) check(root *yaml.Node) error {
 	if root.Kind != yaml.MappingNode {
-		return f.wrong(root, "it holds system, providers, frontends, and extensions, each with what is under it")
+		return f.wrong(root, "it holds system, providers, frontends, extensions, and plugins, each with what is under it")
 	}
 
 	if err := f.checkKeys(root); err != nil {
@@ -242,8 +247,51 @@ func (f *Files) check(root *yaml.Node) error {
 				}
 			}
 
+		case sectionPlugins:
+			for at := 0; at+1 < len(value.Content); at += 2 {
+				if err := f.checkPlugin(value.Content[at].Value, actual(value.Content[at+1])); err != nil {
+					return err
+				}
+			}
+
 		default:
-			return f.wrong(key, "%q is not something rumbo reads; it reads system, providers, frontends, and extensions", key.Value)
+			return f.wrong(key, "%q is not something rumbo reads; it reads system, providers, frontends, extensions, and plugins", key.Value)
+		}
+	}
+
+	return nil
+}
+
+// checkPlugin checks what the file holds of one plugin.
+func (f *Files) checkPlugin(name string, entry *yaml.Node) error {
+	if entry.Kind != yaml.MappingNode {
+		return f.wrong(entry, "%s holds its source and replaces, each on a line of its own", name)
+	}
+
+	if err := f.checkKeys(entry); err != nil {
+		return err
+	}
+
+	for index := 0; index+1 < len(entry.Content); index += 2 {
+		key, value := entry.Content[index], actual(entry.Content[index+1])
+
+		switch {
+		case isNull(value):
+
+		case key.Value == fieldSource:
+			if value.Kind != yaml.ScalarNode {
+				return f.wrong(value, "the source of %s is one directory or address", name)
+			}
+
+		case key.Value == fieldReplaces:
+			var replaces []string
+
+			if err := value.Decode(&replaces); err != nil {
+				return f.wrong(value, "what %s replaces is a list of tools, such as [bash]", name)
+			}
+
+		default:
+			return f.wrong(key, "%q is not something rumbo reads of %s; it reads source and replaces", key.Value, name)
 		}
 	}
 
@@ -630,6 +678,76 @@ func (f *Files) DeleteProgram(kind, name string) error {
 
 	return f.update(func(root *yaml.Node) error {
 		return discard(root, section, name)
+	})
+}
+
+// Plugins implements Store.
+func (f *Files) Plugins() ([]Plugin, error) {
+	root, err := f.root()
+
+	if err != nil {
+		return nil, err
+	}
+
+	added := lookup(root, sectionPlugins)
+
+	if added == nil || added.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+
+	var plugins []Plugin
+
+	for index := 0; index+1 < len(added.Content); index += 2 {
+		plugin := Plugin{Name: added.Content[index].Value}
+		entry := actual(added.Content[index+1])
+
+		if source := lookup(entry, fieldSource); source != nil && !isNull(source) {
+			plugin.Source = source.Value
+		}
+
+		if replaces := lookup(entry, fieldReplaces); replaces != nil && !isNull(replaces) {
+			if err := replaces.Decode(&plugin.Replaces); err != nil {
+				return nil, f.wrong(replaces, "what %s replaces: %v", plugin.Name, err)
+			}
+		}
+
+		plugins = append(plugins, plugin)
+	}
+
+	slices.SortFunc(plugins, func(a, b Plugin) int { return strings.Compare(a.Name, b.Name) })
+
+	return plugins, nil
+}
+
+// PutPlugin implements Store.
+func (f *Files) PutPlugin(plugin Plugin) error {
+	return f.update(func(root *yaml.Node) error {
+		entry := within(within(root, sectionPlugins), plugin.Name)
+
+		put(entry, fieldSource, text(plugin.Source))
+
+		if len(plugin.Replaces) == 0 {
+			remove(entry, fieldReplaces)
+
+			return nil
+		}
+
+		words := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+
+		for _, word := range plugin.Replaces {
+			words.Content = append(words.Content, text(word))
+		}
+
+		put(entry, fieldReplaces, words)
+
+		return nil
+	})
+}
+
+// DeletePlugin implements Store.
+func (f *Files) DeletePlugin(name string) error {
+	return f.update(func(root *yaml.Node) error {
+		return discard(root, sectionPlugins, name)
 	})
 }
 

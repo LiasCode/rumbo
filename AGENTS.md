@@ -36,6 +36,14 @@ changes one of those updates it in the same change.
   What it asks the person and is answered is recorded nowhere. One of its tools takes the place of rumbo's own only where the
   user said so (`replaces`), never by its name alone. A run never starts
   with some of its extensions' tools missing.
+- **A plugin adds no kind of thing.** It brings providers, front ends,
+  extensions, and skills, which are the same as any other once it is added:
+  there without an entry, as the built-in programs are, through the one
+  place that says what is there without being registered (`provided`, in
+  `programs.go`). `config.yaml` keeps of a plugin where it comes from and
+  the replacements the user agreed to, nothing its manifest says. What a
+  plugin's extension replaces is agreed to by name when the plugin is
+  added, and an update that asks for more is refused.
 - **The host does not touch the terminal.** No prints to stdout or stderr
   once a front end is attached, and no signal handling beyond ignoring the
   interrupt, and shutting down on SIGTERM and SIGHUP as a disconnect does.

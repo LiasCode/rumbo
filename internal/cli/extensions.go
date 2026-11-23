@@ -49,10 +49,10 @@ func reserved() extension.Reserved {
 	return names
 }
 
-// extensionPrograms returns the extensions the user registered, as they
-// are started.
+// extensionPrograms returns the extensions there are, the user's own and
+// those their plugins bring, as they are started.
 func extensionPrograms(database store.Store) ([]extension.Program, error) {
-	registered, err := database.Programs(store.KindExtension)
+	registered, err := listPrograms(database, store.KindExtension)
 
 	if err != nil {
 		return nil, err

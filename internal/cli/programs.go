@@ -67,9 +67,30 @@ func builtin(kind, name string) (store.Program, bool) {
 	return store.Program{}, false
 }
 
+// provided returns the program of a kind that is there under name without
+// the user registering it, and where it comes from: one rumbo has built in,
+// or one a plugin brings. The origin is empty when there is none.
+func provided(database store.Store, kind, name string) (store.Program, string, error) {
+	if base, built := builtin(kind, name); built {
+		return base, sourceBuiltin, nil
+	}
+
+	brought, plugin, err := broughtBy(database, kind, name)
+
+	if err != nil || plugin == "" {
+		return store.Program{}, "", err
+	}
+
+	return brought, sourcePlugin + plugin, nil
+}
+
+// sourcePlugin starts where a program a plugin brings comes from, before
+// the plugin's name.
+const sourcePlugin = "plugin "
+
 // findProgram returns the program called name as it is started: the one the
-// user registered, or the one rumbo has built in, with what the user chose
-// for it over what it is built in with.
+// user registered, or the one rumbo has built in or a plugin brings, with
+// what the user chose for it over what it comes with.
 func findProgram(database store.Store, kind, name string) (store.Program, error) {
 	chosen, registered, err := chosenProgram(database, kind, name)
 
@@ -77,7 +98,7 @@ func findProgram(database store.Store, kind, name string) (store.Program, error)
 		return store.Program{}, err
 	}
 
-	return startedWith(kind, name, chosen, registered)
+	return startedWith(database, kind, name, chosen, registered)
 }
 
 // chosenProgram returns what the user chose for a program, and whether they
@@ -94,8 +115,14 @@ func chosenProgram(database store.Store, kind, name string) (store.Program, bool
 
 // startedWith is a program as it is started, given what the user chose for
 // it.
-func startedWith(kind, name string, chosen store.Program, registered bool) (store.Program, error) {
-	base, built := builtin(kind, name)
+func startedWith(database store.Store, kind, name string, chosen store.Program, registered bool) (store.Program, error) {
+	base, origin, err := provided(database, kind, name)
+
+	if err != nil {
+		return store.Program{}, err
+	}
+
+	built := origin != ""
 
 	switch {
 	case !registered && !built:
@@ -117,19 +144,25 @@ func startedWith(kind, name string, chosen store.Program, registered bool) (stor
 
 	base.Config, base.Model = config, chosen.Model
 
+	// What the user has it replace goes over what a plugin does.
+	if len(chosen.Replaces) > 0 {
+		base.Replaces = chosen.Replaces
+	}
+
 	return base, nil
 }
 
-// builtinFields are the fields of a program's configuration as rumbo has it
-// built in, which is nothing for a program registered in its place.
-func builtinFields(kind string, chosen store.Program) map[string]json.RawMessage {
-	base, built := builtin(kind, chosen.Name)
+// providedFields are the fields of a program's configuration as rumbo has
+// it built in, or as a plugin brings it, and which of the two; nothing for
+// a program registered in its place.
+func providedFields(database store.Store, kind string, chosen store.Program) (map[string]json.RawMessage, string) {
+	base, origin, err := provided(database, kind, chosen.Name)
 
-	if !built || len(chosen.Command) > 0 {
-		return nil
+	if err != nil || origin == "" || len(chosen.Command) > 0 {
+		return nil, ""
 	}
 
-	return objectFields(base.Config)
+	return objectFields(base.Config), origin
 }
 
 // objectFields reads a JSON object by its fields; anything else has none.
@@ -158,6 +191,16 @@ func listPrograms(database store.Store, kind string) ([]store.Program, error) {
 		if group.kind == kind {
 			names = append(names, group.names...)
 		}
+	}
+
+	plugins, err := installed(database)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, each := range plugins {
+		names = append(names, slices.Collect(maps.Keys(each.manifest.programs(kind)))...)
 	}
 
 	for _, program := range registered {
@@ -256,7 +299,7 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 		return nil, err
 	}
 
-	current, err := startedWith(kind, name, chosen, registered)
+	current, err := startedWith(database, kind, name, chosen, registered)
 
 	if err != nil {
 		return nil, err
@@ -309,7 +352,7 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 
 		if each.back() {
 			if _, found := fields[each.name]; !found {
-				return nil, nothingToGiveBack(kind, chosen, each.name)
+				return nil, nothingToGiveBack(database, kind, chosen, each.name)
 			}
 
 			delete(fields, each.name)
@@ -341,7 +384,7 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 	}
 
 	if configured && kind == store.KindProvider {
-		next, err := startedWith(kind, name, chosen, true)
+		next, err := startedWith(database, kind, name, chosen, true)
 
 		if err != nil {
 			return nil, err
@@ -355,13 +398,20 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 	// An extension is tried with any change, since what it replaces is
 	// checked against what it declares.
 	if kind == store.KindExtension {
-		if _, err := tryExtension(database, chosen, diagnostics); err != nil {
+		next, err := startedWith(database, kind, name, chosen, true)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := tryExtension(database, next, diagnostics); err != nil {
 			return nil, fmt.Errorf("%s did not start with that, so nothing was changed: %w", name, err)
 		}
 	}
 
-	// A built-in with nothing chosen for it has nothing to keep.
-	if _, built := builtin(kind, name); built && len(chosen.Command) == 0 && chosen.Model == "" && len(chosen.Config) == 0 {
+	// One that is there anyway, with nothing chosen for it, has nothing to
+	// keep.
+	if _, origin, _ := provided(database, kind, name); origin != "" && len(chosen.Command) == 0 && chosen.Model == "" && len(chosen.Config) == 0 && len(chosen.Replaces) == 0 {
 		if err := database.DeleteProgram(kind, name); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
@@ -374,11 +424,18 @@ func setProgram(database store.Store, kind, name string, written []string, diagn
 
 // nothingToGiveBack says why a field that is not set for a program cannot
 // be given back.
-func nothingToGiveBack(kind string, chosen store.Program, name string) error {
+func nothingToGiveBack(database store.Store, kind string, chosen store.Program, name string) error {
 	text := fmt.Sprintf("%s is not set for %s in %s, so there is nothing to give back", name, chosen.Name, configFile)
+	fields, origin := providedFields(database, kind, chosen)
 
-	if value, found := builtinFields(kind, chosen)[name]; found {
+	value, found := fields[name]
+
+	switch {
+	case found && origin == sourceBuiltin:
 		text += fmt.Sprintf("; %s is how rumbo has it built in, and setting it changes that", shownValue(value))
+
+	case found:
+		text += fmt.Sprintf("; %s is how the %s brings it, and setting it changes that", shownValue(value), origin)
 	}
 
 	return errors.New(text)
@@ -509,11 +566,20 @@ func tryStart(program store.Program, diagnostics io.Writer) error {
 // removeProgram takes out what the user registered under name, and says what
 // that leaves. A built-in is there all the same, as rumbo has it.
 func removeProgram(database store.Store, kind, name string) (string, error) {
-	_, built := builtin(kind, name)
-	err := database.DeleteProgram(kind, name)
+	_, origin, err := provided(database, kind, name)
+
+	if err != nil {
+		return "", err
+	}
+
+	plugin, brought := strings.CutPrefix(origin, sourcePlugin)
+	err = database.DeleteProgram(kind, name)
 
 	switch {
-	case errors.Is(err, store.ErrNotFound) && built:
+	case errors.Is(err, store.ErrNotFound) && brought:
+		return "", fmt.Errorf(`%s %q comes with the plugin %s, with nothing of yours to remove; "rumbo plugin rm %s" takes the plugin out`, kindNames[kind], name, plugin, plugin)
+
+	case errors.Is(err, store.ErrNotFound) && origin != "":
 		return "", fmt.Errorf("%s %q is built in, with nothing of yours to remove; it is always there", kindNames[kind], name)
 
 	case errors.Is(err, store.ErrNotFound):
@@ -522,7 +588,10 @@ func removeProgram(database store.Store, kind, name string) (string, error) {
 	case err != nil:
 		return "", err
 
-	case built:
+	case brought:
+		return fmt.Sprintf("removed what was yours of the %s %s, which is as the plugin %s brings it again", kindNames[kind], name, plugin), nil
+
+	case origin != "":
 		return fmt.Sprintf("removed what was yours of the %s %s, which is built in and is as rumbo has it again", kindNames[kind], name), nil
 	}
 

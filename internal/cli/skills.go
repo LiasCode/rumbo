@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/LiasCode/rumbo/internal/ambient"
+	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -50,11 +51,17 @@ func (h *host) listSkills(ctx context.Context, _ map[string]string) (protocol.Ho
 	dir := h.current.dir
 	h.mu.Unlock()
 
-	return protocol.HostResult{Text: describeSkills(ambient.FindSkills(ctx, dir))}, nil
+	plugins, err := skillPlaces(h.database)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: describeSkills(ambient.FindSkills(ctx, dir, plugins))}, nil
 }
 
 // printSkills is the command: the skills of the working directory.
-func printSkills(args []string) error {
+func printSkills(database store.Store, args []string) error {
 	if len(args) != 0 {
 		return errors.New("usage: rumbo skills")
 	}
@@ -65,7 +72,13 @@ func printSkills(args []string) error {
 		return err
 	}
 
-	fmt.Println(describeSkills(ambient.FindSkills(context.Background(), dir)))
+	plugins, err := skillPlaces(database)
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(describeSkills(ambient.FindSkills(context.Background(), dir, plugins)))
 
 	return nil
 }

@@ -79,6 +79,25 @@ func describeConfig(database store.Store, session *sessionLayer, later string) (
 		}
 	}
 
+	plugins, err := database.Plugins()
+
+	if err != nil {
+		return "", err
+	}
+
+	// There are plugins only when the user added some.
+	if len(plugins) > 0 {
+		fmt.Fprintf(table, "\nplugins\n")
+	}
+
+	for _, plugin := range plugins {
+		fmt.Fprintf(table, "  %s\t%s\t%s\n", plugin.Name, plugin.Source, sourceFile)
+
+		if len(plugin.Replaces) > 0 {
+			fmt.Fprintf(table, "    %s\t%s\t%s\n", settingReplaces, strings.Join(plugin.Replaces, ", "), sourceFile)
+		}
+	}
+
 	if err := table.Flush(); err != nil {
 		return "", err
 	}
@@ -125,13 +144,18 @@ func describePrograms(table io.Writer, database store.Store, kind string) error 
 			return err
 		}
 
-		_, built := builtin(kind, program.Name)
-		started := sourceBuiltin
+		base, origin, err := provided(database, kind, program.Name)
+
+		if err != nil {
+			return err
+		}
+
+		started := origin
 
 		if len(chosen.Command) > 0 {
 			started = strings.Join(chosen.Command, " ")
 
-			if built {
+			if origin == sourceBuiltin {
 				started += ", in place of the built-in one"
 			}
 		}
@@ -143,17 +167,27 @@ func describePrograms(table io.Writer, database store.Store, kind string) error 
 			fmt.Fprintf(table, "    %s\t%s\t%s\n", settingModel, chosen.Model, sourceFile)
 		}
 
-		if len(chosen.Replaces) > 0 {
+		switch {
+		case len(chosen.Replaces) > 0:
 			fmt.Fprintf(table, "    %s\t%s\t%s\n", settingReplaces, strings.Join(chosen.Replaces, ", "), sourceFile)
+
+		// What a plugin's extension replaces is what the user agreed to
+		// when they added the plugin.
+		case len(base.Replaces) > 0 && len(chosen.Command) == 0:
+			fmt.Fprintf(table, "    %s\t%s\t%s\n", settingReplaces, strings.Join(base.Replaces, ", "), origin)
 		}
 
-		base, mine := builtinFields(kind, chosen), objectFields(chosen.Config)
+		comes, mine := objectFields(nil), objectFields(chosen.Config)
 
-		for _, name := range slices.Sorted(maps.Keys(mergedKeys(base, mine))) {
+		if len(chosen.Command) == 0 {
+			comes = objectFields(base.Config)
+		}
+
+		for _, name := range slices.Sorted(maps.Keys(mergedKeys(comes, mine))) {
 			value, source := mine[name], sourceFile
 
 			if _, set := mine[name]; !set {
-				value, source = base[name], sourceBuiltin
+				value, source = comes[name], origin
 			}
 
 			fmt.Fprintf(table, "    %s\t%s\t%s\n", name, shownValue(value), source)
@@ -188,7 +222,7 @@ func showProvider(database store.Store, name string, session *choice, diagnostic
 		return "", err
 	}
 
-	program, err := startedWith(store.KindProvider, name, chosen, registered)
+	program, err := startedWith(database, store.KindProvider, name, chosen, registered)
 
 	if err != nil {
 		return "", err
@@ -214,18 +248,17 @@ func showProvider(database store.Store, name string, session *choice, diagnostic
 		session = nil
 	}
 
-	layers := settingLayers{
-		chosen:  objectFields(chosen.Config),
-		builtin: builtinFields(store.KindProvider, chosen),
-		inForce: objectFields(process.Config()),
-	}
+	layers := settingLayers{chosen: objectFields(chosen.Config), inForce: objectFields(process.Config())}
+	layers.comes, layers.origin = providedFields(database, store.KindProvider, chosen)
 
 	var out strings.Builder
 
 	started := strings.Join(program.Command, " ")
 
-	if _, built := builtin(store.KindProvider, name); built && len(chosen.Command) == 0 {
+	if layers.origin == sourceBuiltin {
 		started += ", built in"
+	} else if layers.origin != "" {
+		started += ", from the " + layers.origin
 	}
 
 	fmt.Fprintf(&out, "%s: %s", name, started)
@@ -258,7 +291,7 @@ func showProvider(database store.Store, name string, session *choice, diagnostic
 	// provider from working when it says what its configuration holds.
 	known := &settingsOf{offers: offers, inForce: layers.inForce}
 
-	for _, other := range slices.Sorted(maps.Keys(mergedKeys(layers.chosen, layers.builtin, layers.inForce))) {
+	for _, other := range slices.Sorted(maps.Keys(mergedKeys(layers.chosen, layers.comes, layers.inForce))) {
 		if shownNames[other] {
 			continue
 		}
@@ -306,10 +339,12 @@ func showProvider(database store.Store, name string, session *choice, diagnostic
 }
 
 // settingLayers are where a provider's setting can come from, under a
-// session's choice: the configuration file, how rumbo has the provider built
-// in, and the provider's configuration in force, which holds its defaults.
+// session's choice: the configuration file, how the provider comes, built
+// into rumbo or brought by a plugin, which origin says, and the provider's
+// configuration in force, which holds its defaults.
 type settingLayers struct {
-	chosen, builtin, inForce map[string]json.RawMessage
+	chosen, comes, inForce map[string]json.RawMessage
+	origin                 string
 }
 
 // of returns the value of a setting, and where it comes from.
@@ -318,8 +353,8 @@ func (layers settingLayers) of(described protocol.Option) (string, string) {
 		return shownValue(value), sourceFile
 	}
 
-	if value, found := layers.builtin[described.Name]; found {
-		return shownValue(value), sourceBuiltin
+	if value, found := layers.comes[described.Name]; found {
+		return shownValue(value), layers.origin
 	}
 
 	if value, found := layers.inForce[described.Name]; found {

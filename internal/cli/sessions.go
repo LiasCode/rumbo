@@ -221,7 +221,14 @@ func (h *host) agent(ctx context.Context, pool *provider.Pool, chosen choice, op
 	rumbo := reserved()
 	rumbo.Own = slices.Clone(declared)
 
+	// skills are where the user's plugins keep theirs.
+	var skills []string
+
 	offers, err := h.extensions.Start(ctx, extensions, rumbo)
+
+	if err == nil {
+		skills, err = skillPlaces(h.database)
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf(`%w; "rumbo extension rm <name>" takes one out`, err)
@@ -238,7 +245,7 @@ func (h *host) agent(ctx context.Context, pool *provider.Pool, chosen choice, op
 		Provider:     pool,
 		Observer:     observer,
 		Tools:        declared,
-		Collectors:   append(ambient.Defaults(), offers.Collectors...),
+		Collectors:   append(ambient.Defaults(skills...), offers.Collectors...),
 		ProviderName: chosen.provider,
 		Model:        chosen.model,
 		Options:      options,

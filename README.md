@@ -200,6 +200,25 @@ keeps only those, and `prefix=files_` renames them when two servers call a
 tool the same. A sign-in is kept in `rumbo/credentials/` of your
 configuration directory, readable only by you, and renewed as it expires.
 
+## Add a plugin
+
+A plugin brings extensions, providers, front ends, and skills at once: a
+directory, or a Git repository, with a `plugin.yaml` that names them.
+
+```sh
+rumbo plugin add https://example.com/team-plugin.git
+rumbo plugin show team      # what it brings
+rumbo plugin update team    # bring it up to date
+rumbo plugin rm team
+```
+
+What it brings is there as what rumbo has built in is, and you set it the
+same way (`rumbo extension set`, `rumbo provider set`). A plugin runs with
+your rights, so add one whose code you trust; when one of its extensions
+takes the place of a tool of rumbo's own, adding it says so and asks you to
+agree (`-replaces bash`). To write one, start from
+[examples/plugin](examples/plugin).
+
 ## Bring your own
 
 - **A provider** answers `initialize` and `complete` on its stdin and

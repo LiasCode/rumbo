@@ -103,13 +103,23 @@ where it is; it reads the skill when a task needs it. Each collector
 produces a named section. Everything else about a task the model finds out
 with its tools, when it needs it.
 
+**Plugins** (`internal/cli/plugins.go`). How a user gets, at once, what
+someone else put together: a plugin is a directory, or a Git repository
+rumbo keeps a copy of, whose manifest names the providers, front ends, and
+extensions it brings, and which keeps skills. It adds no part of its own:
+its programs are the same programs, there without being registered as the
+built-in ones are, and its skills are told with the user's. The
+configuration file keeps only where a plugin comes from, and which tools of
+the host's own the user agreed its extensions replace.
+
 **Store** (`internal/store`). Settings, registered programs, sessions, and
 entries, all in files a person can read. What the user chose is one file,
 `config.yaml`, next to their instructions and skills: they can edit it, and
 rumbo changes it one value at a time, leaving the rest as it was, comments
 included. It holds no default, so a value that is there is one somebody set.
 Each session is a directory of its own in the user's data: what the session
-is, and its entries, one to a line, only ever appended.
+is, and its entries, one to a line, only ever appended. The copies of the
+plugins added from an address are kept there too.
 
 **Transcript** (`internal/transcript`). Defines what entries mean and rebuilds
 the model request from them. This is the single place that decides what the

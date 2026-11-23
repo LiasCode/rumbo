@@ -139,8 +139,9 @@ input. It is read from the sessions, so it keeps nothing of its own.
 **Program.** A provider, front end, or extension rumbo can start: a name,
 the command that starts it, and its configuration, which for a provider
 holds the values of its options too; a provider also has the model a new
-session that uses it starts with. The built-in ones are always there; the
-user registers others, and every extension is one of those.
+session that uses it starts with. The built-in ones are always there, and
+so are those a plugin brings while the plugin is added; the user registers
+others.
 Only what the user chose is kept of a configuration: what is not chosen is
 the program's own default, which the program says when it starts.
 
@@ -173,8 +174,13 @@ the environment it runs in, the user's instructions, and the user's skills.
 **Instructions.** The `AGENTS.md` or `CLAUDE.md` files of the project and of
 the user. They are where the user says how work should be done.
 
-**Skill.** Instructions for one kind of task, kept by the user or the
-project in a directory with a `SKILL.md`, in the
+**Plugin.** A directory that brings programs, providers, front ends, and
+extensions, and skills, all at once, named in its `plugin.yaml`. The user
+adds it from a directory or from the address of a Git repository. What it
+brings is there without being registered, as what rumbo has built in is.
+
+**Skill.** Instructions for one kind of task, kept by the user, a plugin of
+theirs, or the project in a directory with a `SKILL.md`, in the
 [Agent Skills](https://agentskills.io) format. The model is told only what
 each one is for, and reads the rest when a task needs it.
 
