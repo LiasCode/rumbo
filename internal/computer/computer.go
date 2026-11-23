@@ -2,8 +2,8 @@
 // pointer and keyboard that act on it, for the computer tool. Open finds
 // out which desktop it is and acts through what that desktop offers: on a
 // wlroots compositor such as Hyprland or Sway, its virtual pointer and
-// keyboard and grim; on X11, xdotool; on macOS, screencapture and Quartz
-// events through osascript.
+// keyboard and grim; on X11, xdotool, and maim or ImageMagick's import for
+// screenshots; on macOS, screencapture and Quartz events through osascript.
 package computer
 
 import (

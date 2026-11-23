@@ -379,8 +379,8 @@ func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams,
 		}
 	}
 
-	// An empty effort is none chosen: the host sends the option's default,
-	// "", with every request, which would otherwise hide the configured one.
+	// An empty effort is none chosen, as a front end may send for one run,
+	// and leaves the configured one in force.
 	if chosen.Effort == "" {
 		chosen.Effort = h.config.Effort
 	}

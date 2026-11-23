@@ -217,8 +217,8 @@ func TestDescriptionFunctionsAndOptions(t *testing.T) {
 		t.Fatalf("output_config = %s", sent)
 	}
 
-	// The host sends the option's default, empty, with every request: that
-	// is none chosen, and the configured effort applies.
+	// An empty effort, as a front end may send for one run, is none chosen,
+	// and so is none at all: the configured effort applies.
 	for _, options := range []string{`{"effort":""}`, `{}`, ``} {
 		params.Options = json.RawMessage(options)
 		handler.Complete(context.Background(), params, func(string) {})

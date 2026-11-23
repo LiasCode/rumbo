@@ -1,7 +1,7 @@
 // Package tool holds the tools the model can call. The set is deliberately
-// small: read, write, edit, and bash cover programming work, and everything
-// else is reachable through bash, except what a screen shows, which the
-// computer tool sees when the user turns it on.
+// small: read, write, edit, and bash work with files and run programs, and
+// everything else is reachable through bash, except what a screen shows,
+// which the computer tool sees when the user turns it on.
 package tool
 
 import (

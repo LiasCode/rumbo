@@ -92,10 +92,11 @@ program. A person can edit it; a default is never written to it.
 
 **System setting.** A setting of rumbo itself, the same everywhere: the
 provider a new session starts with, the front end, the turn limit, the
-output limit, and when to summarize. It applies to the runs that start
-after it is stored. What a session chooses for itself is kept with the
-session and wins there; what a provider takes is kept with the provider,
-and so is the model a new session that uses it starts with.
+output limit, when to summarize, and whether the model has the computer
+tool. It applies to the runs that start after it is stored. What a
+session chooses for itself is kept with the session and wins there; what
+a provider takes is kept with the provider, and so is the model a new
+session that uses it starts with.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
 listing its models, or by the host, such as changing session or quitting. A

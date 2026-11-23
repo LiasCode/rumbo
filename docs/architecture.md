@@ -6,7 +6,7 @@ others. Two of them cross a process boundary through a protocol, which is what
 lets users bring their own: the front end a person uses, and the provider that
 reaches the model.
 
-![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop reports to an Observer and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process.](architecture.svg)
+![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process.](architecture.svg)
 
 The host is the only part that is always rumbo. It owns the sessions, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied
@@ -61,8 +61,9 @@ or press their buttons. It finds out which desktop it is in and acts
 through what that desktop offers: on a wlroots compositor such as Hyprland
 or Sway, the compositor's virtual pointer and keyboard (spoken by a small
 Wayland client of its own, `internal/computer/wayland`) and grim's
-screenshots; on X11, xdotool; on macOS, Quartz events through osascript and
-screencapture. Its keyboard is a US one whatever the person's layout, each
+screenshots; on X11, xdotool, and maim or ImageMagick for screenshots; on
+macOS, Quartz events through osascript and screencapture. On a wlroots
+compositor its keyboard is a US one whatever the person's layout, each
 key with the code of the key it is, and a character such a keyboard lacks
 is typed on a key given it for the moment. The tool shows the model
 screenshots of at most 1280×800 and maps the model's coordinates to the

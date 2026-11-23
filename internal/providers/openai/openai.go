@@ -1,6 +1,7 @@
 // Package openai is the built-in provider for servers that speak the OpenAI
 // Chat Completions API, which covers OpenAI itself and most local and hosted
-// model servers.
+// model servers, or OpenAI's Responses API, which the built-in openai speaks
+// and responses.go holds.
 package openai
 
 import (
@@ -44,7 +45,8 @@ const (
 	apiResponses = "responses"
 )
 
-// Handler implements protocol.Handler on Chat Completions.
+// Handler implements protocol.Handler on Chat Completions, or on the
+// Responses API when its configuration says api is responses.
 type Handler struct {
 	config Config
 	// keys holds the API keys login stored, by server.
@@ -454,8 +456,8 @@ func (h *Handler) chosen(raw json.RawMessage) (options, error) {
 		}
 	}
 
-	// An empty effort is none chosen: the host sends the option's default,
-	// "", with every request, which would otherwise hide the configured one.
+	// An empty effort is none chosen, as a front end may send for one run,
+	// and leaves the configured one in force.
 	if chosen.Effort == "" {
 		chosen.Effort = h.config.Effort
 	}

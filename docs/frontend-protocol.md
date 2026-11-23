@@ -24,8 +24,8 @@ ways to be connected, with the same messages on both:
 
 A registered front end keeps stdin, stdout, and stderr connected to the
 terminal, so it can draw and read keys freely. A front end that starts
-`rumbo serve` passes it the same flags as `rumbo` (`-c`, `-s`, `-m`,
-`-single`) and sets its working directory to the project.
+`rumbo serve` passes it the same flags as `rumbo` (`-c`, `-r`, `-s`, `-p`,
+`-m`, `-o`, `-single`) and sets its working directory to the project.
 
 Closing the connection ends the host: it cancels the runs in progress, stops
 the providers, and exits. SIGTERM and SIGHUP end it the same way, and close
@@ -35,10 +35,13 @@ code of `rumbo`, unless a signal ended the host.
 Requests are handled in the order they arrive. What reaches a provider is
 answered when it is done, without holding up what comes after it: a `run`
 is accepted in order and answered when it ends, and `describe`, the
-provider's functions, and the host's `compact` and `provider-show` are answered
-when the provider has. A `history`, a `recall`, and the host's other
-functions are answered at once, before the request after it. A front end that needs one of those to take effect
-before another request waits for its answer.
+provider's functions, and the host's functions that ask a provider,
+`session-set`, `session-values`, `compact`, `provider-models`,
+`provider-show`, `provider-set`, `provider-values`, and `provider-add`, are
+answered when the provider has. A `history`, a `recall`, and the host's
+other functions are answered at once, before the request after it. A front
+end that needs one of those to take effect before another request waits
+for its answer.
 
 ## Sessions
 
@@ -84,7 +87,7 @@ The host speaks first.
 - `resume` is `true` when the user asked to continue the session's unfinished
   run (`rumbo -r`). A front end is expected to send a `run` with `resume`.
 - `config` is what the user chose for the front end (`rumbo frontend
-  config`, or its `config` in rumbo's `config.yaml`), as JSON. Its meaning is
+  set`, or its `config` in rumbo's `config.yaml`), as JSON. Its meaning is
   the front end's own.
 - `functions` are what the host itself can be asked, whatever the provider.
   See [Functions of the host](#functions-of-the-host).
@@ -397,7 +400,7 @@ The functions of this version, by group:
 | `projects` | session | | Lists the projects that have sessions, by their root, most recently used first, with how many each has, and marks this host's. A front end shows every project's sessions with them, and starts `rumbo serve` in the root of the one a person opens. |
 | `open` | session | `session` | Makes another session of the project the current one. |
 | `new` | session | | Makes the next task start a new session. |
-| `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it waits for a run working in the session. |
+| `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it answers with an error while a run works in the session. |
 | `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. Marked `lists`. |
 | `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
 | `rename` | session | `title` | Gives the current session a title of the person's own. |
@@ -417,11 +420,11 @@ The functions of this version, by group:
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
 
-A function waits only for the session it changes: `delete` and `compact`
-answer with an error while something works in their session. `open` and
-`new` change the current session while a run goes on in the one left
-behind, and `use` changes the provider for the session's next runs, while a
-run in progress keeps the one it started with.
+A function waits only for the session it changes: `delete`, `compact`, and
+`branch` without a `point` answer with an error while something works in
+their session. `open` and `new` change the current session while a run goes
+on in the one left behind, and `use` changes the provider for the session's
+next runs, while a run in progress keeps the one it started with.
 
 Under `-single`, what changes the session or the provider waits for the run
 in progress instead, and answers with an error saying so: everything but

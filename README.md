@@ -5,7 +5,7 @@ A minimal agent harness. Give it a task, and it works through four tools
 turn it on, until the model is done. The models behind
 it and the interfaces in front of it are separate programs you can replace.
 
-![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol.](docs/how-it-works.svg)
+![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, and a fifth for the screen when turned on, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol.](docs/how-it-works.svg)
 
 ## What makes it different
 

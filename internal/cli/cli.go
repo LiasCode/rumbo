@@ -49,7 +49,8 @@ Flags:
   -m <model>     model of the session (default: the model set for its provider)
   -o <n>=<v>     a provider option of the session, such as -o effort=high; may be
                  repeated, and an empty value gives one back to the provider's
-  -f <name>      front end for this start (default: tui in a terminal, else plain)
+  -f <name>      front end for this start (default: the frontend setting, else
+                 tui in a terminal, else plain)
   -single        work in one session at a time; by default the host works in
                  several sessions of the project at once
 

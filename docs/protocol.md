@@ -70,7 +70,8 @@ The result may also carry what the provider says about itself. See
 - `max_tokens` of `0` or absent means the provider's default.
 - `options`, when present, is an object with the values chosen for the
   options the provider described. Answer with an error for a value or a name
-  you do not accept: the host does not check them.
+  you do not accept: the host checks what a person keeps against your
+  description, but not the options a front end chooses for one run.
 
 Result:
 

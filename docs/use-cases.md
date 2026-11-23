@@ -122,12 +122,13 @@ nothing and knows no model API.
   unfinished run (`-r`).
 - Open another session, start a new one, and give one a title of the
   person's own (`rename`, `rumbo sessions rename`).
-- Delete a session with its history, several by id (`rumbo sessions rm`),
-  or those of a project not used in a given time (`prune`, `rumbo sessions
-  prune`), only when the person confirms: both list them first, and delete
-  them when given `yes` (`-yes`), saying which they deleted. A session a
-  rumbo process is using is kept, and a host whose session another process
-  deleted says so instead of working in it.
+- Delete a session with its history: one the person names (`delete`, once
+  they confirm it, or `rumbo sessions rm`, several by id), or those of a
+  project not used in a given time (`prune`, `rumbo sessions prune`), which
+  list them first and delete them only when given `yes` (`-yes`), saying
+  which they deleted. A session a rumbo process is using is kept, and a
+  host whose session another process deleted says so instead of working in
+  it.
 - Branch a session: go on in a new one that starts with a copy of it, as it
   is or as it was before one of the person's messages. The session it came
   from stays as it is, and can go on working at the same time; the files
@@ -227,9 +228,9 @@ nothing and knows no model API.
 
 - Store the system settings, rumbo's own and the same everywhere: the
   provider a new session starts with, the front end, the turn limit, the
-  output limit, and the share of the model's context at which to
-  summarize. List them with where each value in force comes from
-  (`rumbo system`).
+  output limit, the share of the model's context at which to summarize,
+  and whether the model has the computer tool. List them with where each
+  value in force comes from (`rumbo system`).
 - Apply a stored system setting, or a provider's option, to the runs that
   start after it is stored, without starting again, whether a command
   stored it or a person wrote it in the file. The default provider and the
@@ -325,11 +326,10 @@ the Agent Provider Protocol on its stdin and stdout.
   `effort` option, sent as `reasoning_effort` only when it or the
   configuration chooses one, and takes the size of the context from its
   configuration, since a server cannot say. With `api` set to `responses`
-  in its configuration, as the `openai` registered the first time rumbo
-  runs has it, it speaks OpenAI's Responses API instead, which its
-  reasoning models need to use tools with an effort: nothing is stored on
-  the server, and a model's encrypted reasoning goes back to that model
-  alone, in opaque blocks.
+  in its configuration, as rumbo has the built-in `openai`, it speaks
+  OpenAI's Responses API instead, which its reasoning models need to use
+  tools with an effort: nothing is stored on the server, and a model's
+  encrypted reasoning goes back to that model alone, in opaque blocks.
 - Both offer `login`, which asks for an API key, checks it with a request
   that costs nothing, and keeps it for the server in the user's
   configuration directory (`rumbo/credentials/`), readable only by the user;

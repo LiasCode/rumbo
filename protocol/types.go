@@ -72,9 +72,10 @@ type Block struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-// Image is a picture a tool result shows the model, such as a screenshot.
-// Data is the encoded file, base64 in JSON, and MediaType says its format:
-// image/png, image/jpeg, image/gif, or image/webp.
+// Image is a picture shown to the model: one a tool's result shows, such as
+// a screenshot, or one the person gave with what they said, in a run or a
+// steer. Data is the encoded file, base64 in JSON, and MediaType says its
+// format: image/png, image/jpeg, image/gif, or image/webp.
 type Image struct {
 	MediaType string `json:"media_type"`
 	Data      []byte `json:"data"`
