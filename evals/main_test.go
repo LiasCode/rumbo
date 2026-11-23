@@ -1,22 +1,20 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/LiasCode/rumbo/internal/ambient"
 )
 
-// A run reaches the credentials the providers keep in the user's
-// configuration directory, linked from where they are, and none of the rest
-// of it, such as the user's own instructions.
-func TestARunSharesOnlyTheCredentials(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	if before, set := os.LookupEnv("ANTHROPIC_CONFIG_DIR"); set {
-		os.Unsetenv("ANTHROPIC_CONFIG_DIR")
-		t.Cleanup(func() { os.Setenv("ANTHROPIC_CONFIG_DIR", before) })
-	}
+func TestRunIsolatesGlobalContextWithoutMovingProviderConfiguration(t *testing.T) {
+	home, xdg := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("RUMBO_AMBIENT_DIR", "")
 
 	user, err := os.UserConfigDir()
 
@@ -24,10 +22,13 @@ func TestARunSharesOnlyTheCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	project := t.TempDir()
+
 	for path, text := range map[string]string{
-		filepath.Join(user, "rumbo", "credentials", "chatgpt.json"):         "sign-in",
-		filepath.Join(user, "rumbo", "AGENTS.md"):                           "the user's own",
-		filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "anthropic", "profile"): "ant auth login",
+		filepath.Join(user, "rumbo", "AGENTS.md"):                        "Global instructions",
+		filepath.Join(user, "rumbo", "skills", "global", "SKILL.md"):     "---\nname: global\ndescription: Global skill\n---\n",
+		filepath.Join(project, "AGENTS.md"):                              "Project instructions",
+		filepath.Join(project, ".agents", "skills", "local", "SKILL.md"): "---\nname: local\ndescription: Project skill\n---\n",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -38,22 +39,39 @@ func TestARunSharesOnlyTheCredentials(t *testing.T) {
 		}
 	}
 
-	workdir := t.TempDir()
+	collect := func() map[string]string {
+		sections := map[string]string{}
 
-	if err := shareCredentials(workdir); err != nil {
-		t.Fatal(err)
+		for _, section := range ambient.Changes(context.Background(), project, ambient.Defaults(), nil) {
+			sections[section.Name] = section.Text
+		}
+
+		return sections
 	}
 
-	for path, want := range map[string]string{
-		filepath.Join(configHome(workdir), "rumbo", "credentials", "chatgpt.json"): "sign-in",
-		filepath.Join(configHome(workdir), "anthropic", "profile"):                 "ant auth login",
-	} {
-		if got, err := os.ReadFile(path); err != nil || string(got) != want {
-			t.Errorf("%s = %q, %v; want %q", path, got, err, want)
+	before := collect()
+
+	if !strings.Contains(before["instructions"], "Global instructions") || !strings.Contains(before["skills"], "Global skill") {
+		t.Fatalf("global context missing from baseline: %v", before)
+	}
+
+	for _, binding := range environment("example", t.TempDir()) {
+		name, value, _ := strings.Cut(binding, "=")
+
+		switch name {
+		case "HOME", "XDG_CONFIG_HOME", "RUMBO_AMBIENT_DIR":
+			t.Setenv(name, value)
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join(configHome(workdir), "rumbo", "AGENTS.md")); !os.IsNotExist(err) {
-		t.Errorf("the user's instructions reach the run: %v", err)
+	after := collect()
+
+	if !strings.Contains(after["instructions"], "Project instructions") || !strings.Contains(after["skills"], "Project skill") ||
+		strings.Contains(after["instructions"], "Global instructions") || strings.Contains(after["skills"], "Global skill") {
+		t.Fatalf("expected only project context: %v", after)
+	}
+
+	if os.Getenv("HOME") != home || os.Getenv("XDG_CONFIG_HOME") != xdg {
+		t.Fatal("evaluation moved the provider configuration directories")
 	}
 }

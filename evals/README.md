@@ -37,14 +37,12 @@ on the model: with `claude-haiku-5-5`, only `follow-instructions` did.
 A real run calls the model and costs tokens. Model output varies between
 runs: use `-runs` before reading much into a single pass or failure.
 
-Each run gets a fresh copy of the task's project, and a configuration and
-sessions of its own, and ignores the machine's global instructions and
-skills, so results depend only on the task and the code. On macOS it does
-not: rumbo reads them from `~/Library/Application Support/rumbo/` there,
-which a run cannot be kept from. A provider you registered, or what you
-chose for a built-in one, is carried over from your own `config.yaml`, and
-the credentials the providers keep, what `/login` stored and the profile of
-`ant auth login`, are linked into the run, so a run uses them as you would.
+Each run gets a fresh copy of the task's project and its own settings and
+sessions. rumbo loads the project's instructions and skills but not the
+user's: the runner points `RUMBO_AMBIENT_DIR` at a fresh path on both
+Linux and macOS. It carries over the selected provider's configuration
+from `config.yaml` and leaves provider credential lookup unchanged. This
+isolates ambient context, not filesystem access or the provider's account.
 
 ## Reading the report
 

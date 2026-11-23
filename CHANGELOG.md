@@ -21,6 +21,8 @@ it. The commits hold the reasons.
   `rumbo provider set` already was. `rumbo provider show` marks it.
 - What you asked comes back once in the terminal UI's Up and Ctrl-R, also
   when you asked it again with another image.
+- The evaluation runner leaves your global instructions and skills out on
+  Linux and macOS without changing where providers look for credentials.
 
 ## 0.8.0 (2026-11-23)
 

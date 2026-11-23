@@ -125,8 +125,13 @@ func instructions(ctx context.Context, dir string) string {
 }
 
 // userDir is where the user keeps what rumbo reads from them everywhere: the
-// global guide and the skills.
+// global guide and the skills. RUMBO_AMBIENT_DIR overrides only that
+// lookup, so evals can isolate it without moving provider credentials.
 func userDir() (string, bool) {
+	if dir := os.Getenv("RUMBO_AMBIENT_DIR"); dir != "" {
+		return dir, true
+	}
+
 	config, err := os.UserConfigDir()
 
 	if err != nil {
