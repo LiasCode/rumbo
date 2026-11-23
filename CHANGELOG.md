@@ -73,6 +73,13 @@ it. The commits hold the reasons.
 - It checks what it did against what you asked, with what its tools show,
   and its closing report says what it assumed and what it checked.
 
+### Releases
+
+- A release's number says what it brings: one with only fixes raises the
+  last number, as 0.8.1 would, and one with something new the middle one.
+  Until 1.0, a change you may have to adapt to, such as a renamed setting,
+  raises the middle number too.
+
 ### Fixes
 
 - The choice selected in the terminal UI's command menu shows in reverse
