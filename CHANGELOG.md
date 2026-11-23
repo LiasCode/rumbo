@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.8.0 (2026-11-23)
+
 ### Terminal UI
 
 - **The terminal UI takes the whole screen**, as rumbo-gui takes a
