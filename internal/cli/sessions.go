@@ -340,7 +340,8 @@ func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, e
 const recallLimit = 1000
 
 // recall tells a front end what the person asked in the project's
-// sessions, most recent first and each once, so it can bring it back.
+// sessions, most recent first and each once, so it can bring it back. The
+// same words given with other images are one text to bring back.
 func (h *host) recall() (protocol.RecallResult, error) {
 	recalled := protocol.RecallResult{Asked: []string{}}
 	entries, err := h.database.Recent(h.root, []string{transcript.KindUser, transcript.KindSteer}, recallLimit)
@@ -349,10 +350,13 @@ func (h *host) recall() (protocol.RecallResult, error) {
 		return recalled, err
 	}
 
+	told := map[string]bool{}
+
 	for _, entry := range entries {
 		var text transcript.Text
 
-		if json.Unmarshal(entry.Payload, &text) == nil && text.Text != "" {
+		if json.Unmarshal(entry.Payload, &text) == nil && text.Text != "" && !told[text.Text] {
+			told[text.Text] = true
 			recalled.Asked = append(recalled.Asked, text.Text)
 		}
 	}

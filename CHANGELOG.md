@@ -19,6 +19,8 @@ it. The commits hold the reasons.
   `contxt_window`, is refused when the provider starts, saying where it is
   and how to take it out, instead of being ignored, as one set with
   `rumbo provider set` already was. `rumbo provider show` marks it.
+- What you asked comes back once in the terminal UI's Up and Ctrl-R, also
+  when you asked it again with another image.
 
 ## 0.8.0 (2026-11-23)
 

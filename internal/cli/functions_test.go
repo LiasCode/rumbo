@@ -755,6 +755,8 @@ func TestRecallTellsWhatThePersonAsked(t *testing.T) {
 		{here.ID, transcript.KindAssistant, transcript.Assistant{}},
 		{here.ID, transcript.KindSteer, transcript.Text{Text: "and its tests"}},
 		{elsewhere.ID, transcript.KindUser, transcript.Text{Text: "not here"}},
+		// The same words with an image are the same text to bring back.
+		{here.ID, transcript.KindUser, transcript.Text{Text: "fix the parser", Images: []protocol.Image{{MediaType: "image/png", Data: []byte("png")}}}},
 	} {
 		time.Sleep(2 * time.Millisecond)
 		h.database.Append(appended.session, appended.kind, appended.payload)
@@ -762,7 +764,7 @@ func TestRecallTellsWhatThePersonAsked(t *testing.T) {
 
 	recalled, err := h.recall()
 
-	if err != nil || !slices.Equal(recalled.Asked, []string{"and its tests", "fix the parser"}) {
+	if err != nil || !slices.Equal(recalled.Asked, []string{"fix the parser", "and its tests"}) {
 		t.Fatalf("recall = %q, err = %v", recalled.Asked, err)
 	}
 }
