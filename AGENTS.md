@@ -53,10 +53,11 @@ changes one of those updates it in the same change.
   it in its `Group`.
 - **Every setting is changed the same way**: `name=value`, where an empty
   value gives it back to the level under it, through `changes.go`, and
-  checked before it is kept. A new command or host function that sets
-  something takes that grammar, and shows what it changed one line to a
-  change; what is shown of the configuration goes through `view.go`, each
-  value with where it comes from.
+  checked before it is kept; a front end's, which needs its terminal to
+  start, by the front end when it next starts. A new command or host
+  function that sets something takes that grammar, and shows what it
+  changed one line to a change; what is shown of the configuration goes
+  through `view.go`, each value with where it comes from.
 - **Users read CHANGELOG.md.** A change they would notice adds a line to its
   `Unreleased` section, in their terms; the reason goes in the commit.
 

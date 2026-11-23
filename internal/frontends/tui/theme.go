@@ -3,6 +3,9 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -40,7 +43,9 @@ var defaultConfig = Config{
 
 // configured reads the configuration chosen, over the defaults. Every field
 // is text, and a number, such as a color of the 256 written in YAML as 214,
-// is read as the text it is.
+// is read as the text it is. A field the configuration does not have is
+// refused: the host keeps what it is given unchecked, since a front end
+// needs its terminal to start, so a misspelled one is caught here.
 func configured(given json.RawMessage) (Config, error) {
 	config := defaultConfig
 
@@ -52,6 +57,14 @@ func configured(given json.RawMessage) (Config, error) {
 
 	if err := json.Unmarshal(given, &fields); err != nil {
 		return defaultConfig, fmt.Errorf("the configuration of the terminal UI: %w", err)
+	}
+
+	names := fieldNames()
+
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		if !slices.Contains(names, name) {
+			return defaultConfig, fmt.Errorf(`there is no field %q, which "rumbo frontend set tui %s=" takes out; the fields are %s`, name, name, strings.Join(names, ", "))
+		}
 	}
 
 	for name, value := range fields {
@@ -69,6 +82,19 @@ func configured(given json.RawMessage) (Config, error) {
 	}
 
 	return config, nil
+}
+
+// fieldNames are the names of the configuration's fields, in the order
+// Config has them.
+func fieldNames() []string {
+	kind := reflect.TypeFor[Config]()
+	names := make([]string, kind.NumField())
+
+	for index := range names {
+		names[index] = kind.Field(index).Tag.Get("json")
+	}
+
+	return names
 }
 
 // theme is the escape sequence each kind of thing is shown with. An empty

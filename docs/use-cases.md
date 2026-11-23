@@ -360,6 +360,8 @@ speaks the Agent Frontend Protocol with the host.
 - Answer the host's `initialize` with protocol version 1, its name, and its
   start configuration in force, with a default for every field it was not
   given.
+- Refuse a field of its configuration it does not have, or a value it
+  cannot use, saying what is wrong, since the host checks neither.
 - Run the objective the command line gave, or resume the unfinished run,
   when `initialize` asks for it.
 - Ignore event types and fields it does not know.
@@ -527,8 +529,8 @@ speaks the Agent Frontend Protocol with the host.
   `color_failure`, `color_warning`, and `color_progress` each take a name,
   such as `cyan` or `bright-blue`, a number of the 256 colors, written as
   text or as a number, `#rrggbb`, or `default`. It says the configuration
-  in force, with its defaults, and one it cannot use stops it with what is
-  wrong, before it takes the terminal.
+  in force, with its defaults, and a field it does not have, or a value it
+  cannot use, stops it with what is wrong, before it takes the terminal.
 - It gives the terminal back as it found it, when it quits or the host
   ends, and leaves in it the command that continues its session,
   `rumbo -s <session>`.
@@ -541,3 +543,5 @@ speaks the Agent Frontend Protocol with the host.
   spent go to stderr.
 - Ctrl-C cancels the run. It exits with 0 when the run is done, 1 when it
   failed, and 130 when it was cancelled.
+- It has no configuration: a field given it stops it, saying how to take
+  it out.

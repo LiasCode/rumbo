@@ -96,7 +96,10 @@ Result: `{"protocol":1,"name":"my-frontend","config":{}}`.
 
 `config` in the result is the start configuration in force: the one given,
 with the front end's own default for every field it was not given. The host
-stores none of it: only what the user chose is kept.
+stores none of it: only what the user chose is kept. Nor does it check what
+the user chose, since a front end needs its terminal to start: a front end
+refuses a field it does not have, or a value it cannot use, and says why,
+as the built-in ones do.
 
 ### `run` (request, front end to host)
 

@@ -34,7 +34,8 @@ func Run(r io.Reader, w io.Writer) int {
 	}
 
 	// The configuration in force is told to the host whether it is right or
-	// not, so it can be seen and changed where it is registered.
+	// not, as the protocol asks; what is wrong with it is said here, before
+	// the terminal is taken.
 	var config Config
 	var wrong error
 

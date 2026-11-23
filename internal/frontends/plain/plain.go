@@ -4,10 +4,13 @@ package plain
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 
 	"github.com/LiasCode/rumbo/internal/frontends/render"
@@ -16,7 +19,17 @@ import (
 
 // Run attaches to the host on r and w and returns the process exit code.
 func Run(r io.Reader, w io.Writer) int {
-	conn, info, err := protocol.DialFrontend(r, w, "plain")
+	var given json.RawMessage
+
+	conn, info, err := protocol.DialFrontendConfigured(r, w, "plain", func(chosen json.RawMessage) json.RawMessage {
+		given = chosen
+
+		return nil
+	})
+
+	if err == nil {
+		err = refused(given)
+	}
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rumbo:", err)
@@ -46,6 +59,29 @@ func Run(r io.Reader, w io.Writer) int {
 	}
 
 	return front.prompt()
+}
+
+// refused says why plain cannot start with what was chosen for it: it has
+// no configuration, so any field is one it does not have. The host keeps
+// what it is given unchecked, since a front end checks it when it starts.
+func refused(given json.RawMessage) error {
+	var fields map[string]json.RawMessage
+
+	if len(given) == 0 {
+		return nil
+	}
+
+	if err := json.Unmarshal(given, &fields); err != nil {
+		return fmt.Errorf("the configuration of plain: %w", err)
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	names := slices.Sorted(maps.Keys(fields))
+
+	return fmt.Errorf(`plain has no configuration, and was given %s; "rumbo frontend set plain %s=" takes it out`, strings.Join(names, ", "), names[0])
 }
 
 type frontend struct {

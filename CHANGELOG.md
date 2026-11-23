@@ -10,6 +10,10 @@ it. The commits hold the reasons.
 - A slip in `rumbo config`, such as `rumbo confg`, says which command you
   meant, as one in the other commands does, instead of going to the model
   as a task.
+- A field the terminal UI's configuration does not have, such as a
+  misspelled `colr_host`, stops it and says how to take it out, as a value
+  it cannot use does, instead of being ignored. `plain`, which has no
+  configuration, does the same with any field.
 
 ## 0.8.0 (2026-11-23)
 
