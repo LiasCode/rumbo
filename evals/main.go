@@ -223,6 +223,10 @@ func evaluate(task, binary, scratch string, attempt int, opts options, provider 
 
 	env := environment(task, workdir)
 
+	if err := shareCredentials(workdir); err != nil {
+		return outcome, err
+	}
+
 	if err := configure(kept(workdir), provider, opts.settings); err != nil {
 		return outcome, err
 	}
@@ -320,15 +324,68 @@ func kept(workdir string) store.Store {
 
 // environment isolates a run from the machine: its own configuration and
 // sessions, and no global instructions or skills, so results depend only on
-// the task and the code.
+// the task and the code. On macOS, rumbo reads the user's own from
+// ~/Library/Application Support, which XDG_CONFIG_HOME does not move.
 func environment(task, workdir string) []string {
 	return append(os.Environ(),
 		"RUMBO_CONFIG="+configPath(workdir),
 		"RUMBO_DATA="+dataDir(workdir),
-		"XDG_CONFIG_HOME="+filepath.Join(workdir, "config"),
+		"XDG_CONFIG_HOME="+configHome(workdir),
 		"RUMBO_EVAL_TASK="+task,
 		"RUMBO_EVAL_OUTPUT="+filepath.Join(workdir, "output.txt"),
 	)
+}
+
+// configHome is a run's directory of the user's configuration, which holds
+// only the credentials shared with it.
+func configHome(workdir string) string {
+	return filepath.Join(workdir, "config")
+}
+
+// shareCredentials lets a run reach the credentials kept in the user's
+// configuration directory, which the run's own hides together with the
+// user's instructions and skills: what a built-in provider's login stored,
+// and the profile of "ant auth login". They are linked, not copied, so a
+// sign-in a run renews is renewed for the user too, and a working directory
+// that is kept holds no secret.
+func shareCredentials(workdir string) error {
+	shared := map[string]string{}
+
+	if user, err := os.UserConfigDir(); err == nil {
+		shared[filepath.Join("rumbo", "credentials")] = filepath.Join(user, "rumbo", "credentials")
+	}
+
+	// The Anthropic SDK reads its profile from ANTHROPIC_CONFIG_DIR, which a
+	// run keeps, or else from anthropic in XDG_CONFIG_HOME, or in ~/.config.
+	if _, set := os.LookupEnv("ANTHROPIC_CONFIG_DIR"); !set {
+		config := os.Getenv("XDG_CONFIG_HOME")
+
+		if home, err := os.UserHomeDir(); config == "" && err == nil {
+			config = filepath.Join(home, ".config")
+		}
+
+		if config != "" {
+			shared["anthropic"] = filepath.Join(config, "anthropic")
+		}
+	}
+
+	for name, kept := range shared {
+		if !exists(kept) {
+			continue
+		}
+
+		link := filepath.Join(configHome(workdir), name)
+
+		if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+			return err
+		}
+
+		if err := os.Symlink(kept, link); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // registeredProvider looks the model's provider up in the user's own

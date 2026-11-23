@@ -39,9 +39,12 @@ runs: use `-runs` before reading much into a single pass or failure.
 
 Each run gets a fresh copy of the task's project, and a configuration and
 sessions of its own, and ignores the machine's global instructions and
-skills, so results depend only on the task and the code. A provider you
-registered, or what you chose for a built-in one, is carried over from your
-own `config.yaml`.
+skills, so results depend only on the task and the code. On macOS it does
+not: rumbo reads them from `~/Library/Application Support/rumbo/` there,
+which a run cannot be kept from. A provider you registered, or what you
+chose for a built-in one, is carried over from your own `config.yaml`, and
+the credentials the providers keep, what `/login` stored and the profile of
+`ant auth login`, are linked into the run, so a run uses them as you would.
 
 ## Reading the report
 
