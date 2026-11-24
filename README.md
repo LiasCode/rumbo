@@ -2,16 +2,23 @@
 
 A minimal agent harness. Give it a task, and it works through four tools
 (`read`, `write`, `edit`, `bash`), and a fifth that uses the screen if you
-turn it on, until the model is done. The models behind
-it and the interfaces in front of it are separate programs you can replace.
+turn it on, until the model is done. The models behind it, the interfaces
+in front of it, and any tools you add to it, from an MCP server, a plugin,
+or a program of your own, are separate programs you can replace.
 
-![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, and a fifth for the screen when turned on, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol.](docs/how-it-works.svg)
+![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, and a fifth for the screen when turned on, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol; extensions, the built-in mcp, a plugin's, or yours, give the model more tools and context through the Agent Extension Protocol.](docs/how-it-works.svg)
 
 ## What makes it different
 
 - **Any model, any interface, any language.** Providers and front ends are
   programs that speak a small JSON-RPC protocol over stdio. The built-in
   ones use the same protocols as the ones you write; none gets a shortcut.
+- **Tools of your own, without changing rumbo.** An extension is one more
+  program: it gives the model tools, tells it what most tasks need, offers
+  you commands, and can take the place of one of rumbo's tools when you
+  say so. MCP servers are reached through a built-in one, and a plugin
+  brings extensions, providers, and skills in one step. Only the
+  extensions you add cost tokens.
 - **History you can replay.** A session is an append-only log, one entry
   to a line in a file you can read.
   Every request sent to the model can be rebuilt from it (`rumbo request`
@@ -31,13 +38,14 @@ it and the interfaces in front of it are separate programs you can replace.
   what your task and your `AGENTS.md` ask, programming or not.
 
 By design it does not judge the model's work, send context nobody asked
-for, or limit what the agent may do.
+for, or limit what the agent may do; an extension you add can do the last
+two, and only for you.
 
 ## Where it comes from
 
 - **[pi](https://pi.dev)**, the minimal agent harness Mario Zechner started,
   for what a harness leaves out. Like pi, rumbo gives the model four tools
-  and a short system prompt, and has no plan mode, no subagents, and no
+  of its own and a short system prompt, and has no plan mode, no subagents, and no
   permission prompts: a shell reaches everything else, and what a task needs
   comes from the task and your instructions.
 - **The [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)**,
@@ -267,6 +275,10 @@ agree (`-replaces bash`). To write one, start from
   provider's settings with its defaults.
 - [docs/use-cases.md](docs/use-cases.md): everything the host, providers,
   front ends, and extensions can do.
+- [docs/protocol.md](docs/protocol.md),
+  [docs/frontend-protocol.md](docs/frontend-protocol.md), and
+  [docs/extension-protocol.md](docs/extension-protocol.md): the three
+  protocols.
 - [docs/architecture.md](docs/architecture.md) and
   [docs/glossary.md](docs/glossary.md): how the parts fit, and the terms.
 - [CHANGELOG.md](CHANGELOG.md): what each release changes. Until 1.0,

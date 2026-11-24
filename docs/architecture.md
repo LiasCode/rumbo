@@ -6,7 +6,7 @@ others. Three of them cross a process boundary through a protocol, which is
 what lets users bring their own: the front end a person uses, the provider
 that reaches the model, and the extensions that give the model more tools.
 
-![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process, and Tool the Agent Extension Protocol with the user's extension processes.](architecture.svg)
+![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process, and Tool and Collector the Agent Extension Protocol with the extension processes: the user's, a plugin's, or the built-in mcp.](architecture.svg)
 
 The host is the only part that is always rumbo. It owns the sessions, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" role="img" aria-labelledby="title desc">
   <title id="title">rumbo's architecture</title>
-  <desc id="desc">The front end process, built in or written by the user, speaks the Agent Frontend Protocol with the host process, rumbo: JSON-RPC, tasks and steers in and events out. Inside the host, the agent loop takes what the person says to a run from an Inbox, reports to an Observer, and depends on four interfaces: Provider, Tool for actions, Collector for the ambient context, and Store for the history. The Provider speaks the Agent Provider Protocol with the provider process, built in or written by the user: JSON-RPC, the conversation in and the next message out. Tool speaks the Agent Extension Protocol with the extension processes the user registered, which give the model more tools: JSON-RPC, calls in and results out.</desc>
+  <desc id="desc">The front end process, built in or written by the user, speaks the Agent Frontend Protocol with the host process, rumbo: JSON-RPC, tasks and steers in and events out. Inside the host, the agent loop takes what the person says to a run from an Inbox, reports to an Observer, and depends on four interfaces: Provider, Tool for actions, Collector for the ambient context, and Store for the history. The Provider speaks the Agent Provider Protocol with the provider process, built in or written by the user: JSON-RPC, the conversation in and the next message out. Tool and Collector speak the Agent Extension Protocol with the extension processes, the user's own, those a plugin brings, and the built-in mcp: JSON-RPC, tool calls and events in; results, sections of context, and commands for the person out.</desc>
   <style>
     text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -100,11 +100,13 @@
 
   <!-- Agent Extension Protocol -->
   <path class="wire" d="M412 378 V408 H680 V486" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <text class="label" x="700" y="447">Agent Extension Protocol</text>
-  <text class="small" x="700" y="464">JSON-RPC: calls in, results out</text>
+  <line class="wire" x1="588" y1="408" x2="588" y2="378" marker-end="url(#arrow)"/>
+  <text class="label" x="700" y="440">Agent Extension Protocol</text>
+  <text class="small" x="700" y="457">JSON-RPC: calls and events in;</text>
+  <text class="small" x="700" y="473">results, sections, commands out</text>
 
   <!-- Extension processes -->
   <rect class="ext" x="560" y="492" width="340" height="60" rx="10"/>
   <text class="name ext-ink" x="730" y="517" text-anchor="middle">extension processes</text>
-  <text class="sub" x="730" y="537" text-anchor="middle">the user's: more tools for the model</text>
+  <text class="sub" x="730" y="537" text-anchor="middle">built-in mcp, a plugin's, or the user's</text>
 </svg>
