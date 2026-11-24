@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.9.0 (2026-11-24)
+
 ### Features
 
 - Extensions give the model tools of your own. An extension is any program
