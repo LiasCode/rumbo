@@ -2,6 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +16,7 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// storedHost is a host whose sessions are in a directory the test can reach.
+// storedHost is a host on sessions kept in a directory the test can reach.
 func storedHost(t *testing.T) (*host, string) {
 	t.Helper()
 
@@ -25,11 +28,11 @@ func storedHost(t *testing.T) (*host, string) {
 	return hostOn(t, database), data
 }
 
-// worked makes a session of the host's project with the entries given.
+// worked makes a session in the host's directory with the entries given.
 func worked(t *testing.T, h *host, title string, entries ...any) store.Session {
 	t.Helper()
 
-	session, err := h.database.CreateSession("/repo", "/repo", title)
+	session, err := h.database.CreateSession("/repo", title)
 
 	if err != nil {
 		t.Fatal(err)
@@ -111,39 +114,83 @@ func TestSessionsSayHowEachStands(t *testing.T) {
 
 	defer release()
 
-	described := map[string]string{}
-
-	for _, value := range call(t, h, "sessions", "").Values {
-		described[value.Value] = value.Description
-	}
-
-	for id, want := range map[string]string{
-		done.ID:   "done; 1 turn; last used ",
-		failed.ID: "failed; 0 turns; last used ",
-		killed.ID: "interrupted; 2 turns; last used ",
-		used.ID:   "in use by another rumbo process; 1 turn; last used ",
-	} {
-		if !strings.HasPrefix(described[id], want) {
-			t.Errorf("session %s is described %q, want it to start %q", id, described[id], want)
-		}
-	}
-
 	listed, err := standings(h.database, "/repo")
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	stands := map[string]string{}
+
 	for _, each := range listed {
-		if each.ID == used.ID && (each.state() != "in use" || each.summary.Spent.Output != 7) {
-			t.Errorf("the session in use stands as %q, having spent %+v", each.state(), each.summary.Spent)
+		stands[each.ID] = fmt.Sprintf("%s, %d turns", each.state(), each.summary.Turns)
+
+		if each.ID == used.ID && each.summary.Spent.Output != 7 {
+			t.Errorf("the session in use spent %+v", each.summary.Spent)
+		}
+	}
+
+	for id, want := range map[string]string{
+		done.ID:   "done, 1 turns",
+		failed.ID: "failed, 0 turns",
+		killed.ID: "interrupted, 2 turns",
+		used.ID:   "in use, 1 turns",
+	} {
+		if stands[id] != want {
+			t.Errorf("session %s stands as %q, want %q", id, stands[id], want)
 		}
 	}
 }
 
-// The current session can be given a title of the person's own, which it
-// keeps.
-func TestRenameGivesTheCurrentSessionATitle(t *testing.T) {
+// A program reads the sessions as JSON: each with its root, how it stands,
+// and whether a rumbo holds it, and an empty list where there are none.
+func TestSessionsAreListedForAProgram(t *testing.T) {
+	h, _ := storedHost(t)
+
+	if out, err := printed(t, func() error { return printSessionsJSON(nil) }); err != nil || strings.TrimSpace(out) != "[]" {
+		t.Fatalf("no sessions = %q, err = %v", out, err)
+	}
+
+	done := worked(t, h, "done", steps(asked, answered, noted(transcript.NoteDone))...)
+	used := worked(t, h, "used", steps(asked, noted(transcript.NoteFailed))...)
+
+	release, err := h.database.LockSession(used.ID)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer release()
+
+	out, err := printed(t, func() error { return printSessions(h.database, []string{"-all", "-json"}) })
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var listed []listedSession
+
+	if err := json.Unmarshal([]byte(out), &listed); err != nil || len(listed) != 2 {
+		t.Fatalf("listed %q, err = %v", out, err)
+	}
+
+	stands := map[string]listedSession{}
+
+	for _, each := range listed {
+		stands[each.Session] = each
+	}
+
+	if got := stands[done.ID]; got.Title != "done" || got.Dir != "/repo" || got.State != "done" || got.InUse || got.Turns != 1 || got.Used.IsZero() {
+		t.Errorf("the session that is done: %+v", got)
+	}
+
+	if got := stands[used.ID]; got.State != "failed" || !got.InUse {
+		t.Errorf("the session in use: %+v", got)
+	}
+}
+
+// The session can be given a title of the person's own, which it keeps.
+func TestRenameGivesTheSessionATitle(t *testing.T) {
 	h, _ := storedHost(t)
 
 	if err := refused(t, h, "rename", `{"title":"early"}`); !strings.Contains(err, "no task yet") {
@@ -151,7 +198,7 @@ func TestRenameGivesTheCurrentSessionATitle(t *testing.T) {
 	}
 
 	session := worked(t, h, "fix the parser", steps(asked)...)
-	call(t, h, "open", `{"session":"`+session.ID+`"}`)
+	h.session = &session
 
 	if renamed := call(t, h, "rename", `{"title":"  Parser   rewrite "}`); !strings.Contains(renamed.Text, `"Parser rewrite"`) {
 		t.Fatalf("rename answered %q", renamed.Text)
@@ -170,22 +217,44 @@ func TestRenameGivesTheCurrentSessionATitle(t *testing.T) {
 	}
 }
 
-// Pruning lists the project's sessions not used in a while, and deletes them
-// when confirmed, keeping the current one and those in use, however old.
+// printed runs a command and returns what it wrote to stdout.
+func printed(t *testing.T, command func() error) (string, error) {
+	t.Helper()
+
+	read, write, err := os.Pipe()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := os.Stdout
+	os.Stdout = write
+	failed := command()
+	os.Stdout = stdout
+	write.Close()
+
+	out, err := io.ReadAll(read)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(out), failed
+}
+
+// Pruning lists the sessions not used in a while, and deletes them with
+// -yes, keeping those a rumbo process is using, however old.
 func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 	h, data := storedHost(t)
 	old := time.Now().Add(-40 * 24 * time.Hour)
 
 	forgotten := worked(t, h, "forgotten", steps(asked)...)
 	elsewhere := worked(t, h, "elsewhere", steps(asked)...)
-	current := worked(t, h, "current", steps(asked)...)
 	recent := worked(t, h, "recent", steps(asked)...)
 
-	for _, session := range []store.Session{forgotten, elsewhere, current} {
+	for _, session := range []store.Session{forgotten, elsewhere} {
 		backdate(t, data, session.ID, old)
 	}
-
-	call(t, h, "open", `{"session":"`+current.ID+`"}`)
 
 	release, err := h.database.LockSession(elsewhere.ID)
 
@@ -195,36 +264,36 @@ func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 
 	defer release()
 
-	if err := refused(t, h, "prune", `{"age":"30"}`); !strings.Contains(err, "such as 12h, 30d, or 2w") {
-		t.Fatalf("an age without a unit: %s", err)
+	prune := func(args ...string) (string, error) {
+		return printed(t, func() error { return pruneSessions(h.database, append([]string{"-all"}, args...)) })
 	}
 
-	if err := refused(t, h, "prune", `{"age":"30d","confirm":"no"}`); !strings.Contains(err, "confirm is yes") {
-		t.Fatalf("a confirm other than yes: %s", err)
+	if _, err := prune("30"); err == nil || !strings.Contains(err.Error(), "such as 12h, 30d, or 2w") {
+		t.Fatalf("an age without a unit: %v", err)
 	}
 
-	listed := call(t, h, "prune", `{"age":"30d"}`).Text
+	listed, err := prune("30d")
 
-	if !strings.HasPrefix(listed, "3 sessions of this project last used more than 30d ago:") ||
-		strings.Count(listed, "(in use, kept)") != 2 || !strings.Contains(listed, forgotten.ID+"  ") || strings.Contains(listed, recent.ID) {
-		t.Fatalf("prune without confirm answered:\n%s", listed)
+	if err != nil || !strings.HasPrefix(listed, "2 sessions were last used more than 30d ago:") || !strings.Contains(listed, forgotten.ID+"  ") || strings.Contains(listed, recent.ID) {
+		t.Fatalf("prune without -yes printed, err = %v:\n%s", err, listed)
 	}
 
 	if _, err := h.database.Session(forgotten.ID); err != nil {
-		t.Fatalf("prune without confirm deleted a session: %v", err)
+		t.Fatalf("prune without -yes deleted a session: %v", err)
 	}
 
-	if none := call(t, h, "prune", `{"age":"60d","confirm":"yes"}`).Text; none != "no session of this project was last used more than 60d ago" {
-		t.Fatalf("a prune with nothing to delete answered: %s", none)
+	if none, err := prune("-yes", "60d"); err != nil || none != "no session was last used more than 60d ago\n" {
+		t.Fatalf("a prune with nothing to delete printed, err = %v: %s", err, none)
 	}
 
-	pruned := call(t, h, "prune", `{"age":"30d","confirm":"yes"}`).Text
+	// The one in use is kept, which the exit code says.
+	pruned, err := prune("-yes", "30d")
 
-	if !strings.HasPrefix(pruned, "deleted 1 session last used more than 30d ago\n  "+forgotten.ID) || !strings.Contains(pruned, "kept 2 sessions in use") {
-		t.Fatalf("prune answered:\n%s", pruned)
+	if _, failed := errors.AsType[exitCode](err); !failed || pruned != "deleted session "+forgotten.ID+"\n" {
+		t.Fatalf("prune printed, err = %v:\n%s", err, pruned)
 	}
 
-	for _, session := range []store.Session{elsewhere, current, recent} {
+	for _, session := range []store.Session{elsewhere, recent} {
 		if _, err := h.database.Session(session.ID); err != nil {
 			t.Errorf("%s was not kept: %v", session.Title, err)
 		}
@@ -232,10 +301,6 @@ func TestPruneDeletesWhatWasNotUsed(t *testing.T) {
 
 	if _, err := h.database.Session(forgotten.ID); err == nil {
 		t.Error("the forgotten session is still there")
-	}
-
-	if again := call(t, h, "prune", `{"age":"30d","confirm":"yes"}`).Text; !strings.HasPrefix(again, "deleted 0 sessions") {
-		t.Fatalf("a second prune answered:\n%s", again)
 	}
 }
 
@@ -254,15 +319,14 @@ func TestAgesAreHoursDaysOrWeeks(t *testing.T) {
 	}
 }
 
-// A session that another rumbo process deleted while this host had it open,
+// A session that another rumbo process deleted while this host had it,
 // without working in it, takes no run, and the person is told why.
 func TestASessionDeletedElsewhereTakesNoRun(t *testing.T) {
 	h, _ := storedHost(t)
 	session := worked(t, h, "opened", steps(asked, answered, noted(transcript.NoteDone))...)
 
-	// Opened as rumbo -s opens it: current, and not held until it works.
-	h.current = &place{choice: h.current.choice, session: &session, dir: "/repo", tools: h.tools.Separate()}
-	h.places[session.ID] = h.current
+	// As rumbo -s starts with it: not held until it works.
+	h.session = &session
 
 	if err := discard(h.database, session.ID); err != nil {
 		t.Fatal(err)

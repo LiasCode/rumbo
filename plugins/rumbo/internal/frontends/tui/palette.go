@@ -7,21 +7,23 @@ import (
 )
 
 // The command palette offers, by name, what the terminal UI can do: its own
-// actions, the project's other sessions to show one, and every function the
-// host and the provider describe, the host's by what they act on, as
-// rumbo-gui's palette does. Typing narrows it.
+// actions, the other sessions of the directory to show one, and every
+// function the host and the provider describe, the host's by what they act
+// on, as rumbo-gui's palette does. Typing narrows it.
 
 // What a row of the palette does when it is chosen.
 const (
 	actionFunction = iota
-	actionNewSession
 	actionPicker
 	actionHelp
 	actionCopy
 	actionExport
+	actionNewSession
 	actionSessions
 	actionSidebar
 	actionOpen
+	actionRumbos
+	actionCloseIdle
 	// What the session shown offers, and the panels.
 	actionDetails
 	actionChanges
@@ -29,7 +31,6 @@ const (
 	actionBranch
 	actionCompact
 	actionCopyID
-	actionDelete
 	// What can be done with a message the person wrote.
 	actionEdit
 	actionAskAgain

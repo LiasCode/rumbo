@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/LiasCode/rumbo/internal/store"
-	"github.com/LiasCode/rumbo/protocol"
 )
 
 // extendWith is the command of the tests' extension with one tool called
@@ -86,7 +85,7 @@ func TestARunHasTheToolsOfTheExtensions(t *testing.T) {
 	names := func() string {
 		t.Helper()
 
-		worker, err := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+		worker, err := h.agent(context.Background(), nil, h.choice, nil, nil)
 
 		if err != nil {
 			t.Fatal(err)
@@ -115,7 +114,7 @@ func TestARunHasTheToolsOfTheExtensions(t *testing.T) {
 		t.Fatalf("with extensions: %q", got)
 	}
 
-	worker, _ := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+	worker, _ := h.agent(context.Background(), nil, h.choice, nil, nil)
 	result, err := worker.Tools[5].Run(context.Background(), "/repo/sub", json.RawMessage(`{}`))
 
 	if err != nil || result.Text != "called in /repo/sub" {
@@ -127,7 +126,7 @@ func TestARunHasTheToolsOfTheExtensions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+	_, err = h.agent(context.Background(), nil, h.choice, nil, nil)
 
 	if err == nil || !strings.Contains(err.Error(), "extension zeta: ") || !strings.Contains(err.Error(), `"rumbo extension rm <name>" takes one out`) {
 		t.Fatalf("err = %v", err)
@@ -151,7 +150,7 @@ func TestAnExtensionReplacesAToolWhenTheUserSaysSo(t *testing.T) {
 	names := func() string {
 		t.Helper()
 
-		worker, err := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+		worker, err := h.agent(context.Background(), nil, h.choice, nil, nil)
 
 		if err != nil {
 			t.Fatal(err)
@@ -177,7 +176,7 @@ func TestAnExtensionReplacesAToolWhenTheUserSaysSo(t *testing.T) {
 	}
 
 	// The bash a run has is the extension's.
-	worker, _ := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+	worker, _ := h.agent(context.Background(), nil, h.choice, nil, nil)
 	result, err := worker.Tools[3].Run(context.Background(), "/repo", json.RawMessage(`{}`))
 
 	if err != nil || result.Text != "called in /repo" {
@@ -214,7 +213,7 @@ func TestARunIsToldTheSectionsOfTheExtensions(t *testing.T) {
 		t.Fatalf("added = %q, err = %v", added, err)
 	}
 
-	worker, err := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+	worker, err := h.agent(context.Background(), nil, h.choice, nil, nil)
 
 	if err != nil || len(worker.Collectors) != 4 {
 		t.Fatalf("collectors = %d, err = %v", len(worker.Collectors), err)
@@ -277,13 +276,5 @@ func TestTheHostsFunctionsManageTheExtensions(t *testing.T) {
 
 	if _, err := h.database.Program(store.KindExtension, "finder"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("finder was kept: %v", err)
-	}
-
-	// What the extensions are changes nothing of a run in progress, so a
-	// host that works in one session at a time answers them all the same.
-	for _, function := range hostFunctions {
-		if function.Group == protocol.GroupExtension && !function.duringRun {
-			t.Errorf("%s waits for a run", function.Name)
-		}
 	}
 }

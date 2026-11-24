@@ -24,13 +24,17 @@ or a program of your own, are separate programs you can replace.
   to a line in a file you can read.
   Every request sent to the model can be rebuilt from it (`rumbo request`
   prints it), a run that failed or was cut short resumes where it stopped
-  (`rumbo -r`), and `/branch` goes on from before any of your messages in a
-  new session, while the first one stays as it was.
+  (`rumbo -r`), and `/branch` makes a new session from before any of your
+  messages, for another rumbo to go on in, while the first one stays as it
+  was.
 - **Built for the provider's cache.** Each request extends the one before
   until a summary starts the conversation over, so the provider can read it
   from its cache; a test guarantees it.
-- **One host, many sessions.** Runs go on in other sessions while you work
-  in a new one, and you can tell a run something without stopping it.
+- **One process, one session.** Each rumbo is a session of its own, with
+  its own provider and extensions, started in a directory that is its
+  root; several run side by side, the terminal UI starts one for each
+  session you open in it and closes those you leave unused, and you can
+  tell a run something without stopping it.
 - **Providers describe themselves.** Their models, options, and functions,
   down to a sign-in that asks you for a code, show up in every front end
   without the front end knowing them.
@@ -89,21 +93,21 @@ export ANTHROPIC_API_KEY=...                      # or /login in the terminal UI
 rumbo system set default_provider=anthropic       # what new sessions start with
 rumbo provider set anthropic model=claude-opus-5-5  # and the model they start with there
 
-rumbo "add a --json flag to the export command"  # one task, in this directory's project
+rumbo "add a --json flag to the export command"  # one task, in this directory
 rumbo                                            # the terminal UI; /help lists its commands
 rumbo -c "also document it"                      # continue the latest session
 rumbo -r                                         # resume a run that stopped
 rumbo "summarize notes.md" > summary.txt         # piped: plain text out, exit code
 ```
 
-`rumbo` alone opens the terminal UI, over the whole screen: the project's
-sessions in a sidebar, the conversation, and under it a composer with the
-model and how full its context is. Ctrl-P opens every command, Ctrl-Alt-B
-the session's details, and Ctrl-G what changed in the project as Git sees
-it. Tab goes to the sessions, and Shift-Tab up into the conversation, where
-Enter shows a tool call whole or asks one of your messages again in a
-branch. Dragging the mouse selects text and copies it; `/help` lists the
-rest.
+`rumbo` alone opens the terminal UI, over the whole screen: the
+conversation of a new session, and under it a composer with the model and
+how full its context is. Ctrl-P opens every command, Ctrl-Alt-B the
+session's details, and Ctrl-G what changed in the project as Git sees it.
+Shift-Tab goes up into the conversation, where Enter shows a tool call
+whole. Dragging the mouse selects text and copies it; `/help` lists the
+rest. `rumbo sessions` lists the sessions started in a directory, and
+`rumbo -s <session>` continues one.
 
 Every setting is changed the same way, as `name=value`, and an empty value
 gives it back to its default: `rumbo system set`, `rumbo provider set`, and
@@ -159,16 +163,16 @@ Its usage counts against your plan, which you manage in your ChatGPT
 settings. Anthropic's terms do not let other applications use a Claude
 subscription, so the `anthropic` provider takes an API key.
 
-The model also reads your instructions: the `AGENTS.md` or `CLAUDE.md` files
-from the project's root down to where you are, and yours in
+The model also reads your instructions: the `AGENTS.md` or `CLAUDE.md` file
+of the directory you start rumbo in, and yours in
 `~/.config/rumbo/` (`~/Library/Application Support/rumbo/` on macOS).
 
 It is told of your skills too, in the [Agent Skills](https://agentskills.io)
 format: a directory with a `SKILL.md` whose frontmatter has a `name` and a
 `description` of what it is for and when to use it. Yours go in
 `~/.config/rumbo/skills/` (`~/Library/Application Support/rumbo/skills/` on
-macOS), and a project's in `.agents/skills/`, from its root down to where
-you are; a project's skill replaces one of yours with the same name. Only
+macOS), and a project's in `.agents/skills/` of the directory you start
+rumbo in; a project's skill replaces one of yours with the same name. Only
 the description is sent with every request, and the model reads the skill
 when a task needs it. This one is
 `~/.config/rumbo/skills/meeting-notes/SKILL.md`:
@@ -289,8 +293,10 @@ agree (`-replaces bash`). To write one, read
 - [docs/architecture.md](docs/architecture.md) and
   [docs/glossary.md](docs/glossary.md): how the parts fit, and the terms.
 - [CHANGELOG.md](CHANGELOG.md): what each release changes. Until 1.0,
-  commands and settings may change; the protocols stay at version 1 and only
-  grow, and the files that hold your sessions and settings keep working.
+  commands and settings may change; the provider and extension protocols
+  stay at version 1 and only grow, the front end protocol is at version 2
+  since a rumbo became one session, and the files that hold your sessions
+  and settings keep working.
 
 ## License
 

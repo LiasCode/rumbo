@@ -24,11 +24,11 @@ import (
 // the value.
 
 // providerModels lists the models a provider offers: the one named, or the
-// current session's, with the one this session uses, and the one the
-// provider is set to start with, marked.
+// session's, with the one this session uses, and the one the provider is
+// set to start with, marked.
 func (h *host) providerModels(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	chosen := h.current.choice
+	chosen := h.choice
 	h.mu.Unlock()
 
 	name := params["provider"]
@@ -208,12 +208,12 @@ func programNames(database store.Store, kind string) ([]string, error) {
 }
 
 // sessionValues lists the changes session-set takes, as name=value: the
-// values of each option of the current session's provider, those in force
+// values of each option of the session's provider, those in force
 // marked, after the empty value of each option the session chose, which
 // gives it back to the provider's.
 func (h *host) sessionValues(ctx context.Context, _ map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	chosen := h.current.choice
+	chosen := h.choice
 	h.mu.Unlock()
 
 	described, pool, err := h.offers(ctx, chosen.provider)
@@ -251,7 +251,7 @@ func (h *host) providerValues(ctx context.Context, params map[string]string) (pr
 	h.mu.Lock()
 
 	if name == "" {
-		name = h.current.provider
+		name = h.provider
 	}
 
 	h.mu.Unlock()

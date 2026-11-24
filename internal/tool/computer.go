@@ -48,7 +48,7 @@ type Computer struct {
 }
 
 // display is the screen the computer tool acts on. It is opened at its first
-// use, and shared by every session of a host, as there is one screen.
+// use, and kept while the host lasts.
 type display struct {
 	mu   sync.Mutex
 	open func(context.Context) (computer.Screen, error)

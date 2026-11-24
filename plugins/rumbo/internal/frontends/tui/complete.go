@@ -12,8 +12,8 @@ import (
 // name is completed from the functions the host and the provider described,
 // and an argument from what its parameter says it accepts: fixed values, or
 // the function that lists them, given the arguments before it that it
-// takes, so /open offers sessions with their titles and /use the models of
-// the provider named before, without this file knowing either.
+// takes, so /use offers the providers and the models of the one named
+// before, without this file knowing either.
 
 // isCommandStart reports whether line is a command being typed: a slash, a
 // word, and maybe its arguments, all on one line.

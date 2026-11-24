@@ -24,8 +24,8 @@ import (
 const gracePeriod = 5 * time.Second
 
 // Process is an extension process spoken to over its stdin and stdout. One
-// process serves every session of the host, so that what it keeps, such as
-// a connection, lasts from one call to the next; calls may therefore be in
+// process serves every run of the host, so that what it keeps, such as a
+// connection, lasts from one call to the next; calls may therefore be in
 // progress at once, and each response is matched to its request by id.
 type Process struct {
 	cmd   *exec.Cmd
@@ -298,6 +298,11 @@ func (p *Process) Exited() bool {
 	default:
 		return false
 	}
+}
+
+// Pid is the system's id of the extension's process.
+func (p *Process) Pid() int {
+	return p.cmd.Process.Pid
 }
 
 // Close asks the extension to shut down and kills it if it does not.

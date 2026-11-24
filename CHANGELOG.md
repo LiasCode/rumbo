@@ -5,8 +5,80 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+A rumbo is one session. Each `rumbo` you start works in a session of its
+own, with its own provider and extensions, in the directory it was started
+in, and no longer serves the others of a project: another session is
+another `rumbo`. The front end protocol is at version 2 for it.
+
+### Sessions
+
+- **One rumbo, one session.** A running rumbo no longer opens another
+  session, starts a new one, or runs in two at once. Start another
+  `rumbo` for a new session, `rumbo -c` for the latest of the directory,
+  or `rumbo -s <session>` for any; several run side by side, each a
+  process of its own. `-single` is gone, since it is how rumbo works now.
+- The commands that reached other sessions from inside one are gone:
+  `/sessions`, `/projects`, `/open`, `/new`, `/delete`, and `/prune`. From
+  the command line, `rumbo sessions` lists them, `rumbo sessions rm`
+  deletes them, and `rumbo sessions prune` deletes those not used in a
+  while. `/status` and `/compact` are of the session you are in.
+- `/branch` makes the branch and says which session it is; the rumbo that
+  made it stays in its session, and another goes on in the branch: the
+  terminal UI starts it and shows it, and elsewhere `rumbo -s <session>`
+  does.
+- `rumbo sessions -json` lists the sessions for a program to read: each
+  with its directory, its title, how its last run ended, and whether a
+  rumbo holds it now.
+- A session's root is the directory rumbo is started in, and rumbo no
+  longer looks for the git repository that holds it. Started in a
+  directory inside a repository, it reads the `AGENTS.md` or `CLAUDE.md`
+  and the `.agents/skills/` of that directory alone, not those of the
+  directories above it, and `-c` and `rumbo sessions` find only the
+  sessions started there: start rumbo at the top of the repository to work
+  with its guide. The sessions you have are kept, each in the directory it
+  was started in, so one started inside a repository is no longer listed
+  from its top; `rumbo sessions -all` lists them all, and `-s <session>`
+  continues any.
+
+### Terminal UI
+
+- Each session in the sidebar is a rumbo of its own, which the terminal
+  UI starts when you first show the session, or a new one with Ctrl-N,
+  and ends when you quit. The runs of the sessions you leave go on as
+  before, and the sidebar marks with a ring the sessions a rumbo is still
+  open for. It lists the sessions started in the folder rumbo was started
+  in, not those of the whole repository.
+- The rumbos of the sessions you left with nothing to do are closed past
+  the two shown last, so they do not go on costing memory; a session
+  closed that way is as it was, and showing it again starts its rumbo.
+  "Close the rumbos not in use", in the palette, closes them all.
+- `/rumbos` says what the rumbo of each session open uses: its processes,
+  their memory, and their processor time.
+- Delete in the sidebar no longer deletes a session: `rumbo sessions rm`
+  does, from the command line.
+
+### Front ends
+
+- **The front end protocol is at version 2**, and a front end that speaks
+  version 1 is refused when it starts, saying so. A `run` and a `history`
+  name no session, a run starts no new one, and the host has no
+  `sessions`, `projects`, `open`, `new`, `delete`, or `prune`: a front end
+  starts a `rumbo serve` for each session it shows, and groups them by
+  the `dir` each says. `initialize` and the state of every answer say what
+  the session is called, as `title`, and `branch` answers with the session
+  it made. The provider and extension protocols are as they were.
+- A front end can ask a host which processes it has running and what each
+  uses, with the new `processes` request: the host, its front end, its
+  providers and extensions, what those started, and what the model left
+  running in the background, each with its memory and its processor time.
+  One that holds several rumbos can so say what they cost, and close those
+  nobody is using.
+
 ### Features
 
+- `/processes` shows the processes the rumbo you are in has running, each
+  under the one that started it, with the memory and the processor time it
+  uses, and what they use together.
 - Extensions are managed from any front end, as providers are:
   `/extensions` lists them, `/extension-add` registers one, `/extension-show`
   says what it gives the model and what that costs, `/extension-set` changes
@@ -17,6 +89,13 @@ it. The commits hold the reasons.
 - In the terminal UI, a parameter that can be left out can be typed by
   name, as `name=value`: `/prune 30d confirm=yes`, or `/extension-add docs
   config={"url":"https://example.com/mcp"} {self} extend mcp`.
+
+### Going back to an earlier rumbo
+
+- rumbo 0.9.0 and earlier list a session by the git repository it was
+  started in, which a session this version made, renamed, or changed the
+  provider of does not say: they show it with `rumbo sessions -all`, and
+  continue it with `-s <session>`.
 
 ## 0.9.0 (2026-11-24)
 

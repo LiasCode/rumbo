@@ -51,7 +51,6 @@ const (
 // sessionRecord is session.json. The session's id is its directory's name.
 type sessionRecord struct {
 	Dir       string          `json:"dir"`
-	Project   string          `json:"project"`
 	Title     string          `json:"title"`
 	Provider  string          `json:"provider,omitempty"`
 	Model     string          `json:"model,omitempty"`
@@ -197,7 +196,6 @@ func (f *Files) create(session Session, entries []byte) (Session, error) {
 func writeSession(dir string, session Session) error {
 	raw, err := json.MarshalIndent(sessionRecord{
 		Dir:       session.Dir,
-		Project:   session.Project,
 		Title:     session.Title,
 		Provider:  session.Provider,
 		Model:     session.Model,
@@ -215,10 +213,10 @@ func writeSession(dir string, session Session) error {
 }
 
 // CreateSession implements Store.
-func (f *Files) CreateSession(dir, project, title string) (Session, error) {
+func (f *Files) CreateSession(dir, title string) (Session, error) {
 	now := time.Now()
 
-	return f.create(Session{Dir: dir, Project: project, Title: title, CreatedAt: now, ActiveAt: now}, nil)
+	return f.create(Session{Dir: dir, Title: title, CreatedAt: now, ActiveAt: now}, nil)
 }
 
 // BranchSession implements Store.
@@ -309,7 +307,6 @@ func (f *Files) Session(id string) (Session, error) {
 	session := Session{
 		ID:        id,
 		Dir:       record.Dir,
-		Project:   record.Project,
 		Title:     record.Title,
 		Provider:  record.Provider,
 		Model:     record.Model,
@@ -379,7 +376,7 @@ func (f *Files) RenameSession(id, title string) error {
 }
 
 // Sessions implements Store.
-func (f *Files) Sessions(project string) ([]Session, error) {
+func (f *Files) Sessions(dir string) ([]Session, error) {
 	listed, err := os.ReadDir(f.sessionsDir())
 
 	if errors.Is(err, os.ErrNotExist) {
@@ -409,7 +406,7 @@ func (f *Files) Sessions(project string) ([]Session, error) {
 			return nil, err
 		}
 
-		if project == "" || session.Project == project {
+		if dir == "" || session.Dir == dir {
 			sessions = append(sessions, session)
 		}
 	}
@@ -430,8 +427,8 @@ func (f *Files) Sessions(project string) ([]Session, error) {
 }
 
 // LatestSession implements Store.
-func (f *Files) LatestSession(project string) (Session, error) {
-	sessions, err := f.Sessions(project)
+func (f *Files) LatestSession(dir string) (Session, error) {
+	sessions, err := f.Sessions(dir)
 
 	if err != nil {
 		return Session{}, err
@@ -703,12 +700,12 @@ func (f *Files) end(sessionID string, file *os.File, path string) (end, error) {
 }
 
 // Recent implements Store.
-func (f *Files) Recent(project string, kinds []string, limit int) ([]Entry, error) {
+func (f *Files) Recent(dir string, kinds []string, limit int) ([]Entry, error) {
 	if len(kinds) == 0 {
 		return nil, nil
 	}
 
-	sessions, err := f.Sessions(project)
+	sessions, err := f.Sessions(dir)
 
 	if err != nil {
 		return nil, err

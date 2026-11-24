@@ -3,6 +3,7 @@ package tool
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -25,14 +26,6 @@ func NewSet() *Set {
 	return &Set{seen: newSeen(), jobs: &jobs{}, saved: &saved{}, display: &display{open: computer.Open, delay: answerDelay}}
 }
 
-// Separate returns a set for another session. It keeps its own record of
-// the files its model has seen, since one model has not read what another
-// did, and shares the processes left running, the files saved, and the
-// screen, which go with the host.
-func (s *Set) Separate() *Set {
-	return &Set{seen: newSeen(), jobs: s.jobs, saved: s.saved, display: s.display}
-}
-
 // Tools returns the tools in the order they are declared to the model.
 func (s *Set) Tools() []Tool {
 	return []Tool{Read{seen: s.seen}, Write{seen: s.seen}, Edit{seen: s.seen}, Bash{jobs: s.jobs, saved: s.saved}}
@@ -49,6 +42,16 @@ func (s *Set) Computer() Tool {
 // the whole of it saved to a file the model can search.
 func (s *Set) Clip(text string) string {
 	return clip(text, s.saved)
+}
+
+// Background are the process groups the model started in the background,
+// each by the system's id of the process that leads it. One that ended is
+// still among them.
+func (s *Set) Background() []int {
+	s.jobs.mu.Lock()
+	defer s.jobs.mu.Unlock()
+
+	return slices.Clone(s.jobs.groups)
 }
 
 // Close stops the processes the model started in the background, removes

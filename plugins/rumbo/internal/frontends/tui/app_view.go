@@ -69,7 +69,7 @@ func (a *app) layout() frame {
 
 	var shown frame
 
-	if a.sidebar && width >= sidebarFrom && a.offers("sessions") {
+	if a.sidebar && width >= sidebarFrom && a.reaches() {
 		shown.side = min(max(width/5, sidebarMin), sidebarMax)
 		shown.main = shown.side + 1
 	}
@@ -150,15 +150,7 @@ func (a *app) screenRows(shown frame) []string {
 	var side []string
 
 	if shown.side > 0 {
-		marked := marks{current: a.session, working: map[string]bool{}, unseen: a.unseen}
-
-		for _, run := range a.runs {
-			if run.session != "" {
-				marked.working[run.session] = true
-			}
-		}
-
-		side = a.sessions.rows(a.theme, a.project(), shown.side, body, marked, a.focus == focusSidebar, a.now)
+		side = a.sessions.rows(a.theme, a.project(), shown.side, body, a.marked(), a.focus == focusSidebar, a.now)
 	}
 
 	var panel []string
@@ -196,30 +188,26 @@ func (a *app) project() string {
 	return filepath.Base(a.info.Dir)
 }
 
-// title is what the session shown is called.
-func (a *app) title() string {
-	if a.session == "" {
+// titleOf is what the session of a rumbo is called: its title, or its id
+// when it has none.
+func titleOf(held *host) string {
+	switch {
+	case held.session == "":
 		return "new session"
+	case held.called == "":
+		return held.session
 	}
 
-	return a.sessions.title(a.session)
+	return held.called
 }
 
 // header says where the person is, as a breadcrumb, and on the right how
 // many runs work in other sessions.
 func (a *app) header() string {
-	left := " " + styleBold + a.theme.progress + "rumbo" + styleReset + styleDim + "  │  " + styleWeightOff + styleBold + a.project() + styleWeightOff + styleDim + " › " + styleWeightOff + a.title()
+	left := " " + styleBold + a.theme.progress + "rumbo" + styleReset + styleDim + "  │  " + styleWeightOff + styleBold + a.project() + styleWeightOff + styleDim + " › " + styleWeightOff + titleOf(a.host)
 	right := ""
 
-	elsewhere := 0
-
-	for _, run := range a.runs {
-		if run.conv != a.shown {
-			elsewhere++
-		}
-	}
-
-	if elsewhere > 0 {
+	if elsewhere := a.elsewhere(); elsewhere > 0 {
 		right = a.theme.progress + spin(a.now) + styleColorOff + fmt.Sprintf(" %d working elsewhere ", elsewhere)
 	}
 
@@ -458,7 +446,11 @@ func (a *app) footer(width int) string {
 // keys do now, and on the right whether there is more of the conversation
 // below what shows.
 func (a *app) hint(width int, below bool) string {
-	keys := styleDim + "Enter sends · ^P commands · Tab sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+	keys := styleDim + "Enter sends · ^P commands · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+
+	if a.reaches() {
+		keys = styleDim + "Enter sends · ^P commands · Tab sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+	}
 
 	switch {
 	case a.notice != "":
@@ -468,7 +460,7 @@ func (a *app) hint(width int, below bool) string {
 	case a.searching:
 		keys = "search: " + a.query + styleDim + "  (Ctrl-R older, Enter takes it, Escape leaves)" + styleWeightOff
 	case a.focus == focusSidebar:
-		keys = styleDim + "↑ ↓ choose · Enter shows it · Delete deletes it · Tab goes on" + styleWeightOff
+		keys = styleDim + "↑ ↓ choose · Enter shows it · Tab goes on" + styleWeightOff
 	case a.focus == focusPanel:
 		keys = styleDim + "↑ ↓ PgUp PgDn scroll the panel · Esc puts it away · Tab goes back" + styleWeightOff
 	case a.focus == focusConversation:
@@ -501,7 +493,7 @@ func (a *app) acting() string {
 		return "shows less of it"
 	case chosen.kind == entryTool && chosen.finished:
 		return "shows all of it"
-	case chosen.kind == entryTask:
+	case chosen.kind == entryTask && a.branches():
 		return "changes it or asks it again"
 	}
 

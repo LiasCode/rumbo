@@ -41,12 +41,12 @@ type panels struct {
 // folder it works in, the model it uses, and what its runs spent, which
 // the app knows, over what the host says of it.
 type details struct {
-	session     string
-	description string
-	dir         string
-	model       string
-	meter       string
-	spent       string
+	session string
+	title   string
+	dir     string
+	model   string
+	meter   string
+	spent   string
 }
 
 // detailRows draws the session's details in rows of width columns.
@@ -65,7 +65,7 @@ func (p *panels) detailRows(t theme, shown details, width int) []string {
 	if shown.session == "" {
 		section("session", styleDim+"New; its first task starts it."+styleReset)
 	} else {
-		section("session", append([]string{styleBold + shown.session + styleReset}, wrapAll(styleDim+shown.description+styleReset, width)...)...)
+		section("session", append([]string{styleBold + shown.session + styleReset}, wrapAll(styleDim+shown.title+styleReset, width)...)...)
 	}
 
 	section("folder", wrapAll(shown.dir, width)...)

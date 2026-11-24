@@ -8,7 +8,7 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// The sidebar keeps the session selected when the host lists them again in
+// The sidebar keeps the session selected when they are listed again in
 // another order, and says which session each of its rows is.
 func TestTheSidebarKeepsItsSelection(t *testing.T) {
 	var s sidebar
@@ -19,10 +19,6 @@ func TestTheSidebarKeepsItsSelection(t *testing.T) {
 
 	if s.chosen() != "b2" || s.selected != 3 {
 		t.Fatalf("chosen %q at %d", s.chosen(), s.selected)
-	}
-
-	if s.title("a1") != "fix the test" || s.title("b2") != "b2" {
-		t.Fatalf("titles %q and %q", s.title("a1"), s.title("b2"))
 	}
 
 	for row, want := range map[int]int{sidebarNewRow: 0, sidebarSessionsRow: 1, sidebarSessionsRow + 2: 3} {

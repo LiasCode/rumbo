@@ -47,17 +47,15 @@ type Plugin struct {
 	Replaces []string
 }
 
-// Session is one conversation. Dir is the directory it works in; Project is
-// the root that directory belongs to, which is what sessions are listed and
-// continued by. Provider and Model are what the session uses. Options are
-// the values of the provider's options chosen in the session, a JSON object,
-// or nothing. Parent is the session a branch started from, and ParentSeq the
-// last of its entries the branch took; a session that is no branch has
-// neither.
+// Session is one conversation. Dir is the directory it was started in and
+// works in, its root, which is what sessions are listed and continued by.
+// Provider and Model are what the session uses. Options are the values of
+// the provider's options chosen in the session, a JSON object, or nothing.
+// Parent is the session a branch started from, and ParentSeq the last of
+// its entries the branch took; a session that is no branch has neither.
 type Session struct {
 	ID        string
 	Dir       string
-	Project   string
 	Title     string
 	Provider  string
 	Model     string
@@ -101,13 +99,13 @@ type Store interface {
 	PutPlugin(plugin Plugin) error
 	DeletePlugin(name string) error
 
-	CreateSession(dir, project, title string) (Session, error)
+	CreateSession(dir, title string) (Session, error)
 	Session(id string) (Session, error)
-	// LatestSession returns the project's most recently used session.
-	LatestSession(project string) (Session, error)
-	// Sessions lists a project's sessions, most recently used first. An empty
-	// project lists the sessions of every project.
-	Sessions(project string) ([]Session, error)
+	// LatestSession returns the most recently used session of a directory.
+	LatestSession(dir string) (Session, error)
+	// Sessions lists the sessions of a directory, most recently used first.
+	// An empty one lists the sessions of every directory.
+	Sessions(dir string) ([]Session, error)
 
 	// SetSessionModel records the provider and the model a session uses.
 	SetSessionModel(id, provider, model string) error
@@ -136,11 +134,11 @@ type Store interface {
 
 	Append(sessionID, kind string, payload any) (Entry, error)
 	Entries(sessionID string) ([]Entry, error)
-	// Recent returns the entries of the kinds given in a project's sessions,
+	// Recent returns the entries of the kinds given in a directory's sessions,
 	// most recent first, up to limit. Each payload comes once, at the last
 	// time it was appended, so the copies a branch holds do not repeat it;
 	// its Seq is not set, as it may be in several sessions.
-	Recent(project string, kinds []string, limit int) ([]Entry, error)
+	Recent(dir string, kinds []string, limit int) ([]Entry, error)
 
 	Close() error
 }

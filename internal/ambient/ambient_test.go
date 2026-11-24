@@ -3,6 +3,7 @@ package ambient
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,6 +63,33 @@ func TestChangesReportsOnlyWhatChanged(t *testing.T) {
 
 	if removed := Changes(ctx, dir, Defaults(), known); len(removed) != 1 || removed[0].Text != "" {
 		t.Fatalf("removal: %+v", removed)
+	}
+}
+
+// A session's root is the directory it was started in: the guide of a
+// directory above it is not read, in a git repository either.
+func TestInstructionsStopAtTheDirectory(t *testing.T) {
+	config := userConfig(t)
+	repository := t.TempDir()
+
+	if output, err := exec.Command("git", "init", "--quiet", repository).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s", output)
+	}
+
+	dir := filepath.Join(repository, "pkg")
+	os.MkdirAll(dir, 0o755)
+	os.MkdirAll(filepath.Join(config, "rumbo"), 0o755)
+
+	os.WriteFile(filepath.Join(config, "rumbo", "AGENTS.md"), []byte("The user's guide.\n"), 0o644)
+	os.WriteFile(filepath.Join(repository, "AGENTS.md"), []byte("The repository's guide.\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("The directory's guide.\n"), 0o644)
+
+	got := instructions(context.Background(), dir)
+	want := "[" + filepath.Join(config, "rumbo", "AGENTS.md") + "]\nThe user's guide.\n\n" +
+		"[" + filepath.Join(dir, "AGENTS.md") + "]\nThe directory's guide."
+
+	if got != want {
+		t.Fatalf("instructions:\n%s\n\nwant:\n%s", got, want)
 	}
 }
 

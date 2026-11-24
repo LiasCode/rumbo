@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/LiasCode/rumbo/internal/ambient"
@@ -44,11 +45,11 @@ func describeSkills(skills ambient.Skills) string {
 	return strings.TrimRight(out.String(), "\n")
 }
 
-// listSkills is the host's function: the skills of the current session's
+// listSkills is the host's function: the skills of the session's
 // directory.
-func (h *host) listSkills(ctx context.Context, _ map[string]string) (protocol.HostResult, error) {
+func (h *host) listSkills(context.Context, map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	dir := h.current.dir
+	dir := h.dir
 	h.mu.Unlock()
 
 	plugins, err := skillPlaces(h.database)
@@ -57,7 +58,7 @@ func (h *host) listSkills(ctx context.Context, _ map[string]string) (protocol.Ho
 		return protocol.HostResult{}, err
 	}
 
-	return protocol.HostResult{Text: describeSkills(ambient.FindSkills(ctx, dir, plugins))}, nil
+	return protocol.HostResult{Text: describeSkills(ambient.FindSkills(dir, plugins))}, nil
 }
 
 // printSkills is the command: the skills of the working directory.
@@ -66,7 +67,7 @@ func printSkills(database store.Store, args []string) error {
 		return errors.New("usage: rumbo skills")
 	}
 
-	dir, _, err := workingProject()
+	dir, err := os.Getwd()
 
 	if err != nil {
 		return err
@@ -78,7 +79,7 @@ func printSkills(database store.Store, args []string) error {
 		return err
 	}
 
-	fmt.Println(describeSkills(ambient.FindSkills(context.Background(), dir, plugins)))
+	fmt.Println(describeSkills(ambient.FindSkills(dir, plugins)))
 
 	return nil
 }

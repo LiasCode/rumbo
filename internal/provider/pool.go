@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/LiasCode/rumbo/protocol"
@@ -17,8 +18,10 @@ import (
 type Pool struct {
 	start func(ctx context.Context) (pooled, error)
 
-	mu     sync.Mutex
+	mu sync.Mutex
+	// idle are the processes no request is using, and busy those one is.
 	idle   []pooled
+	busy   []pooled
 	closed bool
 	// description is what the first process said about the provider, and
 	// config the configuration it said is in force.
@@ -29,11 +32,12 @@ type Pool struct {
 
 // pooled is what a pool keeps: a provider process that says the
 // configuration it has in force, and can say it has exited, so it is not
-// handed out again.
+// handed out again, and which process of the system it is.
 type pooled interface {
 	Provider
 	Config() json.RawMessage
 	Exited() bool
+	Pid() int
 }
 
 // NewPool returns a pool of processes started from argv with config, their
@@ -91,6 +95,23 @@ func (p *Pool) Config() json.RawMessage {
 	return p.config
 }
 
+// Pids are the system's ids of the provider's processes that run now, idle
+// or busy.
+func (p *Pool) Pids() []int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var pids []int
+
+	for _, process := range slices.Concat(p.idle, p.busy) {
+		if !process.Exited() {
+			pids = append(pids, process.Pid())
+		}
+	}
+
+	return pids
+}
+
 // Ready starts a process if none is idle, so a provider that cannot start
 // fails before any work depends on it.
 func (p *Pool) Ready(ctx context.Context) error {
@@ -131,7 +152,9 @@ func (p *Pool) take(ctx context.Context) (pooled, error) {
 
 		// One that died while idle is dropped, and the next one is tried.
 		if !process.Exited() {
+			p.busy = append(p.busy, process)
 			p.mu.Unlock()
+
 			return process, nil
 		}
 
@@ -152,6 +175,7 @@ func (p *Pool) take(ctx context.Context) (pooled, error) {
 	}
 
 	p.mu.Lock()
+	p.busy = append(p.busy, process)
 
 	if !p.described {
 		p.description, p.config, p.described = process.Description(), process.Config(), true
@@ -166,6 +190,7 @@ func (p *Pool) take(ctx context.Context) (pooled, error) {
 // whose pool was closed meanwhile, is stopped instead of kept.
 func (p *Pool) give(process pooled) {
 	p.mu.Lock()
+	p.busy = slices.DeleteFunc(p.busy, func(other pooled) bool { return other == process })
 	keep := !p.closed && !process.Exited()
 
 	if keep {

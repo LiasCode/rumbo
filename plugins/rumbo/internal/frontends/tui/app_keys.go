@@ -37,9 +37,7 @@ func (a *app) press(key tea.KeyPressMsg) tea.Cmd {
 		return nil
 
 	case "ctrl+n":
-		a.sessions.choose("")
-
-		return a.open()
+		return a.reach("", nil)
 
 	case "ctrl+g":
 		return a.togglePanel(panelChanges)
@@ -150,7 +148,7 @@ func (a *app) composerKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 
 		// Tab on an empty composer goes to the sessions, or to the panel
 		// without them.
-		case a.input.empty() && len(a.pasted) == 0 && a.sidebar && a.offers("sessions"):
+		case a.input.empty() && len(a.pasted) == 0 && a.layout().side > 0:
 			a.focus = focusSidebar
 			a.sessions.choose(a.session)
 			a.sessions.reveal(a.height - bodyTop)
@@ -217,11 +215,13 @@ func (a *app) composerKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 			return tea.Quit
 		}
 
-	// Ctrl-D quits on an empty composer, cancelling what works, else
-	// deletes under the cursor.
+	// Ctrl-D quits on an empty composer, cancelling what works in every
+	// session, else deletes under the cursor.
 	case "ctrl+d":
 		if a.input.empty() {
-			a.conn.Cancel()
+			for _, held := range a.hosts {
+				held.conn.Cancel()
+			}
 
 			return tea.Quit
 		}
@@ -294,10 +294,6 @@ func (a *app) sidebarKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 
 	case "enter":
 		return a.open()
-
-	// Delete deletes the session chosen, once the person agrees.
-	case "delete":
-		return a.deleteSession(a.sessions.chosen())
 
 	// Tab goes on to the panel, when one is shown, and back to the
 	// composer.

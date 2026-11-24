@@ -55,7 +55,20 @@ changes one of those updates it in the same change.
 - **The protocols are public contracts.** Changes to `protocol/` are
   additive. An incompatible change needs a new protocol version and an update
   to `docs/protocol.md`, `docs/frontend-protocol.md`, or
-  `docs/extension-protocol.md` in the same change.
+  `docs/extension-protocol.md` in the same change. Each protocol has a
+  version of its own (`Version`, the provider's, `FrontendVersion`, and
+  `ExtensionVersion`), so a new one of one refuses nothing of the others.
+- **A rumbo process is one session.** A host starts in a new session or
+  continues one, and works in no other: it has no function that lists the
+  others, moves to one, or runs in two, and no run names a session. What a
+  session needs, its providers, its extensions, and its tools, is its
+  process's own. A front end that wants another session starts another
+  rumbo, and what many processes cost is the front end's to manage. The
+  other sessions are reached from the command line (`rumbo sessions`).
+- **A session's root is the directory it was started in.** Nothing looks
+  above it: not for a git repository, and not for instructions or skills.
+  Sessions are listed and continued by that directory, and a front end
+  that groups them does it by their roots.
 - **Stored data keeps working.** Everything rumbo stores is a file a person
   can read: `config.yaml`, and a directory for each session
   (`internal/store`). A change to what a file holds adds a key or a field
@@ -186,18 +199,20 @@ The TUI's state is tested by driving it with messages (`app_test.go`'s
 stage), but nothing tests what a terminal draws of it. After changing
 `plugins/rumbo/internal/frontends/tui`, run it in tmux and look at it
 (`tmux capture-pane -p`): a run, typing, cancel with Ctrl-C, quit, and the
-shell being usable
-afterwards; another session opened from the sidebar while a run works, and
-coming back to it once it ends; a command from Ctrl-P with a form and one
-with a confirmation; the picker changing the model and an option, and a
-run that uses them; a provider's function that asks a secret, answered and
-given up with Escape; both panels, Ctrl-G on a folder with edits and on
-one outside Git, and Ctrl-Alt-B; a tool call shown whole and back; a
-message asked again in a branch; and text selected by dragging the
-pointer. `tmux send-keys` takes some words as key names, `delete` among
-them: send text with `-l`; it sends an Escape and the key after it at
-once, which reads as Alt and that key, so give them apart; and the pointer
-is sent as the terminal reports it, `-l` with `\e[<0;X;YM` for the left
+shell being usable afterwards; a session continued with `-s`, which shows
+what it holds; another session shown from the sidebar and a new one with
+Ctrl-N, a run left working in one while another shows, `/rumbos`, and no
+`rumbo serve` left once it quits (`pgrep -af "[r]umbo serve"`, since a
+pattern that matches the shell that runs it kills that shell with
+`pkill`); a command from Ctrl-P with a form and one with a
+confirmation; the picker changing the model and an option, and a run that
+uses them; a provider's function that asks a secret, answered and given up
+with Escape; both panels, Ctrl-G on a folder with edits and on one outside
+Git, and Ctrl-Alt-B; a tool call shown whole and back; and text selected
+by dragging the pointer. `tmux send-keys` takes some words as key names,
+`delete` among them: send text with `-l`; it sends an Escape and the key
+after it at once, which reads as Alt and that key, so give them apart; and
+the pointer is sent as the terminal reports it, `-l` with `\e[<0;X;YM` for the left
 button going down on column X and row Y, counted from 1, `\e[<32;X;YM`
 for it moving held, and `\e[<0;X;Ym` for it coming up.
 

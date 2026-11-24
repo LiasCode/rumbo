@@ -19,6 +19,7 @@ const (
 	commandHelp   = "/help"
 	commandCopy   = "/copy"
 	commandExport = "/export"
+	commandRumbos = "/rumbos"
 )
 
 // ownCommands are the front end's own, described as functions are, so they
@@ -36,6 +37,7 @@ var ownCommands = []protocol.Function{
 		Description: "Write this session as Markdown to a file, which it does not overwrite",
 		Params:      []protocol.Option{{Name: "path", Type: protocol.OptionString, Optional: true, Description: "without it, rumbo-<session>.md in the session's directory"}},
 	},
+	{Name: "rumbos", Description: "List the rumbos this terminal UI holds, one for each session open, and what each uses"},
 }
 
 // Where a command acts and where an answer comes from. The host is rumbo
@@ -124,7 +126,7 @@ func isCommand(line string) bool {
 // groupTitles say what each group of the host's functions acts on.
 var groupTitles = map[string]string{
 	protocol.GroupSystem:    "system: rumbo itself, the same for every session and provider",
-	protocol.GroupSession:   "session: the current session, and the others of this project",
+	protocol.GroupSession:   "session: this session",
 	protocol.GroupProvider:  "providers: which there are, how each is started, and what is set for each",
 	protocol.GroupExtension: "extensions: which there are, how each is started, what is set for each, and what each gives the model",
 }

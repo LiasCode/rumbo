@@ -148,7 +148,7 @@ func TestRunRecordsAReproducibleHistory(t *testing.T) {
 		Model:        "test",
 	}
 
-	session, err := database.CreateSession(dir, dir, "test")
+	session, err := database.CreateSession(dir, "test")
 
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +236,7 @@ func setup(t *testing.T, model *scripted) (*Agent, store.Store, store.Session, *
 	database := store.Open(filepath.Join(t.TempDir(), "config.yaml"), t.TempDir())
 
 	dir := t.TempDir()
-	session, err := database.CreateSession(dir, dir, "test")
+	session, err := database.CreateSession(dir, "test")
 
 	if err != nil {
 		t.Fatal(err)

@@ -65,6 +65,18 @@ func TestPoolStartsAProcessPerRequestRunningAtOnce(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
+	// Both are the provider's processes, the busy one and the idle one. The
+	// second is counted when it starts, and is the pool's once it answered.
+	pids := pool.Pids()
+
+	for deadline := time.Now().Add(5 * time.Second); len(pids) < 2 && time.Now().Before(deadline); pids = pool.Pids() {
+		time.Sleep(time.Millisecond)
+	}
+
+	if len(pids) != 2 || pids[0] == pids[1] || pids[0] <= 0 {
+		t.Fatalf("the processes of the pool are %v", pids)
+	}
+
 	cancel()
 
 	if err := <-waiting; err == nil {

@@ -22,16 +22,12 @@ import (
 // in order, as the program would, and what a request sends while it is
 // open comes before its answer.
 type stage struct {
-	t    *testing.T
-	a    *app
-	sent []tea.Msg
-}
-
-// sessionFunctions are the host's functions the sidebar calls.
-var sessionFunctions = []protocol.Function{
-	{Name: "sessions", Group: protocol.GroupSession},
-	{Name: "open", Group: protocol.GroupSession, Params: []protocol.Option{{Name: "session", Type: protocol.OptionString}}},
-	{Name: "new", Group: protocol.GroupSession},
+	t *testing.T
+	a *app
+	// sending guards sent, which a rumbo that ends adds to from a
+	// goroutine of its own.
+	sending sync.Mutex
+	sent    []tea.Msg
 }
 
 func staged(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInitializeParams) *stage {
@@ -42,7 +38,12 @@ func staged(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInit
 
 	shown.a = newApp(conn, info, defaultTheme)
 	shown.a.clock = func() time.Time { return time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC) }
-	shown.a.send = func(msg tea.Msg) { shown.sent = append(shown.sent, msg) }
+	shown.a.send = func(msg tea.Msg) {
+		shown.sending.Lock()
+		defer shown.sending.Unlock()
+
+		shown.sent = append(shown.sent, msg)
+	}
 
 	// The spinners stay still.
 	shown.a.ticking = true
@@ -71,8 +72,11 @@ func (s *stage) run(cmd tea.Cmd) {
 		}
 
 		answered := next()
+
+		s.sending.Lock()
 		msgs := append(s.sent, answered)
 		s.sent = nil
+		s.sending.Unlock()
 
 		for _, msg := range msgs {
 			switch msg := msg.(type) {
@@ -117,9 +121,10 @@ func (s *stage) screen() string {
 	return strings.Join(rows, "\n")
 }
 
-// A task runs in the session shown: what was asked shows, then what the
+// A task runs in the host's session: what was asked shows, then what the
 // model wrote and the tools it called, how it ended, and the session it
-// made, which the sidebar lists and the header names.
+// made, which the header names after the task until the host says what it
+// is called.
 func TestAFullRunIsShownInItsSession(t *testing.T) {
 	var sent protocol.RunParams
 
@@ -139,101 +144,65 @@ func TestAFullRunIsShownInItsSession(t *testing.T) {
 			}, nil
 		},
 		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
-			return protocol.HostResult{Values: []protocol.Value{{Value: "s1", Label: "list the files"}}}, nil
+			return protocol.HostResult{Text: name + " done", State: protocol.HostState{Dir: "/home/me/alpha", Session: "s1", Title: "Listing", Provider: "toy", Model: "any"}}, nil
 		},
-	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: sessionFunctions})
+	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: []protocol.Function{{Name: "rename", Group: protocol.GroupSession}}})
+
+	if screen := s.screen(); !strings.Contains(screen, "alpha › new session") {
+		t.Fatalf("the screen of a new session:\n%s", screen)
+	}
 
 	s.typing("list the files")
 
-	if sent.Objective != "list the files" || sent.Session != "" {
+	if sent.Objective != "list the files" {
 		t.Fatalf("sent %+v", sent)
 	}
 
 	screen := s.screen()
 
-	if !inOrder(screen, "alpha › list the files", "list the files │", "Looking.", "✓ bash ls", "a.txt", "Done.", "✓ done", "toy · any", "1% of 200k", "1.5k in") {
+	if !inOrder(screen, "alpha › list the files", "Looking.", "✓ bash ls", "a.txt", "Done.", "✓ done", "toy · any", "1% of 200k", "1.5k in") {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 
-	if s.a.session != "s1" || s.a.here() != nil || s.a.conversations["s1"] != s.a.shown {
+	if s.a.session != "s1" || s.a.here() != nil || s.a.shown.session != "s1" {
 		t.Fatalf("session %q, run %v", s.a.session, s.a.here())
 	}
 
 	if s.a.leaving() == "" || !strings.Contains(s.a.leaving(), "rumbo -s s1") {
 		t.Fatalf("leaving %q", s.a.leaving())
 	}
+
+	// What the host says the session is called is what the header says.
+	s.typing("/rename")
+
+	if screen := s.screen(); !inOrder(screen, "alpha › Listing", "Looking.", "› /rename", "rename done") {
+		t.Fatalf("the screen once the host named the session:\n%s", screen)
+	}
 }
 
-// Tab goes to the sessions, and Enter shows the one chosen with what it
-// holds; the session left keeps what it showed for when it comes back.
-func TestASessionChosenInTheSidebarShowsItsHistory(t *testing.T) {
-	var mu sync.Mutex
-
-	current := "s1"
-
+// A session that is continued shows what it holds, under what it is called.
+func TestAContinuedSessionShowsItsHistory(t *testing.T) {
 	s := staged(t, frontend.Handlers{
-		Host: func(_ context.Context, name string, params json.RawMessage) (protocol.HostResult, error) {
-			mu.Lock()
-			defer mu.Unlock()
-
-			if name == "open" {
-				var given map[string]string
-				_ = json.Unmarshal(params, &given)
-				current = given["session"]
-			}
-
-			listed := []protocol.Value{{Value: "s1", Label: "first task"}, {Value: "s2", Label: "second task"}}
-
-			return protocol.HostResult{Values: listed, State: protocol.HostState{Dir: "/home/me/alpha", Session: current, Provider: "toy", Model: "any"}}, nil
+		History: func() (protocol.HistoryResult, error) {
+			return protocol.HistoryResult{Session: "s1", Events: []protocol.Event{{Type: protocol.EventObjective, Text: "first task"}, {Type: protocol.EventText, Text: "One."}}}, nil
 		},
-		History: func(params protocol.HistoryParams) (protocol.HistoryResult, error) {
-			told := map[string][]protocol.Event{
-				"s1": {{Type: protocol.EventObjective, Text: "first task"}, {Type: protocol.EventText, Text: "One."}},
-				"s2": {{Type: protocol.EventObjective, Text: "second task"}, {Type: protocol.EventText, Text: "Two."}},
-			}
+	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Session: "s1", Title: "First", Provider: "toy", Model: "any"})
 
-			return protocol.HistoryResult{Session: params.Session, Events: told[params.Session]}, nil
-		},
-	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Session: "s1", Provider: "toy", Model: "any", Functions: sessionFunctions})
+	if screen := s.screen(); !strings.Contains(screen, "reading the session") {
+		t.Fatalf("the screen before the history comes:\n%s", screen)
+	}
 
-	s.run(s.a.load(s.a.shown))
-	s.run(s.a.list())
+	s.run(s.a.load(s.a.host))
 
-	if screen := s.screen(); !inOrder(screen, "alpha › first task", "first task", "One.") {
+	if screen := s.screen(); !inOrder(screen, "alpha › First", "first task", "One.") {
 		t.Fatalf("the screen:\n%s", screen)
-	}
-
-	left := s.a.shown
-
-	s.press(tea.KeyTab)
-	s.press(tea.KeyDown)
-
-	if s.a.focus != focusSidebar || s.a.sessions.chosen() != "s2" {
-		t.Fatalf("focus %d, chosen %q", s.a.focus, s.a.sessions.chosen())
-	}
-
-	s.press(tea.KeyEnter)
-
-	if screen := s.screen(); !inOrder(screen, "alpha › second task", "second task", "Two.") || strings.Contains(screen, "One.") {
-		t.Fatalf("the screen:\n%s", screen)
-	}
-
-	if s.a.focus != focusComposer || s.a.session != "s2" || s.a.conversations["s1"] != left || len(left.entries) != 2 {
-		t.Fatalf("focus %d, session %q", s.a.focus, s.a.session)
-	}
-
-	// A click on the first session shows it again, as it was.
-	s.click(3, bodyTop+sidebarSessionsRow)
-
-	if s.a.session != "s1" || s.a.shown != left {
-		t.Fatalf("after the click: session %q", s.a.session)
 	}
 }
 
 // A command's answer shows under it, labeled with whose it is, and a slash
 // opens the menu of the commands.
 func TestACommandIsAnsweredWhereItWasTyped(t *testing.T) {
-	functions := append([]protocol.Function{{Name: "status", Description: "Show the session", Group: protocol.GroupSession}}, sessionFunctions...)
+	functions := []protocol.Function{{Name: "status", Description: "Show the session", Group: protocol.GroupSession}}
 
 	s := staged(t, frontend.Handlers{
 		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
@@ -260,9 +229,9 @@ func TestACommandIsAnsweredWhereItWasTyped(t *testing.T) {
 }
 
 // Every row of the screen is as wide as the screen, and there are as many
-// as it is high, with the sidebar or, on a narrow screen, without it.
+// as it is high.
 func TestTheScreenIsFilledExactly(t *testing.T) {
-	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Functions: sessionFunctions})
+	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy"})
 
 	s.a.shown.ask("a task that is long enough to wrap in a narrow column of the conversation", nil, false, s.a.now)
 	s.a.shown.apply(protocol.Event{Type: protocol.EventText, Text: "| a | b |\n|---|---|\n| 1 | 2 |\n"}, false, s.a.now)
@@ -280,10 +249,6 @@ func TestTheScreenIsFilledExactly(t *testing.T) {
 			if visibleWidth(row) != size[0] {
 				t.Fatalf("%dx%d: a row of %d columns: %q", size[0], size[1], visibleWidth(row), stripped(row))
 			}
-		}
-
-		if hasSidebar := strings.Contains(s.screen(), "SESSIONS") || strings.Contains(s.screen(), "no sessions yet"); hasSidebar != (size[0] >= sidebarFrom) {
-			t.Fatalf("%dx%d: sidebar %v", size[0], size[1], hasSidebar)
 		}
 	}
 }
@@ -470,7 +435,7 @@ func TestTheProviderAsksInADialog(t *testing.T) {
 	}
 
 	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
-	s.run(s.a.describe(""))
+	s.run(s.a.describe(s.a.host, ""))
 
 	// The function waits for the answer, so what it asks runs in the
 	// background, as the program runs it.
@@ -556,7 +521,7 @@ func TestThePanelsShowBesideTheConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	functions := append([]protocol.Function{{Name: "status"}, {Name: "skills"}}, sessionFunctions...)
+	functions := []protocol.Function{{Name: "status"}, {Name: "skills"}}
 
 	s := staged(t, frontend.Handlers{
 		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
@@ -581,7 +546,7 @@ func TestThePanelsShowBesideTheConversation(t *testing.T) {
 		t.Fatalf("the details:\n%s", screen)
 	}
 
-	for _, size := range [][2]int{{160, 40}, {90, 30}} {
+	for _, size := range [][2]int{{160, 40}, {70, 30}} {
 		s.apply(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 
 		rows := strings.Split(s.a.View().Content, "\n")
@@ -592,8 +557,9 @@ func TestThePanelsShowBesideTheConversation(t *testing.T) {
 			}
 		}
 
-		// The rule under the header meets each border under it.
-		if joints, want := strings.Count(rows[1], "┬"), 1+map[bool]int{true: 1}[size[0] == 160]; joints != want {
+		// The rule under the header meets the border of a panel beside
+		// the conversation.
+		if joints, want := strings.Count(rows[1], "┬"), map[bool]int{true: 1}[size[0] == 160]; joints != want {
 			t.Fatalf("%dx%d: the rule meets %d borders, not %d: %q", size[0], size[1], joints, want, stripped(rows[1]))
 		}
 	}
@@ -610,39 +576,10 @@ func TestThePanelsShowBesideTheConversation(t *testing.T) {
 }
 
 // Shift-Tab goes up into the conversation, where Enter shows all of a call
-// and back, and what the person asked can be asked again in a branch that
-// starts before it, which runs once the branch is shown.
-func TestAMessageIsAskedAgainInABranch(t *testing.T) {
-	var mu sync.Mutex
-
-	var branched string
-
-	var ran protocol.RunParams
-
-	functions := append([]protocol.Function{{Name: "branch", Params: []protocol.Option{{Name: "point", Type: protocol.OptionString, Optional: true}}}}, sessionFunctions...)
-
+// and back, and copies anything else, what the person asked too.
+func TestACallIsShownWholeFromTheConversation(t *testing.T) {
 	s := staged(t, frontend.Handlers{
-		Host: func(_ context.Context, name string, params json.RawMessage) (protocol.HostResult, error) {
-			mu.Lock()
-			defer mu.Unlock()
-
-			session := "s1"
-
-			if name == "branch" {
-				branched, session = string(params), "s2"
-			}
-
-			if branched != "" {
-				session = "s2"
-			}
-
-			return protocol.HostResult{Text: name + " done", State: protocol.HostState{Dir: "/home/me/alpha", Session: session, Provider: "toy", Model: "any"}}, nil
-		},
-		History: func(params protocol.HistoryParams) (protocol.HistoryResult, error) {
-			if params.Session != "s1" {
-				return protocol.HistoryResult{Session: params.Session}, nil
-			}
-
+		History: func() (protocol.HistoryResult, error) {
 			return protocol.HistoryResult{Session: "s1", Events: []protocol.Event{
 				{Type: protocol.EventObjective, Text: "count the files"},
 				{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"ls"}`)},
@@ -651,19 +588,9 @@ func TestAMessageIsAskedAgainInABranch(t *testing.T) {
 				{Type: protocol.EventEnded, Status: protocol.RunDone},
 			}}, nil
 		},
-		Run: func(params protocol.RunParams, run *frontend.Run) (frontend.Work, error) {
-			ran = params
+	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Session: "s1", Provider: "toy", Model: "any"})
 
-			return func(context.Context) (string, error) {
-				run.Attach(params.Session)
-				run.Text("Nine again.")
-
-				return params.Session, nil
-			}, nil
-		},
-	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Session: "s1", Provider: "toy", Model: "any", Functions: functions})
-
-	s.run(s.a.load(s.a.shown))
+	s.run(s.a.load(s.a.host))
 
 	if screen := s.screen(); !strings.Contains(screen, "… 3 more lines") {
 		t.Fatalf("the call shows all of itself before it is asked to:\n%s", screen)
@@ -683,98 +610,15 @@ func TestAMessageIsAskedAgainInABranch(t *testing.T) {
 	}
 
 	s.press(tea.KeyHome)
+
+	if !strings.Contains(s.screen(), "Enter copies it") {
+		t.Fatalf("what Enter does on the message:\n%s", s.screen())
+	}
+
 	s.press(tea.KeyEnter)
 
-	if s.a.palette == nil || !inOrder(s.screen(), "your message", "Change it", "Ask it again", "Copy it") {
-		t.Fatalf("what can be done with the message:\n%s", s.screen())
-	}
-
-	s.press(tea.KeyDown)
-	s.press(tea.KeyEnter)
-
-	if branched != `{"point":"1"}` || ran.Objective != "count the files" || ran.Session != "s2" {
-		t.Fatalf("branched with %s, ran %+v", branched, ran)
-	}
-
-	if screen := s.screen(); s.a.session != "s2" || !inOrder(screen, "count the files", "Nine again.") || strings.Contains(screen, "Nine.") {
-		t.Fatalf("session %q:\n%s", s.a.session, screen)
-	}
-
-	if left := s.a.conversations["s1"]; !inOrder(plainRows(left, 80), "› /branch 1", "branch done") {
-		t.Fatalf("the session left:\n%s", plainRows(left, 80))
-	}
-}
-
-// Delete in the sidebar deletes the session chosen there, once the person
-// agrees.
-func TestASessionIsDeletedFromTheSidebar(t *testing.T) {
-	functions := append([]protocol.Function{{Name: "delete", Confirm: "This deletes it.", Params: []protocol.Option{{Name: "session", Type: protocol.OptionString}}}}, sessionFunctions...)
-
-	var deleted string
-
-	s := staged(t, frontend.Handlers{
-		Host: func(_ context.Context, name string, params json.RawMessage) (protocol.HostResult, error) {
-			if name == "delete" {
-				deleted = string(params)
-			}
-
-			return protocol.HostResult{Values: []protocol.Value{{Value: "s1", Label: "first"}, {Value: "s2", Label: "second"}}, State: protocol.HostState{Dir: "/home/me/alpha", Provider: "toy", Model: "any"}}, nil
-		},
-	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: functions})
-
-	s.run(s.a.list())
-	s.press(tea.KeyTab)
-	s.press(tea.KeyDown)
-	s.press(tea.KeyDown)
-	s.press(tea.KeyDelete)
-
-	if s.a.confirming == nil || deleted != "" {
-		t.Fatalf("confirming %v, deleted %q", s.a.confirming, deleted)
-	}
-
-	s.press(tea.KeyRight)
-	s.press(tea.KeyEnter)
-
-	if deleted != `{"session":"s2"}` {
-		t.Fatalf("deleted %q", deleted)
-	}
-}
-
-// What the person asked can be changed in a branch that starts before it:
-// the branch is shown, with what was asked in the composer, to change and
-// send.
-func TestAMessageIsChangedInABranch(t *testing.T) {
-	functions := append([]protocol.Function{{Name: "branch", Params: []protocol.Option{{Name: "point", Type: protocol.OptionString, Optional: true}}}}, sessionFunctions...)
-
-	var branched string
-
-	s := staged(t, frontend.Handlers{
-		Host: func(_ context.Context, name string, params json.RawMessage) (protocol.HostResult, error) {
-			if name == "branch" {
-				branched = string(params)
-			}
-
-			return protocol.HostResult{State: protocol.HostState{Dir: "/home/me/alpha", Session: "s2", Provider: "toy", Model: "any"}}, nil
-		},
-		History: func(params protocol.HistoryParams) (protocol.HistoryResult, error) {
-			told := map[string][]protocol.Event{"s1": {
-				{Type: protocol.EventObjective, Text: "first"},
-				{Type: protocol.EventEnded, Status: protocol.RunDone},
-				{Type: protocol.EventObjective, Text: "second"},
-				{Type: protocol.EventEnded, Status: protocol.RunDone},
-			}}
-
-			return protocol.HistoryResult{Session: params.Session, Events: told[params.Session]}, nil
-		},
-	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Session: "s1", Provider: "toy", Model: "any", Functions: functions})
-
-	s.run(s.a.load(s.a.shown))
-	s.apply(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-	s.press(tea.KeyEnter)
-	s.press(tea.KeyEnter)
-
-	if branched != `{"point":"2"}` || s.a.session != "s2" || s.a.input.String() != "second" || s.a.focus != focusComposer {
-		t.Fatalf("branched with %s; session %q, composer %q, focus %d", branched, s.a.session, s.a.input.String(), s.a.focus)
+	if s.a.palette != nil || !strings.Contains(s.a.notice, "copied 1 line(s)") {
+		t.Fatalf("Enter on the message: palette %v, notice %q", s.a.palette, s.a.notice)
 	}
 }
 
@@ -800,29 +644,17 @@ func messagesOf(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{answered}
 }
 
-// A run that ends in a session not shown marks it in the sidebar and says
-// so; and while the terminal is not in front, the bell rings and the
-// desktop is told, with OSC 9.
-func TestARunThatEndsAwayIsSaidAndNotified(t *testing.T) {
-	s := staged(t, frontend.Handlers{
-		Host: func(context.Context, string, json.RawMessage) (protocol.HostResult, error) {
-			return protocol.HostResult{Values: []protocol.Value{{Value: "s1", Label: "here"}, {Value: "s2", Label: "away"}}}, nil
-		},
-	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Session: "s1", Provider: "toy", Model: "any", Functions: sessionFunctions})
+// When a run ends while the terminal is not in front, the bell rings and
+// the desktop is told, with OSC 9.
+func TestARunThatEndsAwayIsNotified(t *testing.T) {
+	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
 
-	s.run(s.a.load(s.a.shown))
-	s.run(s.a.list())
-
-	run := &flight{session: "s2", label: "fix it", conv: s.a.conversationOf("s2")}
+	run := &flight{host: s.a.host, label: "fix it", conv: s.a.shown}
 	s.a.runs = append(s.a.runs, run)
-
-	if !strings.Contains(s.screen(), "1 working elsewhere") {
-		t.Fatalf("the run away is not counted:\n%s", s.screen())
-	}
 
 	s.apply(tea.BlurMsg{})
 
-	_, cmd := s.a.Update(endedMsg{run, protocol.RunResult{Status: protocol.RunDone, Session: "s2"}, nil})
+	_, cmd := s.a.Update(endedMsg{run, protocol.RunResult{Status: protocol.RunDone, Session: "s1"}, nil})
 
 	notified := false
 
@@ -830,8 +662,8 @@ func TestARunThatEndsAwayIsSaidAndNotified(t *testing.T) {
 		notified = notified || strings.Contains(fmt.Sprint(msg), "\a"+escape+"]9;rumbo: done · fix it\a")
 	}
 
-	if !notified || !s.a.unseen["s2"] || !strings.Contains(s.screen(), "the run in “away” ended: done") {
-		t.Fatalf("notified %v, unseen %v:\n%s", notified, s.a.unseen, s.screen())
+	if !notified || s.a.session != "s1" || s.a.here() != nil {
+		t.Fatalf("notified %v, session %q, run %v", notified, s.a.session, s.a.here())
 	}
 
 	// A run that ends while the terminal is in front rings nothing.
@@ -859,7 +691,7 @@ func TestAnExtensionsFunctionsAreCommands(t *testing.T) {
 	}
 
 	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
-	s.run(s.a.describe(""))
+	s.run(s.a.describe(s.a.host, ""))
 
 	names := func(choices []choice) string {
 		var names []string
@@ -888,7 +720,7 @@ func TestAnExtensionsFunctionsAreCommands(t *testing.T) {
 		t.Fatal("what the extensions offer is still taken as it was before the function")
 	}
 
-	s.run(s.a.describe(""))
+	s.run(s.a.describe(s.a.host, ""))
 
 	if help := stripped(s.a.help()); !inOrder(help, "[extension notes]", "/notes-forget", "Forget every note", "the terminal UI's own") {
 		t.Fatalf("the help:\n%s", help)

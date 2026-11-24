@@ -10,9 +10,10 @@ the run fails or is cancelled. A session holds one or more runs.
 before the next request, as the user's words, and leaves the objective as it
 was. A steer that comes as the model finishes keeps the run going.
 
-**Session.** A conversation bound to a project directory, stored as a list of
-entries. It keeps its provider, its model, and the values of the provider's
-options chosen in it.
+**Session.** A conversation bound to the directory it was started in, its
+root, stored as a list of entries. It keeps its provider, its model, and
+the values of the provider's options chosen in it. A rumbo process works
+in one, and each has a process of its own.
 
 **Branch.** A session that starts with a copy of another one's entries, up
 to now or to just before one of the person's messages, and goes on from
@@ -101,23 +102,20 @@ session that uses it starts with.
 
 **Function.** An operation offered through `invoke`: by a provider, such as
 listing its models, by an extension, such as signing in to the service it
-reaches, or by the host, such as changing session or quitting. A front end
+reaches, or by the host, such as changing provider or quitting. A front end
 learns them from descriptions and knows none beforehand. A function of the
-host says what it acts on: the system, a session, or the providers, and one
-there to list the values a parameter takes says so, for a front end to
-offer its values and not it as a command. A function of a provider or of an
-extension can talk with the person while it works, saying things and asking
-questions, whose answers may be secret.
+host says what it acts on: the system, its session, the providers, or the
+extensions, and one there to list the values a parameter takes says so, for
+a front end to offer its values and not it as a command. A function of a
+provider or of an extension can talk with the person while it works, saying
+things and asking questions, whose answers may be secret.
 
 **Agent Provider Protocol.** The JSON-RPC contract between the host and a
 provider.
 
-**Host.** The rumbo process that owns the sessions of a project, the tools,
-and the loop. It sits between a front end and the providers and speaks a
-protocol to each.
-
-**Current session.** The session of a host that a run goes to when it names
-none, and that the host's functions act on unless told otherwise.
+**Host.** The rumbo process that owns one session, the tools, and the
+loop. It sits between a front end and the providers and speaks a protocol
+to each. Another session is another host, which a front end starts.
 
 **Front end.** The program a person uses to give objectives and follow the
 work: a terminal UI, a plain printer, an editor extension. It speaks the Agent
@@ -131,10 +129,11 @@ a tool call, token usage, a log line.
 
 **History.** What a session holds, told to a front end in the same events as
 the runs that made it, plus what the person asked and how each run ended. It
-lets a front end show a session it opens as if it had followed every run.
+lets a front end show a session it continues as if it had followed every
+run.
 
-**Recall.** What the person asked in the project's sessions, objectives and
-steers, newest first and each once, which a front end brings back to its
+**Recall.** What the person asked in the sessions of a host's directory,
+this one and the others, objectives and steers, newest first and each once, which a front end brings back to its
 input. It is read from the sessions, so it keeps nothing of its own.
 
 **Program.** A provider, front end, or extension rumbo can start: a name,
@@ -152,7 +151,7 @@ declare. A tool's result is text, and may show images too.
 
 **Extension.** A program the user registers that gives the model tools of
 its own, and sections of ambient context, by speaking the Agent Extension
-Protocol. One process of it serves every session of a host.
+Protocol. One process of it serves a host while the host lasts.
 
 **Replacement.** A tool of an extension that takes the place of one of
 rumbo's own of the same name, because the user said so. A run then has the
@@ -172,8 +171,8 @@ the last screenshot it showed.
 **Ambient context.** What the harness tells the model without being asked:
 the environment it runs in, the user's instructions, and the user's skills.
 
-**Instructions.** The `AGENTS.md` or `CLAUDE.md` files of the project and of
-the user. They are where the user says how work should be done.
+**Instructions.** The `AGENTS.md` or `CLAUDE.md` file of the project and
+that of the user. They are where the user says how work should be done.
 
 **Plugin.** A directory that brings programs, providers, front ends, and
 extensions, and skills, all at once, named in its `plugin.yaml`. The user
@@ -198,8 +197,9 @@ each one is for, and reads the rest when a task needs it.
 `instructions`, `skills`, or one an extension declares. A new
 version of a section replaces the previous one.
 
-**Project.** The directory tree the work belongs to, identified by its root:
-the top of the git repository, or the directory itself outside one.
+**Project.** The directory rumbo is started in, which is the root of the
+sessions started there. Nothing above it is part of it: rumbo does not look
+for a git repository, or for anything else, in the directories that hold it.
 
 **Opaque block.** Provider-owned data inside an assistant message that the
 host stores and replays without reading.

@@ -1,6 +1,10 @@
 # Agent Frontend Protocol
 
-Version 1.
+Version 2. In version 1 a host worked in several sessions of a project: a
+`run` and a `history` could name one, and the host had functions that
+listed them and moved between them. A host is now one session, so those
+are gone, and a host and a front end that speak different versions refuse
+each other in `initialize`.
 
 The protocol connects a **front end** to the rumbo host. A front end is what a
 person uses: it sends objectives and shows what the agent does. The host owns
@@ -25,9 +29,9 @@ ways to be connected, with the same messages on both:
 A registered front end keeps stdin, stdout, and stderr connected to the
 terminal, so it can draw and read keys freely. A front end that starts
 `rumbo serve` passes it the same flags as `rumbo` (`-c`, `-r`, `-s`, `-p`,
-`-m`, `-o`, `-single`) and sets its working directory to the project.
+`-m`, `-o`) and sets its working directory to the one the session works in.
 
-Closing the connection ends the host: it cancels the runs in progress, stops
+Closing the connection ends the host: it cancels the run in progress, stops
 the providers, and exits. SIGTERM and SIGHUP end it the same way, and close
 the connection. The exit code of a registered front end becomes the exit
 code of `rumbo`, unless a signal ended the host.
@@ -39,22 +43,41 @@ provider's functions, and the host's functions that ask a provider,
 `session-set`, `session-values`, `compact`, `provider-models`,
 `provider-show`, `provider-set`, `provider-values`, and `provider-add`, are
 answered when the provider has, and those that start the extensions,
-`extension-show`, `extension-set`, and `extension-add`, when they have. A `history`, a `recall`, and the host's
+`extension-show`, `extension-set`, and `extension-add`, when they have. A
+`processes`, and the host's function of that name, are answered when the
+system has said what they use. A `history`, a `recall`, and the host's
 other functions are answered at once, before the request after it. A front
 end that needs one of those to take effect before another request waits
 for its answer.
 
 ## Sessions
 
-A host works in the sessions of one project. One of them is the **current
-session**: the one `initialize` names, the one a run goes to when it names
-none, and the one the host's functions act on by default. A run can also
-name another session of the project, or ask for a new one; each session has
-one run at a time, and several sessions can work at once.
+A host is one session: the one `initialize` names, or a new one, which its
+first run makes. Every run works in it, one at a time, and the host's
+functions act on it. Its root is the directory the host was started in, or
+the one the session it continues was, which `initialize` says as `dir`.
 
-Started with `-single`, the host works in one session at a time: runs go
-only to the current session, and changing session waits for the run in
-progress to end.
+A front end that wants another session starts another `rumbo serve`: with
+`-s` and an id to continue one, as the session a `branch` made, or with
+neither for a new one. Each host is a process of its own, with its own
+provider and extension processes, so a front end that shows several
+sessions holds one connection to each, groups them as it likes, by their
+`dir` for one, and closes those it no longer needs. Stored sessions are
+listed, renamed, and deleted from the command line (`rumbo sessions`).
+
+A front end learns the sessions there are from `rumbo sessions -json`,
+which prints those of its working directory, or with `-all` those of
+every one, as a JSON array, most recently used first:
+
+```json
+[{"session": "4cf0261c", "title": "fix the failing test", "dir": "/home/me/project",
+  "used": "2026-11-24T10:02:11Z", "state": "done", "in_use": false, "turns": 6}]
+```
+
+`dir` is the session's root; `parent`, when there is one, the session a
+branch came from; `state` how the last run ended: `new`, `done`, `failed`,
+`cancelled`, or `interrupted`; and `in_use` whether a rumbo process holds
+the session now. Fields may be added.
 
 ## Lifecycle
 
@@ -68,9 +91,10 @@ The host speaks first.
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-  "protocol": 1,
+  "protocol": 2,
   "dir": "/home/me/project",
   "session": "4cf0261c",
+  "title": "fix the failing test",
   "provider": "anthropic",
   "model": "claude-opus-5-5",
   "objective": "fix the failing test",
@@ -78,8 +102,11 @@ The host speaks first.
 }}
 ```
 
-- `session` is the current session, absent when it is a new one; the first
-  `run` that works in it carries its id in its events and its result.
+- `protocol` is 2.
+- `dir` is the directory the session works in, which is its root.
+- `session` is the host's session, absent when it is a new one; the first
+  `run` carries its id in its events and its result. `title` is what the
+  session is called, absent with it.
 - `model` is empty when nothing chose one yet: a provider has no model set
   for it, and the command line gave none. A run is refused until one is
   chosen, with `use` or with the run's own `model`.
@@ -93,7 +120,7 @@ The host speaks first.
 - `functions` are what the host itself can be asked, whatever the provider.
   See [Functions of the host](#functions-of-the-host).
 
-Result: `{"protocol":1,"name":"my-frontend","config":{}}`.
+Result: `{"protocol":2,"name":"my-frontend","config":{}}`.
 
 `config` in the result is the start configuration in force: the one given,
 with the front end's own default for every field it was not given. The host
@@ -122,17 +149,14 @@ taken too. The host prepares each one for the model, made smaller when it
 is large, and refuses the run when one is not a PNG, JPEG, GIF, or WebP
 image.
 
-Where it runs is the current session, unless the request says otherwise:
-`session` names another session of the project, and `"new": true` starts a
-new one, which keeps the provider of the current session. Neither changes
-the current session. A run in a session that is already working is refused
-with a JSON-RPC error, as is one in another session under `-single`.
+It runs in the host's session, which has one run at a time: a run sent
+while another works, or while the session is being compacted, is refused
+with a JSON-RPC error.
 
 Two optional fields choose, for this run, among what the provider offers:
 `model`, and `options`, an object of option values. What is left out keeps
-the value in force in the session, which `describe` reports for the current
-one. A run in a session without a model, and with none of its own, is
-refused.
+the value in force in the session, which `describe` reports. A run in a
+session without a model, and with none of its own, is refused.
 
 The result arrives when the run is over, however it ends:
 
@@ -146,8 +170,8 @@ The result arrives when the run is over, however it ends:
 | `failed` | The run ended with a problem; `error` explains it. |
 | `cancelled` | The front end cancelled it. |
 
-Other requests can be sent while runs work, without waiting for their
-results; each answer carries the id of its request. A run is named by the id
+Other requests can be sent while a run works, without waiting for its
+result; each answer carries the id of its request. A run is named by the id
 of its `run` request in its events, in `cancel`, and in `steer`, so a front
 end should not reuse the id of a run in progress.
 
@@ -157,8 +181,7 @@ end should not reuse the id of a run in progress.
 {"jsonrpc":"2.0","id":2,"method":"describe"}
 ```
 
-Asks what the provider of the current session offers and what is in force
-there. It is how a front end shows a model picker or a settings form for a
+Asks what the session's provider offers and what is in force there. It is how a front end shows a model picker or a settings form for a
 provider it knows nothing about.
 
 ```json
@@ -171,8 +194,7 @@ provider it knows nothing about.
    "functions": [{"name": "models", "description": "List the models this account can use"}]}}
 ```
 
-- `model` and `options` are what a run in the current session uses unless
-  it says otherwise: the session's model, and the values the provider's
+- `model` and `options` are what a run uses unless it says otherwise: the session's model, and the values the provider's
   configuration gives its options, with those chosen in the session over
   them. `use` changes the model for the session, and `session-set` the
   options.
@@ -192,13 +214,12 @@ a `log` event says why, and the answer has no `extensions`.
 ### `history` (request, front end to host)
 
 ```json
-{"jsonrpc":"2.0","id":4,"method":"history","params":{"session":"4cf0261c"}}
+{"jsonrpc":"2.0","id":4,"method":"history"}
 ```
 
-Asks what a session holds: the current session's without `session`, or
-another of the project's. The answer tells it in events, oldest first, the
-same events its runs sent while they worked, so a front end can show a
-session it opens as if it had followed every run:
+Asks what the host's session holds. The answer tells it in events, oldest
+first, the same events its runs sent while they worked, so a front end can
+show a session it continues as if it had followed every run:
 
 ```json
 {"session": "4cf0261c",
@@ -213,8 +234,8 @@ The events name no run, since run ids belong to the connection that sent
 them. Three types appear only here, for what a front end otherwise knows of
 the runs it follows itself: `objective`, `steer`, and `ended`. Text comes
 whole rather than in pieces, a tool call is told when its result is, and
-one that never got a result is told as started. A new current session
-holds nothing yet: its `session` is absent and `events` is empty.
+one that never got a result is told as started. A new session holds
+nothing yet: its `session` is absent and `events` is empty.
 
 A history asked for before a `run` is answered before the run starts, so
 none of the run's events are missing from it or told twice.
@@ -225,8 +246,9 @@ none of the run's events are missing from it or told twice.
 {"jsonrpc":"2.0","id":5,"method":"recall","params":{}}
 ```
 
-Asks what the person asked in the project's sessions, so a front end can
-bring it back to its input. The answer holds the objectives and what was
+Asks what the person asked in the sessions started in the host's
+directory, this one and the others, so a front end can bring it back to its
+input. The answer holds the objectives and what was
 said to runs while they worked, most recent first, each text once, up to
 the last thousand:
 
@@ -239,14 +261,64 @@ from it too, and the answers to a provider's questions, which are never
 recorded, are never in it. A host without it answers that the method is
 not found, and a front end goes on without.
 
+### `processes` (request, front end to host)
+
+```json
+{"jsonrpc":"2.0","id":6,"method":"processes","params":{}}
+```
+
+Asks which processes the host has running and what each uses of the
+machine now. A front end that holds several hosts, one for each session it
+has open, asks each of them to say what they cost, and closes those it
+does not need.
+
+```json
+{"processes":[
+ {"pid":4120,"parent":4100,"role":"host","command":"rumbo","memory":25100288,"cpu":0.4},
+ {"pid":4131,"parent":4120,"role":"provider","name":"openai","command":"rumbo","memory":19300352,"cpu":0.1},
+ {"pid":4140,"parent":4120,"role":"extension","name":"mcp","command":"rumbo","memory":18874368,"cpu":0},
+ {"pid":4152,"parent":4140,"role":"extension","name":"mcp","command":"node","memory":61865984,"cpu":1.2},
+ {"pid":4203,"parent":4120,"role":"background","command":"python3","memory":11534336,"cpu":3}
+]}
+```
+
+The host is first, and each of the others comes after the one that started
+it, which `parent` names. `role` says what a process is to the host:
+
+- `host`: the host itself.
+- `frontend`: the front end, when the host started it. A front end that
+  started the host is not the host's, and is not listed.
+- `provider` and `extension`: a process of the provider or the extension
+  `name` names, or one that process started, such as the server an
+  extension runs.
+- `background`: a process the model left running with `bash`, or one of
+  its group.
+- `command`: anything else the host has started, such as the command a
+  tool is running.
+
+A front end should not take a role it does not know for an error; more may
+be added. `command` is the program's name, without its arguments, which may
+hold what nobody should be shown.
+
+`memory` is what the process holds in memory, in bytes, and `cpu` the
+processor time it has used since it started, in seconds, both as the
+system's `ps` reports them: memory two processes share is counted in each,
+so their sum is the most they hold together, and the time is as fine as
+`ps` writes it, which is whole seconds on Linux. A front end that wants a
+rate asks twice and divides.
+
+The host knows a process by the one that started it and by its process
+group, so one that left both is not listed. The answer is an error when the
+system has no `ps`.
+
 ### `invoke` (request, front end to host)
 
 ```json
 {"jsonrpc":"2.0","id":3,"method":"invoke","params":{"name":"models"}}
 ```
 
-Calls a function the provider of the current session described, with
-`params` if it takes any. The host relays the call and the answer without
+Calls a function the session's provider described, with `params` if it
+takes any. The host relays the call and the answer without
 reading either. A function that
 an option names in `values` answers with `{"values": [{"value", "label",
 "description"}]}`; any other answers with JSON of its own.
@@ -307,9 +379,9 @@ The question is over once it is answered or its run ends.
 {"jsonrpc":"2.0","method":"cancel","params":{"run":7}}
 ```
 
-Stops the run whose `run` request had the id `run`; without it, every run in
-progress. Each `run` request is still answered, with the `cancelled` status.
-The sessions stay usable.
+Stops the run whose `run` request had the id `run`; without it, the run in
+progress. Its `run` request is still answered, with the `cancelled` status.
+The session stays usable.
 
 With `invoke` instead, it gives up a function in progress, named by the id
 of its `invoke` request, which then answers with an error.
@@ -321,14 +393,13 @@ of its `invoke` request, which then answers with an error.
 ```
 
 Tells a run something while it works: the run whose request had the id
-`run`, or without it the only run in progress. The text reaches the model
+`run`, or without it the run in progress. The text reaches the model
 before its next request, as the user's words, and the run's objective stays
 as it was. If the model was about to finish, the run goes on so the model
 reads it. `images` go with the text, or alone, as they do with `run`.
 
 The result, `{}`, arrives once the text is recorded for the model. An error
-means it never will be: the run is not in progress, several are and none was
-named, or the run ended first. A front end can offer the text as a new `run`
+means it never will be: the run is not in progress, or it ended first. A front end can offer the text as a new `run`
 then.
 
 ### `event` (notification, host to front end)
@@ -362,8 +433,8 @@ added without a new protocol version.
 ## Functions of the host
 
 Some things a person wants from any front end have nothing to do with the
-provider: changing session, changing provider, seeing what a conversation
-has cost, quitting. The host offers them as functions, described the same
+provider: changing provider, seeing what a conversation has cost,
+quitting. The host offers them as functions, described the same
 way a provider describes its own, so a front end can turn them into
 commands, menu entries, or buttons without knowing them beforehand. A host
 that gains a function gives every front end a new command.
@@ -388,22 +459,24 @@ Parameters are an object of text values. Every answer has the same shape:
 ```json
 {"text": "using openai/gpt-x",
  "values": [],
- "state": {"dir": "/home/me/project", "session": "4cf0261c", "provider": "openai", "model": "gpt-x"}}
+ "state": {"dir": "/home/me/project", "session": "4cf0261c", "title": "fix the failing test", "provider": "openai", "model": "gpt-x"}}
 ```
 
 - `text` is the outcome in words, for a person.
 - `values` is set by a function that lists something, in the shape a
-  provider's value functions use: `value`, `label`, `description`.
-- `state` is what the front end is attached to after the call. A function may
-  have changed it, so a front end takes its session, provider, and model from
-  here instead of remembering them.
+  provider's value functions use: `value`, `label`, `description`; and by
+  `branch`, which answers with the session it made.
+- `state` is what the front end is attached to after the call: the
+  directory, the session and its title, both absent until the first run
+  makes the session, and the provider and the model. A function may have
+  changed the last three, so a front end takes them from here instead of
+  remembering them.
 
 `group` says what a function acts on, so a front end can list them apart:
 
 - `system`: rumbo itself, the same for every session and provider. What a
   session chooses for itself wins over its settings there.
-- `session`: one session of the project, the current one unless another is
-  named.
+- `session`: the host's session.
 - `provider`: the providers, how each is started, and what is set for
   each: the model a new session starts with, and its configuration, which
   holds the option values it gets with every request.
@@ -419,28 +492,23 @@ The functions of this version, by group:
 
 | Function | Group | Parameters | What it does |
 |---|---|---|---|
-| `config` | system | | Shows what is chosen and what applies, the current session's choice first, then the system settings, the providers, and the front ends, each value with where it comes from: the session, `config.yaml`, rumbo's default, or how rumbo has a built-in program or a plugin brings it. It starts nothing, so a program's own defaults are not in it. |
+| `config` | system | | Shows what is chosen and what applies, the session's choice first, then the system settings, the providers, and the front ends, each value with where it comes from: the session, `config.yaml`, rumbo's default, or how rumbo has a built-in program or a plugin brings it. It starts nothing, so a program's own defaults are not in it. |
 | `system-set` | system | `change` | Changes a system setting, as `name=value`; an empty value gives it back to its default. It is checked first, and applies to the runs that start after it; `default_provider` and `frontend` from the next start. |
 | `system-values` | system | | Lists the changes `system-set` takes. Marked `lists`. |
-| `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
-| `status` | session | `session`? | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
-| `skills` | session | | Lists the skills the model is told of in the current session's directory, and those left out, with why. |
-| `sessions` | session | `project`? | Lists the project's sessions, most recently used first, with how each one stands: how its last run ended, or that it works in this host or in another rumbo process, and its turns; with a `project`, by its root, that project's instead. |
-| `projects` | session | | Lists the projects that have sessions, by their root, most recently used first, with how many each has, and marks this host's. A front end shows every project's sessions with them, and starts `rumbo serve` in the root of the one a person opens. |
-| `open` | session | `session` | Makes another session of the project the current one. |
-| `new` | session | | Makes the next task start a new session. |
-| `branch` | session | `point`? | Makes a branch of the current session the current one: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The session it came from stays as it is, and goes on working when it was; the files stay as they are. Without `point`, it answers with an error while a run works in the session. |
-| `branch-points` | session | | Lists the person's messages in the current session, by number, which a branch can start before. Marked `lists`. |
-| `delete` | session | `session` | Deletes a session of the project and its history, for good. Asks to be confirmed. |
-| `rename` | session | `title` | Gives the current session a title of the person's own. |
-| `prune` | session | `age`, `confirm`? | Lists the project's sessions not used in that long, such as `30d`; with `confirm` as `yes`, deletes them, for good, with their history. Those in use are kept. |
-| `use` | session | `provider`, `model` | Changes the provider and the model of the current session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
-| `session-set` | session | `change` | Chooses, as `name=value`, a value of one of the provider's options for the current session, which keeps it over the provider's configuration; an empty value gives it back. The provider is asked what it describes, and an option it does not describe, or a value it does not take, is refused. |
-| `session-values` | session | | Lists the changes `session-set` takes: the values of the current provider's options, those in force marked. Marked `lists`. |
-| `compact` | session | `session`? | Replaces the conversation with a summary now. |
+| `processes` | system | | Shows what the `processes` request answers, for a person: a line for each process of the host, under the one that started it, with its memory and its processor time, and what they use together. |
+| `quit` | system | | Stops the providers and ends the host, which closes the connection. A run in progress is cancelled. |
+| `status` | session | | The session, the model, the size of the context, what was spent, and how much of the input came from the provider's cache. |
+| `skills` | session | | Lists the skills the model is told of in the session's directory, and those left out, with why. |
+| `branch` | session | `point`? | Makes a branch of the session: a new session with a copy of it, as it is, or as it was before the person's message numbered `point`. The host stays in its session, which is left as it is, and answers with the branch in `values`, its id as the `value`: another host goes on in it, started with `-s` and that id. The files stay as they are. Without `point`, it answers with an error while a run works. |
+| `branch-points` | session | | Lists the person's messages in the session, by number, which a branch can start before. Marked `lists`. |
+| `rename` | session | `title` | Gives the session a title of the person's own. |
+| `use` | session | `provider`, `model` | Changes the provider and the model of the session for the tasks that follow. The session goes on, and keeps them. Options chosen in it for another provider are dropped. |
+| `session-set` | session | `change` | Chooses, as `name=value`, a value of one of the provider's options for the session, which keeps it over the provider's configuration; an empty value gives it back. The provider is asked what it describes, and an option it does not describe, or a value it does not take, is refused. |
+| `session-values` | session | | Lists the changes `session-set` takes: the values of the options of the session's provider, those in force marked. Marked `lists`. |
+| `compact` | session | | Replaces the conversation with a summary now. |
 | `providers` | provider | | Lists the providers there are: those plugins bring, rumbo's own among them, and those registered. |
-| `provider-models` | provider | `provider`? | Lists the models a provider offers, asking it; without a `provider`, the current session's, with the one it uses marked. The `model` of `use` lists its values with it. |
-| `provider-show` | provider | `provider`? | Starts a provider and shows each of its settings, its model, the fields of its configuration, and its options, with the value that applies and where it comes from, its own defaults included, and what it offers. Without a `provider`, the current session's, with what the session chose over the rest. Also the test that it works. |
+| `provider-models` | provider | `provider`? | Lists the models a provider offers, asking it; without a `provider`, the session's, with the one it uses marked. The `model` of `use` lists its values with it. |
+| `provider-show` | provider | `provider`? | Starts a provider and shows each of its settings, its model, the fields of its configuration, and its options, with the value that applies and where it comes from, its own defaults included, and what it offers. Without a `provider`, the session's, with what the session chose over the rest. Also the test that it works. |
 | `provider-set` | provider | `provider`, `change` | Sets, as `name=value`, a provider's model, a field of its configuration, or one of its options; an empty value gives it back to its default. The provider is started to check it: a name it does not describe, a value of another type or not among those it lists, and a configuration it does not start with are refused, and nothing is kept. |
 | `provider-values` | provider | `provider` | Lists the changes `provider-set` takes for a provider: its models, and the values of its fields and options. Marked `lists`. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, which is the test that it works; one that does not start is not registered. |
@@ -455,18 +523,10 @@ The functions of this version, by group:
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
 
-A function waits only for the session it changes: `delete`, `compact`, and
-`branch` without a `point` answer with an error while something works in
-their session. `open` and `new` change the current session while a run goes
-on in the one left behind, and `use` changes the provider for the session's
-next runs, while a run in progress keeps the one it started with.
-
-Under `-single`, what changes the session or the provider waits for the run
-in progress instead, and answers with an error saying so: everything but
-`config`, `system-set`, `system-values`, `quit`, `status`, `skills`,
-`sessions`, `projects`, `branch-points`, `rename`, `session-values`,
-`providers`, `provider-models`, `provider-show`, `provider-values`,
-`provider-add`, `provider-rm`, and the functions of the `extension` group.
+The functions are answered while a run works, but for the two that need
+the conversation still: `compact`, and `branch` without a `point`, answer
+with an error then. `use` and `session-set` change what the session's next
+runs use, while a run in progress keeps what it started with.
 
 ## What the host guarantees
 

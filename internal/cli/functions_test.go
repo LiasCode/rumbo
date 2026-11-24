@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -68,17 +70,11 @@ func hostOn(t *testing.T, database store.Store) *host {
 
 	created := &host{
 		database: database,
-		root:     "/repo",
+		dir:      "/repo",
 		tools:    tools,
 		settings: config{DefaultProvider: "first"},
-		current: &place{
-			choice: choice{provider: "first", model: "small"},
-			dir:    "/repo",
-			tools:  tools.Separate(),
-		},
-		places: map[string]*place{},
-		busy:   map[*place]string{},
-		pools:  map[string]*provider.Pool{},
+		choice:   choice{provider: "first", model: "small"},
+		pools:    map[string]*provider.Pool{},
 
 		extensions: extension.NewSet(func(string) io.Writer { return io.Discard }, tools.Clip),
 	}
@@ -113,125 +109,46 @@ func refused(t *testing.T, h *host, name, params string) string {
 	return err.Error()
 }
 
-func TestHostListsEveryProjectAndTheSessionsOfAny(t *testing.T) {
-	h := testHost(t)
+// restarted is the host a later start of rumbo makes to continue a session,
+// as rumbo -s does.
+func restarted(t *testing.T, database store.Store, session string) *host {
+	t.Helper()
 
-	if none := call(t, h, "projects", ""); len(none.Values) != 0 || none.Text == "" {
-		t.Fatalf("projects with no sessions = %+v", none)
+	continued, err := newHost(database, []string{"-s", session})
+
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	h.database.CreateSession("/repo", "/repo", "here")
-	h.database.CreateSession("/elsewhere/sub", "/elsewhere", "there")
-	there, _ := h.database.CreateSession("/elsewhere", "/elsewhere", "there too")
+	t.Cleanup(continued.close)
 
-	projects := call(t, h, "projects", "").Values
-
-	if len(projects) != 2 {
-		t.Fatalf("projects = %+v", projects)
-	}
-
-	// Most recently used first, each by its root, with how many sessions it
-	// has; this host's own says so.
-	if projects[0].Value != "/elsewhere" || projects[0].Label != "elsewhere" || !strings.HasPrefix(projects[0].Description, "2 sessions; last used ") {
-		t.Fatalf("first project = %+v", projects[0])
-	}
-
-	if projects[1].Value != "/repo" || !strings.HasPrefix(projects[1].Description, "this project; 1 session; ") {
-		t.Fatalf("second project = %+v", projects[1])
-	}
-
-	elsewhere := call(t, h, "sessions", `{"project":"/elsewhere"}`).Values
-
-	if len(elsewhere) != 2 || elsewhere[0].Value != there.ID || elsewhere[0].Label != "there too" {
-		t.Fatalf("sessions of /elsewhere = %+v", elsewhere)
-	}
-
-	if own := call(t, h, "sessions", "").Values; len(own) != 1 || own[0].Label != "here" {
-		t.Fatalf("sessions of this project = %+v", own)
-	}
-
-	if empty := call(t, h, "sessions", `{"project":"/nowhere"}`); len(empty.Values) != 0 || !strings.Contains(empty.Text, "/nowhere") {
-		t.Fatalf("sessions of an unknown project = %+v", empty)
-	}
-
-	// Listing another project's sessions does not move this host there.
-	if state := call(t, h, "status", "").State; state.Dir != "/repo" {
-		t.Fatalf("state after listing = %+v", state)
-	}
+	return continued
 }
 
-func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
+// The host's functions act on its one session. What listed other sessions,
+// or left this one for another, is no function of the host: another
+// session is another rumbo.
+func TestHostFunctionsActOnItsSession(t *testing.T) {
 	h := testHost(t)
-	older, _ := h.database.CreateSession("/repo/sub", "/repo", "older work")
-	h.database.CreateSession("/elsewhere", "/elsewhere", "another project")
-	foreign, _ := h.database.Sessions("/elsewhere")
 
-	listed := call(t, h, "sessions", "")
-
-	if len(listed.Values) != 1 || listed.Values[0].Value != older.ID || listed.Values[0].Label != "older work" {
-		t.Fatalf("sessions = %+v", listed.Values)
+	if status := call(t, h, "status", ""); !strings.Contains(status.Text, "session: none yet") || status.State.Dir != "/repo" || status.State.Session != "" {
+		t.Fatalf("status of a new session = %q, %+v", status.Text, status.State)
 	}
 
-	// Opening a session attaches the front end to it and to where it works.
-	opened := call(t, h, "open", `{"session":"`+older.ID+`"}`)
+	session, err := h.made("older work")
 
-	if opened.State.Session != older.ID || opened.State.Dir != "/repo/sub" || h.current.session == nil {
-		t.Fatalf("after open: %+v", opened.State)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if _, err := h.database.LockSession(older.ID); err == nil {
-		t.Fatal("the opened session is not held by this host")
+	if status := call(t, h, "status", ""); !strings.Contains(status.Text, "session: "+session.ID) || !strings.Contains(status.Text, "context: 0 tokens") || status.State.Session != session.ID {
+		t.Fatalf("status = %q, %+v", status.Text, status.State)
 	}
 
-	if err := refused(t, h, "open", `{"session":"`+foreign[0].ID+`"}`); !strings.Contains(err, "belongs to /elsewhere") {
-		t.Fatalf("opening a session of another project: err = %v", err)
-	}
-
-	if status := call(t, h, "status", ""); !strings.Contains(status.Text, "session: "+older.ID) || !strings.Contains(status.Text, "context: 0 tokens") {
-		t.Fatalf("status = %q", status.Text)
-	}
-
-	if fresh := call(t, h, "new", ""); fresh.State.Session != "" || h.current.session != nil {
-		t.Fatalf("after new: %+v", fresh.State)
-	}
-
-	if unlock, err := h.database.LockSession(older.ID); err != nil {
-		t.Fatal("the session left behind is still held")
-	} else {
-		unlock()
-	}
-
-	// Deleting removes the session and its history, and nothing else.
-	kept, _ := h.database.CreateSession("/repo", "/repo", "kept")
-	h.database.Append(older.ID, "user", map[string]string{"text": "hi"})
-
-	refused(t, h, "delete", `{"session":"`+foreign[0].ID+`"}`)
-
-	held, _ := h.database.LockSession(kept.ID)
-
-	if err := refused(t, h, "delete", `{"session":"`+kept.ID+`"}`); !strings.Contains(err, "in use") {
-		t.Fatalf("deleting a session in use elsewhere: err = %v", err)
-	}
-
-	held()
-
-	if deleted := call(t, h, "delete", `{"session":"`+older.ID+`"}`); !strings.Contains(deleted.Text, "older work") {
-		t.Fatalf("delete = %q", deleted.Text)
-	}
-
-	if entries, _ := h.database.Entries(older.ID); len(entries) != 0 {
-		t.Fatal("the entries of a deleted session are still there")
-	}
-
-	if remaining := call(t, h, "sessions", ""); len(remaining.Values) != 1 || remaining.Values[0].Value != kept.ID {
-		t.Fatalf("after delete: %+v", remaining.Values)
-	}
-
-	// Deleting the session in use leaves the front end without one.
-	call(t, h, "open", `{"session":"`+kept.ID+`"}`)
-
-	if gone := call(t, h, "delete", `{"session":"`+kept.ID+`"}`); gone.State.Session != "" || h.current.session != nil {
-		t.Fatalf("after deleting the open session: %+v", gone.State)
+	for _, name := range []string{"sessions", "projects", "open", "new", "delete", "prune"} {
+		if err := refused(t, h, name, `{"session":"`+session.ID+`"}`); !strings.Contains(err, "the host has no function") {
+			t.Fatalf("%s: err = %v", name, err)
+		}
 	}
 
 	// The providers are the built-in ones and those registered, by name.
@@ -243,40 +160,37 @@ func TestHostFunctionsChangeSessionAndProvider(t *testing.T) {
 	// gives, not the ones in force for the one before.
 	used := call(t, h, "use", `{"provider":"second","model":"large"}`)
 
-	if options, _ := h.inForce(h.current.choice, depth); used.State.Provider != "second" || used.State.Model != "large" || string(options) != `{"depth":2}` {
+	if options, _ := h.inForce(h.choice, depth); used.State.Provider != "second" || used.State.Model != "large" || string(options) != `{"depth":2}` {
 		t.Fatalf("after use: %+v, options %s", used.State, options)
 	}
 
-	for name, params := range map[string]string{"use": `{"provider":"missing","model":"x"}`, "open": `{}`, "nope": ``} {
+	for name, params := range map[string]string{"use": `{"provider":"missing","model":"x"}`, "rename": `{}`, "nope": ``} {
 		refused(t, h, name, params)
 	}
 }
 
-// working makes the host's current session one where a run works.
+// working makes the host's session one where a run works.
 func working(t *testing.T, h *host) store.Session {
 	t.Helper()
 
-	session, _ := h.database.CreateSession("/repo", "/repo", "in progress")
+	session, _ := h.database.CreateSession("/repo", "in progress")
 	h.database.Append(session.ID, "user", map[string]string{"text": "the objective"})
 
-	h.current.session = &session
-	h.places[session.ID] = h.current
-	h.busy[h.current] = busyRun
+	h.session = &session
+	h.busy = busyRun
 
-	if err := h.hold(h.current); err != nil {
+	if err := h.hold(); err != nil {
 		t.Fatal(err)
 	}
 
 	return session
 }
 
-// With several sessions, a function waits only for the session it changes:
-// the front end can move to another session while a run goes on.
-func TestFunctionsWaitOnlyForTheSessionTheyChange(t *testing.T) {
+// The session has one run at a time, and what would change what the run
+// works on waits for it; the rest is answered while it works.
+func TestTheSessionHasOneRunAtATime(t *testing.T) {
 	h := testHost(t)
 	session := working(t, h)
-	running := h.current
-	other, _ := h.database.CreateSession("/repo/sub", "/repo", "other work")
 
 	// The run has no ending yet because it is still going, not because it
 	// was interrupted.
@@ -288,106 +202,35 @@ func TestFunctionsWaitOnlyForTheSessionTheyChange(t *testing.T) {
 		t.Fatalf("compacting the session that works: err = %v", err)
 	}
 
-	if err := refused(t, h, "delete", `{"session":"`+session.ID+`"}`); !strings.Contains(err, "busy with a run") {
-		t.Fatalf("deleting the session that works: err = %v", err)
-	}
-
 	// The session's provider changes for the runs that follow it.
-	if used := call(t, h, "use", `{"provider":"second","model":"large"}`); !strings.Contains(used.Text, "keeps the provider it started with") || h.current.provider != "second" {
+	if used := call(t, h, "use", `{"provider":"second","model":"large"}`); !strings.Contains(used.Text, "keeps the provider it started with") || h.provider != "second" {
 		t.Fatalf("use during a run = %q", used.Text)
 	}
 
-	// Moving to another session leaves the run working in the background.
-	if opened := call(t, h, "open", `{"session":"`+other.ID+`"}`); !strings.Contains(opened.Text, "a run goes on in session "+session.ID) || opened.State.Session != other.ID {
-		t.Fatalf("open during a run = %+v", opened)
-	}
-
-	// A session this host has not worked in starts with the provider of
-	// the current one; the one left behind keeps its own.
-	if h.current.provider != "second" || running.provider != "second" {
-		t.Fatalf("providers: current %s, running %s", h.current.provider, running.provider)
-	}
-
-	call(t, h, "use", `{"provider":"first","model":"small"}`)
-
-	if running.provider != "second" {
-		t.Fatal("use changed a session other than the current one")
-	}
-
-	for _, listed := range call(t, h, "sessions", "").Values {
-		if marked := strings.Contains(listed.Description, "a run in progress"); marked != (listed.Value == session.ID) {
-			t.Fatalf("sessions: %+v", listed)
-		}
-	}
-
-	if status := call(t, h, "status", `{"session":"`+session.ID+`"}`); !strings.Contains(status.Text, "a run is in progress") {
-		t.Fatalf("status of the session that works = %q", status.Text)
-	}
-
-	if status := call(t, h, "status", ""); !strings.Contains(status.Text, "working here as well: "+session.ID) {
-		t.Fatalf("status of the current session = %q", status.Text)
-	}
-
-	// A run in the session that works is refused; one in a new session is not.
-	if _, err := h.accept(protocol.RunParams{Objective: "more", Session: session.ID}, nil); err == nil || !strings.Contains(err.Error(), "busy with a run") {
-		t.Fatalf("a second run in a busy session: err = %v", err)
-	}
-
-	if _, err := h.accept(protocol.RunParams{Objective: "elsewhere", New: true}, nil); err != nil {
-		t.Fatalf("a run in a new session: %v", err)
-	}
-
-	// The host holds the session that works until the run ends, and then
-	// lets it go, since it is no longer the current one.
-	if _, err := h.database.LockSession(session.ID); err == nil {
-		t.Fatal("the session that works is not held by this host")
-	}
-
-	h.finish(running)
-
-	if unlock, err := h.database.LockSession(session.ID); err != nil {
-		t.Fatal("the session is still held after its run ended")
-	} else {
-		unlock()
-	}
-}
-
-// A host that works in one session at a time (-single) behaves as hosts did
-// before there could be several: what changes the session or the provider
-// waits for the run, and runs go only to the current session.
-func TestSingleHostWaitsForTheRun(t *testing.T) {
-	h := testHost(t)
-	h.single = true
-	working(t, h)
-	other, _ := h.database.CreateSession("/repo", "/repo", "other work")
-
-	call(t, h, "status", "")
-	call(t, h, "sessions", "")
-
-	for name, params := range map[string]string{
-		"open":    `{"session":"` + other.ID + `"}`,
-		"new":     ``,
-		"use":     `{"provider":"second","model":"large"}`,
-		"compact": ``,
-		"delete":  `{"session":"` + other.ID + `"}`,
-	} {
-		if err := refused(t, h, name, params); !strings.Contains(err, "waits for the run in progress to end") {
-			t.Fatalf("%s during a run: err = %v", name, err)
-		}
-	}
-
-	for _, params := range []protocol.RunParams{{Objective: "x", New: true}, {Objective: "x", Session: other.ID}} {
-		if _, err := h.accept(params, nil); err == nil || !strings.Contains(err.Error(), "-single") {
-			t.Fatalf("run %+v: err = %v", params, err)
-		}
-	}
-
-	if _, err := h.accept(protocol.RunParams{Objective: "x"}, nil); err == nil || !strings.Contains(err.Error(), "already in progress") {
+	if _, err := h.accept(protocol.RunParams{Objective: "more"}, nil); err == nil || !strings.Contains(err.Error(), "session "+session.ID+" is busy with a run") {
 		t.Fatalf("a second run: err = %v", err)
 	}
 
-	if h.current.provider != "first" {
-		t.Fatalf("a refused function changed the host: provider %s", h.current.provider)
+	// The host holds its session from the first work in it until it ends,
+	// so no other rumbo process works in it between two runs.
+	h.finish()
+
+	if _, err := h.accept(protocol.RunParams{Objective: "more"}, nil); err != nil {
+		t.Fatalf("a run once the one before ended: %v", err)
+	}
+
+	h.finish()
+
+	if _, err := h.database.LockSession(session.ID); err == nil {
+		t.Fatal("the session is not held by its host between runs")
+	}
+
+	h.close()
+
+	if unlock, err := h.database.LockSession(session.ID); err != nil {
+		t.Fatal("the session is still held after its host ended")
+	} else {
+		unlock()
 	}
 }
 
@@ -396,7 +239,9 @@ func TestSingleHostWaitsForTheRun(t *testing.T) {
 func TestSessionsKeepTheirProviderAcrossStarts(t *testing.T) {
 	h := testHost(t)
 
-	made, err := h.made(h.current, "first task")
+	setSettings(h.database, []string{"default_provider=first"})
+
+	made, err := h.made("first task")
 
 	if err != nil {
 		t.Fatal(err)
@@ -407,21 +252,19 @@ func TestSessionsKeepTheirProviderAcrossStarts(t *testing.T) {
 	}
 
 	call(t, h, "use", `{"provider":"second","model":"large"}`)
-	older, _ := h.database.CreateSession("/repo", "/repo", "from before providers were stored")
+	older, _ := h.database.CreateSession("/repo", "from before providers were stored")
 	h.close()
 
 	// A later start, whose settings say first/small, finds each session with
-	// its own provider; one without a stored provider takes the current one.
-	later := hostOn(t, h.database)
+	// its own provider; one without a stored provider takes the system's.
+	continued := restarted(t, h.database, made.ID)
 
-	opened := call(t, later, "open", `{"session":"`+made.ID+`"}`)
-
-	if options, _ := later.inForce(later.current.choice, depth); opened.State.Provider != "second" || opened.State.Model != "large" || string(options) != `{"depth":2}` {
-		t.Fatalf("after a restart: %+v, options %s", opened.State, options)
+	if options, _ := continued.inForce(continued.choice, depth); continued.provider != "second" || continued.model != "large" || string(options) != `{"depth":2}` || continued.dir != "/repo" {
+		t.Fatalf("after a restart: %+v in %s, options %s", continued.choice, continued.dir, options)
 	}
 
-	if opened := call(t, later, "open", `{"session":"`+older.ID+`"}`); opened.State.Provider != "second" {
-		t.Fatalf("a session with no stored provider: %+v", opened.State)
+	if unstored := restarted(t, h.database, older.ID); unstored.provider != "first" || unstored.model != "small" {
+		t.Fatalf("a session with no stored provider: %+v", unstored.choice)
 	}
 }
 
@@ -439,7 +282,7 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 		t.Fatalf("session-set = %q", chosen.Text)
 	}
 
-	if options, _ := h.inForce(h.current.choice, effort); string(options) != `{"effort":"low"}` {
+	if options, _ := h.inForce(h.choice, effort); string(options) != `{"effort":"low"}` {
 		t.Fatalf("options in force = %s", options)
 	}
 
@@ -453,7 +296,7 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 		}
 	}
 
-	made, err := h.made(h.current, "first task")
+	made, err := h.made("first task")
 
 	if err != nil {
 		t.Fatal(err)
@@ -469,8 +312,7 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 
 	h.close()
 
-	later := hostOn(t, h.database)
-	call(t, later, "open", `{"session":"`+made.ID+`"}`)
+	later := restarted(t, h.database, made.ID)
 
 	for _, said := range []string{
 		`options chosen in the session: {"effort":"max"}`,
@@ -482,8 +324,8 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 	}
 
 	// An empty value gives one back to the provider's, and only one chosen.
-	if back := call(t, later, "session-set", `{"change":"effort="}`); !strings.HasPrefix(back.Text, "effort: given back to claude's") || later.current.options != nil {
-		t.Fatalf("session-set effort= = %q, options %s", back.Text, later.current.options)
+	if back := call(t, later, "session-set", `{"change":"effort="}`); !strings.HasPrefix(back.Text, "effort: given back to claude's") || later.options != nil {
+		t.Fatalf("session-set effort= = %q, options %s", back.Text, later.options)
 	}
 
 	if err := refused(t, later, "session-set", `{"change":"effort="}`); !strings.Contains(err, "not chosen in the session") {
@@ -494,8 +336,8 @@ func TestSessionsKeepTheOptionsChosenInThem(t *testing.T) {
 	call(t, later, "session-set", `{"change":"effort=low"}`)
 	used := call(t, later, "use", `{"provider":"first","model":"small"}`)
 
-	if !strings.Contains(used.Text, "were for another provider and are dropped") || later.current.options != nil {
-		t.Fatalf("use = %q, options %s", used.Text, later.current.options)
+	if !strings.Contains(used.Text, "were for another provider and are dropped") || later.options != nil {
+		t.Fatalf("use = %q, options %s", used.Text, later.options)
 	}
 
 	if stored, _ := later.database.Session(made.ID); stored.Options != nil {
@@ -521,8 +363,8 @@ func TestOverlappingChangesOfASessionAreAllKept(t *testing.T) {
 
 	both.Wait()
 
-	if string(h.current.options) != `{"effort":"high","note":"hey"}` {
-		t.Fatalf("the session kept %s", h.current.options)
+	if string(h.options) != `{"effort":"high","note":"hey"}` {
+		t.Fatalf("the session kept %s", h.options)
 	}
 }
 
@@ -543,13 +385,13 @@ func TestStoredSettingsApplyToTheNextRun(t *testing.T) {
 		t.Fatalf("provider-set = %q", set.Text)
 	}
 
-	options, err := h.inForce(h.current.choice, effort)
+	options, err := h.inForce(h.choice, effort)
 
 	if err != nil || string(options) != `{"effort":"low"}` {
 		t.Fatalf("options in force = %s, err = %v", options, err)
 	}
 
-	worker, err := h.agent(context.Background(), nil, h.current.choice, options, h.current.tools, nil)
+	worker, err := h.agent(context.Background(), nil, h.choice, options, nil)
 
 	if err != nil || worker.MaxTurns != 7 || string(worker.Options) != `{"effort":"low"}` {
 		t.Fatalf("worker = %+v, err = %v", worker, err)
@@ -595,6 +437,45 @@ func TestAProviderIsRefusedAFieldItDoesNotHave(t *testing.T) {
 	}
 }
 
+// rumbo looks no further than the directory it is started in: a session
+// started above it is not continued from it, at the top of its git
+// repository either, and the session it starts is that directory's.
+func TestASessionBelongsToTheDirectoryRumboIsStartedIn(t *testing.T) {
+	h := testHost(t)
+	setSettings(h.database, []string{"default_provider=first"})
+
+	repository := t.TempDir()
+
+	if output, err := exec.Command("git", "init", "--quiet", repository).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s", output)
+	}
+
+	inside := filepath.Join(repository, "pkg")
+
+	if err := os.Mkdir(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(inside)
+	h.database.CreateSession(repository, "above")
+
+	if _, err := newHost(h.database, []string{"-c"}); err == nil || !strings.Contains(err.Error(), "no session to continue in "+inside) {
+		t.Fatalf("continuing where no session was started: err = %v", err)
+	}
+
+	started, err := newHost(h.database, nil)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer started.close()
+
+	if started.dir != inside || started.info.Dir != inside {
+		t.Fatalf("started in %s: dir %s, told %s", inside, started.dir, started.info.Dir)
+	}
+}
+
 // Continuing a session from the command line starts with its provider,
 // unless -m chooses another for that start. A new session starts with the
 // provider's own model.
@@ -603,7 +484,7 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 	withClaude(t, h.database, "")
 	setSettings(h.database, []string{"default_provider=first"})
 
-	_, root, err := workingProject()
+	root, err := os.Getwd()
 
 	if err != nil {
 		t.Fatal(err)
@@ -612,18 +493,18 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 	// A new session takes the default provider's model.
 	fresh, err := newHost(h.database, nil)
 
-	if err != nil || fresh.current.provider != "first" || fresh.current.model != "small" {
+	if err != nil || fresh.provider != "first" || fresh.model != "small" {
 		t.Fatalf("a new session: %+v, err = %v", fresh, err)
 	}
 
 	fresh.close()
 
-	session, _ := h.database.CreateSession(root, root, "continued")
+	session, _ := h.database.CreateSession(root, "continued")
 	h.database.SetSessionModel(session.ID, "claude", "large")
 
 	continued, err := newHost(h.database, []string{"-s", session.ID})
 
-	if err != nil || continued.current.provider != "claude" || continued.current.model != "large" {
+	if err != nil || continued.provider != "claude" || continued.model != "large" {
 		t.Fatalf("continued: %+v, err = %v", continued, err)
 	}
 
@@ -633,7 +514,7 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 	// option is checked against what the provider describes.
 	chosen, err := newHost(h.database, []string{"-s", session.ID, "-m", "org/huge", "-o", "effort=high"})
 
-	if err != nil || chosen.current.provider != "claude" || chosen.current.model != "org/huge" {
+	if err != nil || chosen.provider != "claude" || chosen.model != "org/huge" {
 		t.Fatalf("with -m: %+v, err = %v", chosen, err)
 	}
 
@@ -655,8 +536,8 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if switched.current.model != "small" || switched.current.options != nil {
-		t.Fatalf("with -p: %+v", switched.current.choice)
+	if switched.model != "small" || switched.options != nil {
+		t.Fatalf("with -p: %+v", switched.choice)
 	}
 
 	switched.close()
@@ -665,7 +546,7 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 	// to choose one; it is a run that needs one.
 	modelless, err := newHost(h.database, []string{"-p", "second"})
 
-	if err != nil || modelless.current.model != "" {
+	if err != nil || modelless.model != "" {
 		t.Fatalf("a provider without a model: %+v, err = %v", modelless, err)
 	}
 
@@ -690,8 +571,8 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 // cache, which is what a stable start of each request saves.
 func TestStatusSaysHowMuchCameFromTheCache(t *testing.T) {
 	h := testHost(t)
-	session, _ := h.database.CreateSession("/repo", "/repo", "cached")
-	h.current.session = &session
+	session, _ := h.database.CreateSession("/repo", "cached")
+	h.session = &session
 
 	reply := protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockText, Text: "ok"}}}
 
@@ -707,20 +588,21 @@ func TestStatusSaysHowMuchCameFromTheCache(t *testing.T) {
 	}
 }
 
-// A front end asks what a session holds: the current one, or another of the
-// project; a new session holds nothing yet.
-func TestHistoryTellsTheSessionAsked(t *testing.T) {
+// A front end asks what the host's session holds; a new session holds
+// nothing yet.
+func TestHistoryTellsWhatTheSessionHolds(t *testing.T) {
 	h := testHost(t)
 
-	if told, err := h.history(protocol.HistoryParams{}); err != nil || told.Session != "" || len(told.Events) != 0 {
+	if told, err := h.history(); err != nil || told.Session != "" || len(told.Events) != 0 {
 		t.Fatalf("history of a new session = %+v, err = %v", told, err)
 	}
 
-	earlier, _ := h.database.CreateSession("/repo", "/repo", "earlier")
+	earlier, _ := h.database.CreateSession("/repo", "earlier")
 	h.database.Append(earlier.ID, transcript.KindUser, transcript.Text{Text: "a task"})
 	h.database.Append(earlier.ID, transcript.KindNote, transcript.Note{Type: transcript.NoteDone})
+	h.session = &earlier
 
-	told, err := h.history(protocol.HistoryParams{Session: earlier.ID})
+	told, err := h.history()
 
 	if err != nil || told.Session != earlier.ID || len(told.Events) != 2 {
 		t.Fatalf("history = %+v, err = %v", told, err)
@@ -729,17 +611,11 @@ func TestHistoryTellsTheSessionAsked(t *testing.T) {
 	if first := told.Events[0]; first.Type != protocol.EventObjective || first.Text != "a task" || first.Session != earlier.ID {
 		t.Fatalf("first event = %+v", first)
 	}
-
-	elsewhere, _ := h.database.CreateSession("/other", "/other", "elsewhere")
-
-	if _, err := h.history(protocol.HistoryParams{Session: elsewhere.ID}); err == nil || !strings.Contains(err.Error(), "belongs to /other") {
-		t.Fatalf("history of another project's session: err = %v", err)
-	}
 }
 
-// What the person asked in the project's sessions comes back newest first:
-// objectives and steers, and nothing the model said or another project
-// holds.
+// What the person asked in the sessions of the host's directory comes back
+// newest first: objectives and steers, and nothing the model said or the
+// sessions of another directory hold.
 func TestRecallTellsWhatThePersonAsked(t *testing.T) {
 	h := testHost(t)
 
@@ -747,8 +623,8 @@ func TestRecallTellsWhatThePersonAsked(t *testing.T) {
 		t.Fatalf("recall with no sessions = %#v, err = %v", recalled, err)
 	}
 
-	here, _ := h.database.CreateSession("/repo", "/repo", "here")
-	elsewhere, _ := h.database.CreateSession("/other", "/other", "elsewhere")
+	here, _ := h.database.CreateSession("/repo", "here")
+	elsewhere, _ := h.database.CreateSession("/other", "elsewhere")
 
 	for _, appended := range []struct {
 		session string
@@ -773,8 +649,9 @@ func TestRecallTellsWhatThePersonAsked(t *testing.T) {
 	}
 }
 
-// A branch is a new session that starts from the current one, as it is or
-// as it was before one of the person's messages, and leaves it as it is.
+// A branch is a new session that starts from the host's, as it is or as it
+// was before one of the person's messages, and leaves it as it is. The host
+// stays in its session, and says which the branch is, for another rumbo.
 func TestBranchesStartFromAPointOfASession(t *testing.T) {
 	h := testHost(t)
 
@@ -783,7 +660,7 @@ func TestBranchesStartFromAPointOfASession(t *testing.T) {
 	}
 
 	call(t, h, "use", `{"provider":"second","model":"large"}`)
-	source, _ := h.made(h.current, "fix the parser")
+	source, _ := h.made("fix the parser")
 
 	for _, entry := range []struct {
 		kind    string
@@ -807,7 +684,7 @@ func TestBranchesStartFromAPointOfASession(t *testing.T) {
 
 	// A run works in the session: a branch can still start before one of
 	// its messages, not from what the run is recording.
-	h.busy[h.current] = busyRun
+	h.busy = busyRun
 
 	if err := refused(t, h, "branch", ""); !strings.Contains(err, "is busy with a run") {
 		t.Fatalf("branching from now during a run: %v", err)
@@ -819,16 +696,29 @@ func TestBranchesStartFromAPointOfASession(t *testing.T) {
 
 	branched := call(t, h, "branch", `{"point":"2"}`)
 
-	for _, said := range []string{"before your message 2", "the files are as they are now", "a run goes on in session " + source.ID, "your message was:\nnow document it\nin the README"} {
+	if len(branched.Values) != 1 || branched.Values[0].Label != "fix the parser" {
+		t.Fatalf("branch answered with %+v", branched.Values)
+	}
+
+	branch, err := h.database.Session(branched.Values[0].Value)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, said := range []string{"session " + branch.ID + " is a branch of this one from before your message 2", "the files are as they are now", "rumbo -s " + branch.ID, "your message was:\nnow document it\nin the README"} {
 		if !strings.Contains(branched.Text, said) {
 			t.Fatalf("branch = %q, missing %q", branched.Text, said)
 		}
 	}
 
-	branch := h.current.session
+	// The host stays in its session, which goes on working.
+	if branched.State.Session != source.ID || h.session.ID != source.ID || h.busy != busyRun {
+		t.Fatalf("after a branch the host is in %+v, busy with %q", branched.State, h.busy)
+	}
 
-	if branched.State.Session != branch.ID || branch.Parent != source.ID || branch.ParentSeq != 4 || h.current.provider != "second" || h.current.model != "large" {
-		t.Fatalf("the branch is %+v, choosing %+v", branch, h.current.choice)
+	if branch.Parent != source.ID || branch.ParentSeq != 4 || branch.Dir != "/repo" || branch.Provider != "second" || branch.Model != "large" {
+		t.Fatalf("the branch is %+v", branch)
 	}
 
 	// Its requests are those the session it came from made at that point.
@@ -846,16 +736,23 @@ func TestBranchesStartFromAPointOfASession(t *testing.T) {
 		t.Fatalf("the branch builds %+v", fromBranch)
 	}
 
-	if stored, _ := h.database.Session(branch.ID); stored.Provider != "second" || stored.Model != "large" {
-		t.Fatalf("the branch keeps %s/%s", stored.Provider, stored.Model)
+	// Another rumbo goes on in the branch, with what the session used.
+	h.close()
+
+	other := restarted(t, h.database, branch.ID)
+
+	if other.session.ID != branch.ID || other.provider != "second" || other.model != "large" {
+		t.Fatalf("the rumbo that continues the branch is in %+v, choosing %+v", other.session, other.choice)
 	}
 
 	// A branch of the branch, as it is now.
-	if again := call(t, h, "branch", ""); !strings.Contains(again.Text, "a branch of "+branch.ID+" as it is") {
-		t.Fatalf("branch from now = %q", again.Text)
+	again := call(t, other, "branch", "")
+
+	if !strings.Contains(again.Text, "is a branch of this one as it is") || len(again.Values) != 1 {
+		t.Fatalf("branch from now = %+v", again)
 	}
 
-	if whole, _ := h.database.Entries(h.current.session.ID); len(whole) != 4 {
+	if whole, _ := other.database.Entries(again.Values[0].Value); len(whole) != 4 {
 		t.Fatalf("the branch from now has %d entries", len(whole))
 	}
 }

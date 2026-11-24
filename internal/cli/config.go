@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/LiasCode/rumbo/internal/agent"
-	"github.com/LiasCode/rumbo/internal/project"
 	"github.com/LiasCode/rumbo/internal/store"
 )
 
@@ -85,18 +83,6 @@ func openStore() (store.Store, error) {
 	}
 
 	return store.Open(chosen, data), nil
-}
-
-// workingProject returns the current directory and the root of the project
-// it is part of. Sessions are kept by root.
-func workingProject() (dir, root string, err error) {
-	dir, err = os.Getwd()
-
-	if err != nil {
-		return "", "", err
-	}
-
-	return dir, project.Root(context.Background(), dir), nil
 }
 
 // loadConfig resolves the system settings rumbo starts with. A malformed

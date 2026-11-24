@@ -57,7 +57,7 @@ func TestTextDraggedOverIsChosenAndCopied(t *testing.T) {
 		t.Fatalf("copied %q:\n%s", copied, s.screen())
 	}
 
-	// A drag into the sidebar stops at the conversation's edge, and takes
+	// A drag past the conversation stops at its edge, and takes
 	// the cell it started on, as a terminal does.
 	s.apply(tea.MouseClickMsg{X: from.x, Y: from.y, Button: tea.MouseLeft})
 	s.apply(tea.MouseMotionMsg{X: 0, Y: from.y, Button: tea.MouseLeft})

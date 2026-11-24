@@ -107,3 +107,28 @@ func (u *Usage) String() string {
 func Input(usage protocol.Usage) int64 {
 	return usage.Input + usage.CacheWrite
 }
+
+// Memory writes how much memory processes hold, given in bytes, as the
+// host says it of its own and the terminal UI of every rumbo it holds.
+func Memory(bytes int64) string {
+	return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+}
+
+// ProcessorTime writes the processor time processes have used, given in
+// seconds.
+func ProcessorTime(seconds float64) string {
+	if seconds >= 60 {
+		return fmt.Sprintf("%dm%02ds", int(seconds)/60, int(seconds)%60)
+	}
+
+	return fmt.Sprintf("%.4gs", seconds)
+}
+
+// Processes writes how many processes there are.
+func Processes(count int) string {
+	if count == 1 {
+		return "1 process"
+	}
+
+	return fmt.Sprintf("%d processes", count)
+}

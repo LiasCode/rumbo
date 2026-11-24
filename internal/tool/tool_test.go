@@ -226,30 +226,6 @@ func TestBashBackgroundReturnsAtOnceAndIsStoppedOnClose(t *testing.T) {
 	}
 }
 
-// Another session's model has not read what this one did, so it may not
-// replace the file whole; both still share the processes left running.
-func TestSeparateSetsKeepTheirOwnReads(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("the user's notes\n"), 0o644)
-
-	first := NewSet()
-	second := first.Separate()
-	read := first.Tools()[0]
-	write := second.Tools()[1]
-
-	if _, err := call(t, read, dir, map[string]any{"path": "notes.txt"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := call(t, write, dir, map[string]any{"path": "notes.txt", "content": "mine"}); err == nil || !strings.Contains(err.Error(), "have not read it") {
-		t.Fatalf("a session overwrote a file only another one read: err = %v", err)
-	}
-
-	if first.jobs != second.jobs {
-		t.Fatal("the sets do not share their background processes")
-	}
-}
-
 // What the tools save for the model goes with the host: the whole of a long
 // output is kept in a directory of the set's own until the set is closed,
 // and then nothing is left.

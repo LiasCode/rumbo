@@ -17,7 +17,7 @@ func TestSkillsSayWhatTheModelIsToldOf(t *testing.T) {
 
 	h := testHost(t)
 	dir := t.TempDir()
-	h.current.dir = dir
+	h.dir = dir
 	place := filepath.Join(dir, ".agents", "skills")
 
 	if empty := call(t, h, "skills", ""); !strings.HasPrefix(empty.Text, "no skills here") || !strings.Contains(empty.Text, "\n  "+place) {

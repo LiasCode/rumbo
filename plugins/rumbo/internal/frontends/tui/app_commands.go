@@ -11,7 +11,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/LiasCode/rumbo/internal/frontends/render"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -20,7 +19,7 @@ import (
 // in the conversation where it was typed.
 
 // enter sends what is typed: a command, or a task, which goes to the run in
-// the session shown when one works there. With the menu open on a choice
+// progress when one works. With the menu open on a choice
 // that is not typed yet, it takes the choice first, and sends the line
 // only when the command needs nothing more.
 func (a *app) enter() tea.Cmd {
@@ -121,6 +120,8 @@ func (a *app) execute(line string) tea.Cmd {
 		return a.copyReply(args)
 	case commandExport:
 		return a.export(args)
+	case commandRumbos:
+		return a.usage()
 	}
 
 	// The host's functions come first: they need no provider to be running.
@@ -130,7 +131,7 @@ func (a *app) execute(line string) tea.Cmd {
 
 	if a.described == nil {
 		a.asking = true
-		return a.describe(line)
+		return a.describe(a.host, line)
 	}
 
 	if index := slices.IndexFunc(a.described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
@@ -162,25 +163,41 @@ func (a *app) call(source string, function protocol.Function, args []string) tea
 }
 
 // invoke calls a function of the host, of the provider, or of an
-// extension, whose answer shows in conv unless quiet. What a function of
-// the last two says and asks while it works shows there too.
-func (a *app) invoke(source, name string, params json.RawMessage, conv *conversation, quiet bool) tea.Cmd {
-	conn, send, label := a.conn, a.send, a.label(source)
+// extension, whose answer shows in conv. What a function of the last two
+// says and asks while it works shows there too.
+func (a *app) invoke(source, name string, params json.RawMessage, conv *conversation) tea.Cmd {
+	held, send, label := a.host, a.send, a.label(source)
+
+	// Quitting is of the terminal UI, which ends with the rumbo that
+	// started it, whichever session shows.
+	if source == fromHost && name == "quit" {
+		held = a.first()
+	}
+
+	conn := held.conn
 
 	if source == fromHost {
 		// What the extensions offer may change with a function on them,
 		// such as one registered, and is asked again before it is needed.
 		index := slices.IndexFunc(a.info.Functions, func(function protocol.Function) bool { return function.Name == name })
 		stale := index >= 0 && a.info.Functions[index].Group == protocol.GroupExtension
+		follows := name == "branch" && a.rumbos.start != nil
 
 		return func() tea.Msg {
 			result, err := conn.InvokeHost(name, params)
 
 			if err != nil {
-				return answeredMsg{conv: conv, label: label, err: err, quiet: quiet, stale: stale}
+				return answeredMsg{host: held, conv: conv, label: label, err: err, stale: stale}
 			}
 
-			return answeredMsg{conv: conv, label: label, text: strings.TrimSpace(result.Text + "\n" + list(result.Values)), state: &result.State, quiet: quiet, stale: stale}
+			answered := answeredMsg{host: held, conv: conv, label: label, text: strings.TrimSpace(result.Text + "\n" + list(result.Values)), state: &result.State, stale: stale}
+
+			// A branch is another session, which shows next.
+			if follows && len(result.Values) == 1 {
+				answered.opens = result.Values[0].Value
+			}
+
+			return answered
 		}
 	}
 
@@ -205,10 +222,10 @@ func (a *app) invoke(source, name string, params json.RawMessage, conv *conversa
 		}
 
 		if err != nil {
-			return answeredMsg{conv: conv, label: label, err: err, quiet: quiet, stale: extended}
+			return answeredMsg{host: held, conv: conv, label: label, err: err, stale: extended}
 		}
 
-		return answeredMsg{conv: conv, label: label, text: answerText(raw), quiet: quiet, stale: extended}
+		return answeredMsg{host: held, conv: conv, label: label, text: answerText(raw), stale: extended}
 	}
 }
 
@@ -231,27 +248,23 @@ func answerText(raw json.RawMessage) string {
 }
 
 // answered shows what a function answered, and takes in what the host says
-// the front end is attached to after it. What the sidebar asked says only
-// what went wrong.
+// the front end is attached to after it. A branch it made shows next.
 func (a *app) answered(msg answeredMsg) tea.Cmd {
 	a.asking = false
 	a.invoking = 0
 
 	// What is offered is asked again before the next command that needs it.
 	if msg.stale {
-		a.described = nil
+		msg.host.described = nil
 	}
 
 	// What was done before a failure, as when the picker changes several
 	// things, shows before it.
-	if msg.text != "" && !msg.quiet {
+	if msg.text != "" {
 		msg.conv.add(&entry{kind: entryAnswer, label: msg.label, text: msg.text})
 	}
 
-	switch {
-	case msg.err != nil && msg.quiet:
-		a.notice = msg.err.Error()
-	case msg.err != nil:
+	if msg.err != nil {
 		msg.conv.add(&entry{kind: entryAnswer, label: msg.label, text: msg.err.Error(), failed: true})
 	}
 
@@ -259,23 +272,12 @@ func (a *app) answered(msg answeredMsg) tea.Cmd {
 		return nil
 	}
 
-	// What a command answered in a session left behind is said here too.
-	if msg.state.Session != a.session && !msg.quiet && msg.text != "" {
-		a.notice = render.FirstLine(msg.text)
-	}
+	// The command may have changed what the panel shows, and what the
+	// session is called.
+	cmds := []tea.Cmd{a.adopt(msg.host, *msg.state), a.readPanel(), a.list()}
 
-	// The panel shows the session shown, which a session left behind reads
-	// for itself.
-	cmds := []tea.Cmd{a.list()}
-
-	if msg.state.Session == a.session {
-		cmds = append(cmds, a.readPanel())
-	}
-
-	cmds = append(cmds, a.adopt(*msg.state))
-
-	if msg.then != nil && msg.err == nil {
-		cmds = append(cmds, msg.then())
+	if msg.err == nil && msg.opens != "" {
+		cmds = append(cmds, a.reach(msg.opens, msg.then))
 	}
 
 	return tea.Batch(cmds...)
@@ -338,9 +340,9 @@ func (a *app) help() string {
 	out.WriteString("\nEnter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Ctrl-P opens the commands, which typing narrows; one that takes something asks for it in a form, and one that cannot be undone asks you to agree first.\n")
 	out.WriteString("A slash in the composer opens the menu of the commands too: Up and Down choose, Tab or Enter take, Escape closes it.\n")
 	out.WriteString("Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the image in the clipboard to what you send next.\n")
-	out.WriteString("Escape cancels the run of the session shown; Ctrl-C does too, else clears what is typed, else quits.\n")
-	out.WriteString("Tab on an empty composer goes to the sessions, where Enter shows one and Delete deletes it; Ctrl-N starts a new session, and Ctrl-B shows or puts away the sidebar.\n")
-	out.WriteString("Shift-Tab goes up into the conversation: Enter on a tool call shows all of it, on your message changes it or asks it again in a branch, and on anything else copies it.\n")
+	out.WriteString("Escape cancels the run; Ctrl-C does too, else clears what is typed, else quits.\n")
+	out.WriteString("Shift-Tab goes up into the conversation: Enter on a tool call shows all of it, on what you asked offers to change it or ask it again in a branch, and on anything else copies it.\n")
+	out.WriteString("Each session is a rumbo of its own. Tab on an empty line goes to the sessions of this folder, where Enter shows one, starting its rumbo; Ctrl-N starts a new one, and Ctrl-B shows or puts away the list. The runs of the sessions you leave go on, and /rumbos says what each rumbo uses.\n")
 	out.WriteString("Ctrl-Alt-B shows the session's details beside the conversation, and Ctrl-G what changed in the project's folder, as Git sees it.\n")
 	out.WriteString("A click on the model under the composer chooses the model and the options. PgUp and PgDn, or the mouse's wheel, scroll the conversation.\n")
 	out.WriteString("Dragging the mouse over the conversation or the panel selects its text, which is copied as you let go; with Shift, the terminal selects as it does elsewhere.\n")
@@ -407,20 +409,20 @@ func (a *app) export(args []string) tea.Cmd {
 	}
 
 	a.asking = true
-	conn := a.conn
+	held := a.host
 
 	return func() tea.Msg {
-		told, err := conn.History(session)
+		told, err := held.conn.History()
 
 		if err == nil {
 			err = writeNew(path, markdownOf(told, time.Now()))
 		}
 
 		if err != nil {
-			return answeredMsg{conv: conv, err: err}
+			return answeredMsg{host: held, conv: conv, err: err}
 		}
 
-		return answeredMsg{conv: conv, text: "wrote the session to " + path}
+		return answeredMsg{host: held, conv: conv, text: "wrote the session to " + path}
 	}
 }
 

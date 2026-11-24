@@ -39,6 +39,7 @@ type (
 	// pickerMsg is what the provider said it offers, to open the picker
 	// with.
 	pickerMsg struct {
+		host      *host
 		described protocol.DescribeResult
 		err       error
 	}
@@ -98,15 +99,15 @@ func (a *app) openPalette() tea.Cmd {
 	a.palette = newPalette(a.paletteEntries())
 
 	if a.described == nil {
-		return a.describe("")
+		return a.describe(a.host, "")
 	}
 
 	return nil
 }
 
 // paletteEntries are what the palette offers: the terminal UI's own
-// actions, the project's other sessions, the host's functions by what they
-// act on, and the provider's.
+// actions, the other sessions of the directory, the host's functions by
+// what they act on, and the provider's.
 func (a *app) paletteEntries() []paletteEntry {
 	var entries []paletteEntry
 
@@ -114,26 +115,32 @@ func (a *app) paletteEntries() []paletteEntry {
 		entries = append(entries, paletteEntry{group: "general", name: name, description: description, action: action})
 	}
 
-	if a.offers("new") {
-		general("New session", "Start the next task in a new session (Ctrl-N)", actionNewSession)
-	}
-
 	if a.offers("use") {
 		general("Model and options", "Choose the model and the options this session keeps", actionPicker)
 	}
 
-	if a.offers("sessions") {
-		general("Go to the sessions", "Choose one in the sidebar (Tab)", actionSessions)
+	if a.rumbos.start != nil {
+		general("New session", "Start the next task in a new session, a rumbo of its own (Ctrl-N)", actionNewSession)
 	}
 
-	general("Sidebar", "Show or put away the sidebar (Ctrl-B)", actionSidebar)
+	if a.reaches() {
+		general("Go to the sessions", "Choose one in the sidebar (Tab)", actionSessions)
+		general("Sidebar", "Show or put away the sidebar (Ctrl-B)", actionSidebar)
+	}
+
 	general("Copy the last answer", "Put the model's last answer in the clipboard", actionCopy)
 	general("Export as Markdown", "Write this session to rumbo-<session>.md in its directory", actionExport)
+	general("Rumbos", "What the rumbo of each session open uses: processes, memory, and processor time", actionRumbos)
+
+	if len(a.hosts) > 1 {
+		general("Close the rumbos not in use", "End those neither shown nor working; their sessions stay", actionCloseIdle)
+	}
+
 	general("Help", "Every command and key", actionHelp)
 
 	entries = append(entries, a.sessionEntries()...)
 
-	if a.offers("open") {
+	if a.rumbos.start != nil {
 		for _, listed := range a.sessions.listed {
 			if listed.Value == a.session {
 				continue
@@ -221,10 +228,6 @@ func (a *app) choose(chosen paletteEntry) tea.Cmd {
 
 		return a.run(chosen.source, chosen.function, nil, "/"+chosen.function.Name)
 
-	case actionNewSession:
-		a.sessions.choose("")
-		return a.open()
-
 	case actionPicker:
 		return a.openPicker()
 
@@ -237,17 +240,29 @@ func (a *app) choose(chosen paletteEntry) tea.Cmd {
 	case actionExport:
 		return a.command(commandExport)
 
+	case actionRumbos:
+		return a.command(commandRumbos)
+
+	case actionNewSession:
+		return a.reach("", nil)
+
 	case actionSessions:
 		a.sidebar = true
 		a.focus = focusSidebar
 		a.sessions.choose(a.session)
 
+		return nil
+
 	case actionSidebar:
 		a.sidebar = !a.sidebar
 
+		return nil
+
 	case actionOpen:
-		a.sessions.choose(chosen.session)
-		return a.open()
+		return a.reach(chosen.session, nil)
+
+	case actionCloseIdle:
+		return a.tidy(0)
 
 	case actionEdit, actionAskAgain:
 		return a.branchAt(chosen.point, chosen.text, chosen.images, chosen.action == actionAskAgain)
@@ -276,7 +291,7 @@ func (a *app) run(source string, function protocol.Function, params json.RawMess
 // agrees when it asks to be confirmed. Its answer shows in the session
 // shown.
 func (a *app) request(source string, function protocol.Function, params json.RawMessage) tea.Cmd {
-	invoke := a.invoke(source, function.Name, params, a.shown, false)
+	invoke := a.invoke(source, function.Name, params, a.shown)
 
 	if function.Confirm != "" {
 		a.confirming = &confirmation{function: function, run: invoke, conv: a.shown}
@@ -458,18 +473,23 @@ func (a *app) openPicker() tea.Cmd {
 	}
 
 	a.palette = nil
-	conn := a.conn
+	held := a.host
 
 	return func() tea.Msg {
-		described, err := conn.Describe()
+		described, err := held.conn.Describe()
 
-		return pickerMsg{described, err}
+		return pickerMsg{held, described, err}
 	}
 }
 
-// picked opens the picker with what the provider said. A provider that
-// could not say still leaves the provider and the model to change.
+// picked opens the picker with what the provider said, unless the person
+// went to another session meanwhile. A provider that could not say still
+// leaves the provider and the model to change.
 func (a *app) picked(msg pickerMsg) tea.Cmd {
+	if msg.host != a.host {
+		return nil
+	}
+
 	described := msg.described
 
 	if msg.err == nil {
@@ -508,7 +528,8 @@ func (a *app) change(changes []pickChange) tea.Cmd {
 	a.shown.follow = true
 	a.asking = true
 
-	conn, conv, label := a.conn, a.shown, a.label(fromHost)
+	held, conv, label := a.host, a.shown, a.label(fromHost)
+	conn := held.conn
 
 	return func() tea.Msg {
 		var said []string
@@ -525,14 +546,14 @@ func (a *app) change(changes []pickChange) tea.Cmd {
 			result, err := conn.InvokeHost(name, params)
 
 			if err != nil {
-				return answeredMsg{conv: conv, label: label, text: strings.Join(said, "\n"), err: err, state: state}
+				return answeredMsg{host: held, conv: conv, label: label, text: strings.Join(said, "\n"), err: err, state: state}
 			}
 
 			said = append(said, strings.TrimSpace(result.Text))
 			state = &result.State
 		}
 
-		return answeredMsg{conv: conv, label: label, text: strings.Join(said, "\n"), state: state}
+		return answeredMsg{host: held, conv: conv, label: label, text: strings.Join(said, "\n"), state: state}
 	}
 }
 

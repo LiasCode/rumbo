@@ -1,9 +1,10 @@
 // Package tui is rumbo's plugin's terminal front end. It takes the whole
-// screen, as rumbo-gui takes a window: the project's sessions in a sidebar,
-// the conversation of the one shown, and a composer under it with the
-// model, how full its context is, and what the session spent; and, over
-// them, the command palette, forms, and dialogs built from what the host
-// and the provider describe.
+// screen, as rumbo-gui takes a window: the sessions of the directory in a
+// sidebar, the conversation of the one shown, and a composer under it with
+// the model, how full its context is, and what the session spent; and,
+// over them, the command palette, forms, and dialogs built from what the
+// host and the provider describe. A rumbo is one session, so it starts one
+// for each other session the person opens, and closes those left unused.
 //
 // It is a Bubble Tea program: what the person does and what the host sends
 // become messages, applied one at a time, and the screen is drawn from what
@@ -38,10 +39,11 @@ func Run(r io.Reader, w io.Writer) int {
 	// the terminal is taken.
 	var config Config
 	var wrong error
+	var inForce json.RawMessage
 
 	conn, info, err := protocol.DialFrontendConfigured(r, w, "tui", func(given json.RawMessage) json.RawMessage {
 		config, wrong = configured(given)
-		inForce, _ := json.Marshal(config)
+		inForce, _ = json.Marshal(config)
 
 		return inForce
 	})
@@ -59,10 +61,22 @@ func Run(r io.Reader, w io.Writer) int {
 	}
 
 	shown := newApp(conn, info, colors)
+
+	// The terminal UI is served by rumbo itself, which is the program that
+	// lists the other sessions and is the host of each.
+	if program, err := os.Executable(); err == nil {
+		shown.rumbos = rumbos{start: startRumbo(program, inForce), list: listSessions(program)}
+	}
+
 	program := tea.NewProgram(shown)
 	shown.send = program.Send
 
-	if _, err := program.Run(); err != nil && !errors.Is(err, tea.ErrInterrupted) {
+	_, err = program.Run()
+
+	// The rumbos it started end with it, their runs cancelled and recorded.
+	shown.shutdown()
+
+	if err != nil && !errors.Is(err, tea.ErrInterrupted) {
 		fmt.Fprintln(os.Stderr, "rumbo:", err)
 		return 1
 	}

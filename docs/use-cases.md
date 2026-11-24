@@ -13,8 +13,8 @@ them at once, and the code holds the details.
 
 ## Host
 
-The host owns the sessions of one project, the tools, and the loop. It shows
-nothing and knows no model API.
+The host owns one session, the tools, and the loop. It shows nothing and
+knows no model API.
 
 ### Must
 
@@ -24,8 +24,10 @@ nothing and knows no model API.
   stored session reproduces every request it sent.
 - Keep the start of each request stable, from the system prompt and the tool
   declarations to the ambient context, so providers can cache it.
-- Hold a lock on every session it works in, so no other rumbo process writes
-  to it at the same time.
+- Be one session and no more: another session is another rumbo process,
+  with its own providers and extensions, which a front end starts.
+- Hold a lock on its session from the first work in it, so no other rumbo
+  process writes to it.
 - Close every run with a note saying how it ended: done, failed, or
   cancelled.
 - Keep tool results small: read files in windows, shorten long output, and
@@ -65,10 +67,8 @@ nothing and knows no model API.
 **Run tasks**
 
 - Work on an objective until the model stops calling tools.
-- Work in several sessions of a project at once, with one run per session,
-  or in one session at a time when started with `-single`.
-- Start a run in the current session, in another session of the project, or
-  in a new one.
+- Work in its session one run at a time, and refuse a run while another
+  works or the session is being compacted.
 - Take what the user tells a run while it works, give it to the model before
   its next request, and keep the run going when the model was about to
   finish.
@@ -95,17 +95,18 @@ nothing and knows no model API.
   offers. It acts only on the screen its model saw last, and does nothing
   once someone else moves the pointer.
 - A guard against replacing a file its model has not read, or that changed
-  since it did. Each session keeps its own record of what its model read.
+  since it did. What the model read is the session's own record, which
+  lasts as long as the host.
 - The environment it works in: the working directory, the platform, and the
   date.
-- The user's instructions: the `AGENTS.md` or `CLAUDE.md` files from the
-  project's root down to the working directory, and the user's own in
-  `~/.config/rumbo/`. A long one is cut, saying where the rest is.
+- The user's instructions: the `AGENTS.md` or `CLAUDE.md` file of the
+  working directory, and the user's own in `~/.config/rumbo/`. A long one
+  is cut, saying where the rest is.
 - The user's skills: the name, the description, and the path of each
   `SKILL.md` in the `skills/<name>/` of each plugin the user added, in
   `~/.config/rumbo/skills/<name>/`, where one of the same name replaces a
-  plugin's, and in `.agents/skills/<name>/` from the project's root down to
-  the working directory, where one of the same name replaces the user's. The model reads
+  plugin's, and in `.agents/skills/<name>/` of the working directory, where
+  one of the same name replaces the user's. The model reads
   a skill when a task needs it. One without a description in its
   frontmatter is left out, and a long description is cut; a value with a
   colon in it that YAML rejects unquoted is read anyway.
@@ -116,30 +117,30 @@ nothing and knows no model API.
 
 **Sessions**
 
-- Find a project by its git root, from any directory inside it.
-- List the sessions of a project, or of every one (`rumbo sessions -all`),
-  with how each one stands: how its last run ended, done, failed,
-  cancelled, or interrupted when its process died, or that a rumbo process
-  is using it; its turns, and the tokens they took. A front end's list
-  marks those working in this host.
-- List the projects that have sessions, and the sessions of any of them, to
-  a front end, so it can show those of every project from one host.
-- Continue the latest session (`-c`) or a given one (`-s`), or resume its
-  unfinished run (`-r`).
-- Open another session, start a new one, and give one a title of the
-  person's own (`rename`, `rumbo sessions rename`).
-- Delete a session with its history: one the person names (`delete`, once
-  they confirm it, or `rumbo sessions rm`, several by id), or those of a
-  project not used in a given time (`prune`, `rumbo sessions prune`), which
-  list them first and delete them only when given `yes` (`-yes`), saying
-  which they deleted. A session a rumbo process is using is kept, and a
-  host whose session another process deleted says so instead of working in
-  it.
-- Branch a session: go on in a new one that starts with a copy of it, as it
-  is or as it was before one of the person's messages. The session it came
-  from stays as it is, and can go on working at the same time; the files
-  are not the session's, and stay as they are.
-- Show a session's status: its provider and model, the size of its context,
+- Take the directory it is started in as the root of the session it
+  starts, and the one a session it continues was started in as that
+  session's.
+- Start a new session, continue the latest one of the directory (`-c`) or
+  a given one (`-s`), or resume its unfinished run (`-r`).
+- List, from the command line, the sessions of the directory, or of every
+  one (`rumbo sessions -all`), with how each one stands: how its last run
+  ended, done, failed, cancelled, or interrupted when its process died, or
+  that a rumbo process is using it; its turns, and the tokens they took.
+  With `-json`, for a front end to read, which starts a rumbo for the one
+  a person chooses.
+- Give its session a title of the person's own (`rename`), or any stored
+  one from the command line (`rumbo sessions rename`).
+- Delete sessions with their history, from the command line: those the
+  person names (`rumbo sessions rm`), or those not used in a given time
+  (`rumbo sessions prune`), which lists them first and deletes them only
+  with `-yes`. A session a rumbo process is using is kept, and a host
+  whose session another process deleted says so instead of working in it.
+- Branch its session (`branch`): make a new one that starts with a copy of
+  it, as it is or as it was before one of the person's messages, and say
+  which it is, for another rumbo to go on in (`-s`). The host stays in its
+  session, which is left as it is; the files are not the session's, and
+  stay as they are.
+- Show its session's status: its provider and model, the size of its context,
   what it has spent and how much of its input the provider read from its
   cache, and how its last run stands.
 - Keep each session's provider and model, and the values of the provider's
@@ -160,9 +161,9 @@ nothing and knows no model API.
 - Record with each response the output limit its request set, how long the
   provider took, and the rumbo that sent it; and with each tool result how
   long the tool took. None of it is sent to the model.
-- Tell a front end what a session holds, in the events its runs sent, with
-  what the person asked and how each run ended, so it can show a session it
-  opens.
+- Tell a front end what its session holds, in the events its runs sent,
+  with what the person asked and how each run ended, so it can show a
+  session it continues; and what the session is called.
 
 **Providers**
 
@@ -213,9 +214,9 @@ nothing and knows no model API.
   <name>`); both are there without being registered.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
-  `config`, `system-set`, and `quit`. For a session: `status`, `skills`,
-  `sessions`, `projects`, `open`, `new`, `branch`, `delete`, `rename`,
-  `prune`, `use`, `session-set`, and `compact`. For the providers:
+  `config`, `system-set`, `processes`, and `quit`. For its session: `status`, `skills`,
+  `branch`, `rename`, `use`, `session-set`, and `compact`. For the
+  providers:
   `providers`, `provider-models`, `provider-show`, `provider-set`,
   `provider-add`, and `provider-rm`. For the extensions: `extensions`,
   `extension-show`, `extension-set`, `extension-add`, and `extension-rm`.
@@ -226,11 +227,16 @@ nothing and knows no model API.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
-  while runs work. Under `-single`, those that change the session or the
-  provider wait for the run instead.
+  while a run works, but for those that need the conversation still:
+  `compact`, and `branch` from where the session is now.
 - Report each run as events, each naming its run and session: the model's
   text, the tools it calls and what they return, the context sent, the
   tokens spent, and diagnostics.
+- Say which processes it has running, itself, its front end when it
+  started it, its providers', its extensions', what those started, and
+  what the model left running, and the memory and the processor time each
+  uses, as the system's `ps` reports them. It says the name of each
+  program, never its arguments.
 
 **Extensions**
 
@@ -259,7 +265,7 @@ nothing and knows no model API.
 - Pass the extensions' functions to the front end with what the provider
   offers, relay calls to them, and what they say and ask while they work,
   as it does a provider's, understanding none of them.
-- Tell an extension the events of the types it asked for, of every session,
+- Tell an extension the events of the types it asked for, of its session,
   as a front end is told them, and besides what each run was asked and how
   it ended; without waiting for it, so one that reads too slowly misses
   some. What extensions print is not told to them.
@@ -273,7 +279,7 @@ nothing and knows no model API.
   would not take, and a section called as another; and not start a run
   while an extension does not start or declares one of those, saying which
   and how to remove it.
-- Keep one process of each extension for every session, start it again
+- Keep one process of each extension while it lasts, start it again
   when it died, when it said that what it declares changed, or when its
   command or configuration changed, and stop it when it is removed and
   when the host exits.
@@ -348,6 +354,11 @@ nothing and knows no model API.
 
 - Know any kind of work: no project detection, and nothing about
   programming or any other domain.
+- Look above the directory it is started in: not for a git repository, and
+  not for instructions or skills.
+- Work in a session other than its own, list the others, or move to one:
+  that is for the command line, and for the front end that starts another
+  rumbo.
 - Judge the model's work. A run ends when the model stops calling tools,
   and the host runs no checks of its own.
 - Send context nobody asked for, beyond the environment, the user's
@@ -484,8 +495,8 @@ being asked. It speaks the Agent Extension Protocol on its stdin and stdout.
 
 ### Can
 
-- Keep what it needs from one call to the next, in any session: it is
-  started once and lasts as long as the host.
+- Keep what it needs from one call to the next: it is started once and
+  lasts as long as the host, which is one session.
 - Answer calls made at once in any order, or one at a time.
 - Show the model images with a result.
 - Stop the work of a call it was told was cancelled.
@@ -495,7 +506,8 @@ being asked. It speaks the Agent Extension Protocol on its stdin and stdout.
   place once the user says so.
 - Call rumbo's own tools while it answers a call, so a tool that replaces
   one of them does something before and after it instead of all its work.
-- Keep something for each session, which every call names.
+- Keep something for each session from one host to the next, since every
+  call names its session.
 - Be told what the runs do, in the events it names when it starts: to
   notify when one ends, to count what it cost, or to record what it did.
 - Say what a call is doing while it works, and ask the person who follows
@@ -571,7 +583,7 @@ speaks the Agent Frontend Protocol with the host.
 
 ### Must
 
-- Answer the host's `initialize` with protocol version 1, its name, and its
+- Answer the host's `initialize` with protocol version 2, its name, and its
   start configuration in force, with a default for every field it was not
   given.
 - Refuse a field of its configuration it does not have, or a value it
@@ -590,13 +602,16 @@ speaks the Agent Frontend Protocol with the host.
 
 ### Can
 
-- Start runs in the current session, in another session, or in a new one,
-  and choose the model and the options for one run.
-- Follow several runs at once, telling their events apart by run and
-  session.
-- Show what a session held before it was opened, from its history.
-- Bring back to its input what the person asked in any of the project's
-  sessions, which the host recalls.
+- Start runs in the host's session, one at a time, and choose the model
+  and the options for one run.
+- Start another host for another session, a new one or one it continues,
+  hold several at once, group them by the directory each works in, and
+  close those it does not need.
+- Ask each host which processes it has and what they use of the machine,
+  to say what the sessions it holds cost and choose which to close.
+- Show what a session held before it was continued, from its history.
+- Bring back to its input what the person asked in the sessions of the
+  host's directory, which the host recalls.
 - Give images with a task, or with what it tells a run, such as one pasted
   from the clipboard.
 - Tell a run something while it works, and offer it as a new task when the
@@ -625,9 +640,9 @@ speaks the Agent Frontend Protocol with the host.
 **`tui`**, the terminal UI, of rumbo's own plugin:
 
 - It takes the whole screen, as rumbo-gui takes a window: a header with
-  the project and the session shown; the project's sessions in a sidebar,
-  which marks those working and those whose run ended while they were not
-  shown; the conversation in a column of its own, which PgUp, PgDn, and
+  the session's folder and what the session is called; a sidebar with the
+  sessions of the folder, which Ctrl-B shows or puts away; the conversation
+  in a column of its own, which PgUp, PgDn, and
   the mouse's wheel scroll; and under it a composer with the model, how
   full the context is, and what the session spent, over a line that says
   what the keys do. The conversation goes with the screen when it quits.
@@ -642,30 +657,46 @@ speaks the Agent Frontend Protocol with the host.
   status and the end of what it printed.
 - A run ends with a line that says how it ended, how long it took, and its
   turns and tokens.
-- Each session keeps what it showed, and one shown for the first time
-  shows what it holds first, told as its runs were shown. A run goes on in
-  its session while another is shown: the header counts those runs, and
-  when one ends the sidebar marks its session and a line says so.
-- The mouse, or Tab on an empty composer, the arrows, and Enter, show a
-  session of the sidebar, and Delete deletes the one chosen there, once the
-  person agrees. Ctrl-N starts a new session, and Ctrl-B shows or puts
-  away the sidebar.
+- It holds a rumbo for each session it has open, and shows one at a time:
+  the one that started it, and those it starts itself, with `rumbo serve`,
+  when the person first shows another session of the folder, from the
+  sidebar, with Tab and Enter or a click, or from the palette, or starts
+  a new one with Ctrl-N. A session shows what it holds first, told as its
+  runs were shown. It lists the sessions with `rumbo sessions -json`.
+- A run goes on in a session that is left: the header counts the runs
+  working elsewhere, the sidebar marks the sessions that work, those whose
+  run ended unseen, and those a rumbo is open for, and the end of a run
+  elsewhere is said where the person is. What a tool of such a run asks
+  opens where the person is too, saying which session asks.
+- It closes the rumbos of the sessions left with nothing to do past the
+  two shown last, never the one that started it, one that works, or one
+  that waits for an answer; "Close the rumbos not in use", in the palette,
+  closes them all. A session closed that way is as it was, and showing it
+  starts a rumbo for it again. When it quits it ends every rumbo it
+  started, whose runs are cancelled and recorded, and it ends with the
+  one that started it. `/quit` ends that one, whichever session shows.
+- `/rumbos` says what the rumbo of each session open uses, from what each
+  answers to `processes`: how many processes, their memory, and their
+  processor time, each process counted once.
+- `/branch` shows the branch once its rumbo starts. In the conversation,
+  Enter on what the person asked offers to change it or to ask it again in
+  a branch that starts before it, which shows the same way.
 - Enter sends a task. During a run it tells the run what was typed, which
   shows once the model has it, and goes back to the composer if the run
   ended first.
-- Ctrl-P opens a palette of its own actions, the project's other sessions,
-  and every command, which typing narrows. A command that takes something
+- Ctrl-P opens a palette of its own actions and every command, which
+  typing narrows. A command that takes something
   asks for it in a form, where each field offers the values its
   parameter's function lists, asked with what was given for the fields
   before it, and takes any value typed instead. One that cannot be undone
   asks to be agreed to in a dialog, which starts on the button that leaves
   things as they are. The palette also renames, branches, compacts,
-  deletes, and copies the id of the session shown.
+  and copies the id of the session.
 - The picker, from the palette or a click on the model under the composer,
   changes the provider, the model, and the options of the session, with
   `use` and `session-set`, each change shown as the command it is.
 - Beside the conversation, Ctrl-Alt-B shows the session's details: its id
-  and how it stands, its folder, its model, how full its context is and
+  and what it is called, its folder, its model, how full its context is and
   what it spent, and what the host's `skills` and `status` say, laid out by
   the shape of their lines; and Ctrl-G what changed in the project's
   folder, as Git sees it against the last commit, new files included,
@@ -673,9 +704,8 @@ speaks the Agent Frontend Protocol with the host.
   room for both, the panel takes the conversation's place.
 - Shift-Tab goes up into the conversation, where Up and Down choose an
   entry and Enter acts on it, as a click on it does: a tool call shows all
-  it was given and returned, or goes back to its excerpt; what the person
-  asked can be changed, or asked again, in a branch that starts before it
-  (`branch` with its `point`); and anything else is copied.
+  it was given and returned, or goes back to its excerpt, what the person
+  asked offers what can be done with it, and anything else is copied.
 - Dragging the mouse over the conversation or the panel selects its text,
   shown in reverse, within the part the drag started in, and letting go
   copies it, to the clipboard and to the primary selection; the
@@ -686,11 +716,11 @@ speaks the Agent Frontend Protocol with the host.
 - Its commands are the functions the host, the provider, and the
   extensions describe, but for those there to list a parameter's values,
   and its own, which come before one of theirs of the same name: `/help`,
-  `/copy`, and `/export`. `/help` lists the host's by what they act on: the
+  `/copy`, `/export`, and `/rumbos`. `/help` lists the host's by what they act on: the
   system, the session, and the providers.
 - `/copy` puts the model's last answer in the clipboard, and `/copy code`
   only its last code block.
-- `/export` writes the current session as Markdown, from its history: what
+- `/export` writes the session as Markdown, from its history: what
   was asked, what the model wrote, each tool call with the change it made
   or the start of what it returned, and how each run ended. It writes to
   the path given, from the session's directory, or to `rumbo-<session>.md`

@@ -7,9 +7,10 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// sidebar lists the project's sessions as the host's sessions function
-// lists them, most recently used first, under an entry that starts a new
-// one, as rumbo-gui's sidebar lists a project's.
+// sidebar lists the sessions of the directory as rumbo sessions lists them,
+// most recently used first, under an entry that starts a new one, as
+// rumbo-gui's sidebar lists a project's. Each is a rumbo of its own, which
+// the terminal UI starts when the session is first shown.
 type sidebar struct {
 	listed []protocol.Value
 	// selected is what Enter opens while the sidebar has the keyboard: 0
@@ -27,27 +28,16 @@ const (
 )
 
 // marks are what the sidebar shows of each session besides its title: the
-// one shown, those working, and those whose run ended while they were not
-// shown.
+// one shown, those working, those whose run ended while they were not
+// shown, and those a rumbo of this terminal UI is still open for.
 type marks struct {
 	current string
 	working map[string]bool
 	unseen  map[string]bool
+	open    map[string]bool
 }
 
-// title is what the sidebar calls a session: its title, or its id when it
-// has none.
-func (s *sidebar) title(session string) string {
-	for _, listed := range s.listed {
-		if listed.Value == session && listed.Label != "" {
-			return render.FirstLine(listed.Label)
-		}
-	}
-
-	return session
-}
-
-// list takes the sessions as the host lists them, keeping the selection on
+// list takes the sessions as rumbo lists them, keeping the selection on
 // the session it was on.
 func (s *sidebar) list(values []protocol.Value) {
 	chosen := s.chosen()
@@ -117,9 +107,9 @@ func (s *sidebar) at(row int) (int, bool) {
 
 // rows draws the sidebar width columns wide and height rows high: the
 // project, the entry for a new session, and the sessions, the one shown
-// marked with a bar, each working one with a spinner, and each that ended
-// unseen with a dot. While it has the keyboard, the one selected shows in
-// reverse.
+// marked with a bar, each working one with a spinner, each that ended
+// unseen with a dot, and each other one a rumbo is open for with a ring.
+// While it has the keyboard, the one selected shows in reverse.
 func (s *sidebar) rows(t theme, project string, width, height int, shown marks, focused bool, now time.Time) []string {
 	rows := make([]string, 0, height)
 
@@ -165,6 +155,8 @@ func (s *sidebar) rows(t theme, project string, width, height int, shown marks, 
 			mark = t.progress + spin(now) + styleColorOff
 		case shown.unseen[session]:
 			mark = t.warning + "•" + styleColorOff
+		case shown.open[session] && session != shown.current:
+			mark = styleDim + "○" + styleWeightOff
 		}
 
 		title := s.listed[index].Label

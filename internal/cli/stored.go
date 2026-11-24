@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,11 +19,12 @@ import (
 
 // This file owns what a person does with stored sessions besides working
 // in them: listing them with how each one stands, renaming one, and
-// deleting them, one by one or by age. The command line and the host's
-// functions both go through it.
+// deleting them, one by one or by age. A host works in its own session
+// alone, so the others are reached from the command line.
 
 const sessionsUsage = `usage:
-  rumbo sessions [-all]                     list the sessions of this project, or of every one
+  rumbo sessions [-all] [-json]             list the sessions of this directory, or of every one;
+                                            with -json, for a program to read
   rumbo sessions rename <session> <title>   give a session a title of your own
   rumbo sessions rm <session>...            delete sessions and their history
   rumbo sessions prune [-all] [-yes] <age>  delete the sessions not used in that long, such as
@@ -38,10 +40,10 @@ type standing struct {
 	inUse bool
 }
 
-// standings returns the sessions of project, or of every project when it is
+// standings returns the sessions of dir, or of every directory when it is
 // empty, most recently used first, with how each one stands.
-func standings(database store.Store, project string) ([]standing, error) {
-	sessions, err := database.Sessions(project)
+func standings(database store.Store, dir string) ([]standing, error) {
+	sessions, err := database.Sessions(dir)
 
 	if err != nil {
 		return nil, err
@@ -197,6 +199,7 @@ func printSessions(database store.Store, args []string) error {
 	flags := flag.NewFlagSet("sessions", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	all := flags.Bool("all", false, "")
+	asJSON := flags.Bool("json", false, "")
 
 	if err := flags.Parse(args); err != nil || flags.NArg() > 0 {
 		return errors.New(sessionsUsage)
@@ -214,6 +217,10 @@ func printSessions(database store.Store, args []string) error {
 		return err
 	}
 
+	if *asJSON {
+		return printSessionsJSON(listed)
+	}
+
 	if len(listed) == 0 {
 		fmt.Println("no sessions yet")
 		return nil
@@ -223,14 +230,14 @@ func printSessions(database store.Store, args []string) error {
 	where := ""
 
 	if *all {
-		where = "PROJECT\t"
+		where = "DIRECTORY\t"
 	}
 
 	fmt.Fprintf(out, "SESSION\tLAST USED\tSTATE\tTURNS\tIN\tFROM CACHE\tOUT\t%sTITLE\n", where)
 
 	for _, each := range listed {
 		if *all {
-			where = each.Project + "\t"
+			where = each.Dir + "\t"
 		}
 
 		spent := each.summary.Spent
@@ -243,6 +250,48 @@ func printSessions(database store.Store, args []string) error {
 	return out.Flush()
 }
 
+// listedSession is a session as rumbo sessions -json lists it, for a front
+// end that shows the sessions there are and starts a rumbo for the one a
+// person chooses. Fields may be added.
+type listedSession struct {
+	Session string `json:"session"`
+	Title   string `json:"title"`
+	// Dir is the session's root, which a front end groups sessions by.
+	Dir string `json:"dir"`
+	// Parent is the session a branch came from.
+	Parent string    `json:"parent,omitempty"`
+	Used   time.Time `json:"used"`
+	// State is how the last run ended: new, done, failed, cancelled, or
+	// interrupted; and InUse says a rumbo process holds the session now.
+	State string `json:"state"`
+	InUse bool   `json:"in_use"`
+	Turns int    `json:"turns"`
+}
+
+// printSessionsJSON lists sessions as one JSON array, most recently used
+// first, which is empty when there are none.
+func printSessionsJSON(listed []standing) error {
+	sessions := make([]listedSession, 0, len(listed))
+
+	for _, each := range listed {
+		sessions = append(sessions, listedSession{
+			Session: each.ID,
+			Title:   each.Title,
+			Dir:     each.Dir,
+			Parent:  each.Parent,
+			Used:    each.ActiveAt,
+			State:   each.ended(),
+			InUse:   each.inUse,
+			Turns:   each.summary.Turns,
+		})
+	}
+
+	out := json.NewEncoder(os.Stdout)
+	out.SetIndent("", "  ")
+
+	return out.Encode(sessions)
+}
+
 // chosenProject is the project the command acts on: the working one, or
 // every one, which is the empty project.
 func chosenProject(all bool) (string, error) {
@@ -250,9 +299,7 @@ func chosenProject(all bool) (string, error) {
 		return "", nil
 	}
 
-	_, root, err := workingProject()
-
-	return root, err
+	return os.Getwd()
 }
 
 // removeSessions deletes the sessions named, and says which it could not.

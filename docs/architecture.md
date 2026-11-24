@@ -8,7 +8,7 @@ that reaches the model, and the extensions that give the model more tools.
 
 ![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process, and Tool and Collector the Agent Extension Protocol with the extension processes: the user's, a plugin's, or the mcp of rumbo's own plugin.](architecture.svg)
 
-The host is the only part that is always rumbo. It owns the sessions, the
+The host is the only part that is always rumbo. It owns one session, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied
 to one kind of work: what a task is about comes from the user and from the
 user's instructions, not from the host.
@@ -27,7 +27,7 @@ The host starts provider processes and speaks the Agent Provider Protocol to
 each. A process answers one request at a time, so the host keeps a pool of
 them per provider and starts another when every one is busy; any of them can
 answer any request, since every request carries the whole conversation.
-Each session uses the provider chosen for it, and keeps it from one start of
+A session uses the provider chosen for it, and keeps it from one start of
 rumbo to the next. The providers that come with rumbo, `anthropic`,
 `openai`, and `chatgpt`, are its own plugin's (`plugins/rumbo`), served by
 the same binary through `rumbo provide <name>`, and get no shortcut: they
@@ -49,11 +49,10 @@ result is text, and may show the model images as well: `read` shows an
 image file as an image, with text that says what it is for a provider that
 cannot send it. `internal/picture` prepares every image the model is shown,
 a tool's or one a person gives with a task, at a size a model sees whole
-and in a form every model API reads. The tools keep a little state. Each session has its own record of the files its
-model has seen, so a model cannot replace a file whole without knowing what
-is in it, even one another session's model read. The processes left running
-in the background, and the files the tools save for the model, are the
-host's: they go when it exits.
+and in a form every model API reads. The tools keep a little state: a record of the files the model has seen,
+so it cannot replace a file whole without knowing what is in it, the
+processes left running in the background, and the files the tools save
+for the model. All of it is the host's, and goes when it exits.
 
 **Extensions** (`internal/extension`, `protocol`). How a user gives the model
 tools rumbo does not have. An extension is a program the user registers,
@@ -70,9 +69,9 @@ is told. Those are all the ways it reaches a run: it decides what its tools
 return and its sections say, and nothing else. It reaches the person too,
 through the front end and without the host reading any of it: a call says
 what it is doing and asks them something, such as whether to go on, and
-its functions are commands in any front end, as a provider's are. One process of each serves every session and lasts as long as
-the host, so what an extension holds, such as a connection, is there for
-the next call. The extensions are the user's, the same in every project,
+its functions are commands in any front end, as a provider's are. One
+process of each lasts as long as the host, so what an extension holds,
+such as a connection, is there for the next call. The extensions are the user's, the same in every project,
 and a run has those registered when it starts: one that does not start, or
 whose tools the model cannot be given, stops the run instead of leaving it
 with tools missing. rumbo's own plugin has an extension (`plugins/rumbo`),
@@ -139,9 +138,6 @@ the model request from them. This is the single place that decides what the
 model sees. It also tells a session's history to front ends, in the events
 its runs sent, and what the person asked, which front ends bring back.
 
-**Project** (`internal/project`). Says where the project a directory belongs
-to starts.
-
 **Front end** (`internal/frontend`, `protocol`). The only way a person
 reaches the loop. The host sends it events and receives objectives, steers,
 and cancellations over the Agent Frontend Protocol. Inside the host, the
@@ -151,10 +147,20 @@ come with rumbo, `tui`, its own plugin's, and `plain`, which it has built in
 (`internal/frontends`), are served by the same binary through `rumbo attach
 <name>` and cross the same protocol as one a user writes. A front end either
 is started by the host, which leaves it the terminal, or starts the host
-itself with `rumbo serve`, as an editor would. What a person can do beyond
-giving a task, such as changing session or provider, the host offers as
-described functions, so a front end has commands for them without knowing
+itself with `rumbo serve`, as an editor would, once for each session it
+shows. `tui` does both: one host starts it, and it starts the hosts of the
+other sessions the person opens, lists the sessions with `rumbo sessions
+-json`, and closes the hosts left unused. What a person can do beyond giving a task, such as changing provider
+or compacting, the host offers as described functions, so a front end has commands for them without knowing
 them, exactly as it does for a provider's.
+
+**Processes** (`internal/processes`). What a host costs the machine: the
+host, the programs it started, and theirs, each with the memory it holds
+and the processor time it has used, read from the system's `ps`. The host
+says which of them is its front end, a provider's, an extension's, or left
+running by the model, and a process under one of those is counted as its.
+A front end that holds a host for each session asks each of them, as a
+request of the protocol or as the host's function a person reads.
 
 **Command line** (`internal/cli`). Parses arguments, reads the settings, and
 wires the parts. It is the only place that knows the implementations. What
@@ -223,15 +229,16 @@ stay in the session; only the request changes.
 done, failed, or cancelled. A run without one was killed. That is what makes
 resuming possible, and why a failure is never only on the screen.
 
-**One process per session.** The host holds a lock on each session it works
-in, so two processes cannot interleave entries into a history that neither of
-them sent.
-
-**A host works in several sessions.** They are sessions of one project, and
-each has one run at a time. A run goes to the current session unless it
-names another or asks for a new one, so a front end that knows nothing of
-sessions works as if there were only one. Started with `-single`, the host
-works in one session at a time.
+**A rumbo process is one session.** A host starts in a new session or
+continues one, works in it one run at a time, and ends with it: it does not
+list the others, move to another, or run in two. So each session has its
+own settings as they were read, its own provider and extension processes,
+and its own tools, and what goes wrong in one stays there. A front end that
+shows several sessions starts a host for each, groups them as it likes, by
+their roots for one, and closes those it does not need: what many
+processes cost is its to manage. The host holds a lock on its session from
+the first work in it until it ends, so two processes cannot interleave
+entries into a history that neither of them sent.
 
 **Tool output is bounded.** A result stays in the context and is paid for on
 every later request, so results are kept small: a file is read in windows,
@@ -250,7 +257,9 @@ tools and providers stopped.
 calling tools. The harness does not judge the result; checking the work is
 part of the task, and the user's instructions say how.
 
-**A project is its root.** Sessions belong to the top of the git repository,
-and are found from any directory inside it. A session still works in the
-directory it was started in. Settings are not the project's: they are the
-same everywhere.
+**A session's root is where it was started.** The directory rumbo is started
+in is the session's root: where it works, what it is listed and continued
+by, and the one place besides the user's own whose instructions and skills
+the model is told. Nothing above it is looked at, the top of a git
+repository included, so what a session is does not depend on what holds its
+directory. Settings are not the directory's: they are the same everywhere.

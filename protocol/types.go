@@ -19,7 +19,7 @@ import (
 	"errors"
 )
 
-// Version is the protocol version this package implements.
+// Version is the version of the provider protocol this package implements.
 const Version = 1
 
 // Method names.

@@ -69,7 +69,7 @@ def run(params, request_id):
 # field left out. This one has none, so a field it was given is a mistake,
 # which it says rather than ignore.
 hello = json.loads(from_host.readline())
-send({"id": hello["id"], "result": {"protocol": 1, "name": "simple", "config": {}}})
+send({"id": hello["id"], "result": {"protocol": 2, "name": "simple", "config": {}}})
 
 if hello["params"].get("config"):
     raise SystemExit("simple has no configuration, and was given: " + ", ".join(hello["params"]["config"]))

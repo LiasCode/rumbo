@@ -139,14 +139,7 @@ func (a *app) changed(msg changesMsg) {
 
 // details are what the app knows of the session shown, for its panel.
 func (a *app) details() details {
-	shown := details{session: a.session, dir: a.info.Dir, model: a.chip(), spent: spentOf(a.shown.usage)}
-
-	for _, listed := range a.sessions.listed {
-		if listed.Value == a.session {
-			shown.description = listed.Description
-		}
-	}
-
+	shown := details{session: a.session, title: a.called, dir: a.info.Dir, model: a.chip(), spent: spentOf(a.shown.usage)}
 	context, window := a.shown.usage.Fill()
 	shown.meter = contextMeter(a.theme, context, window)
 
@@ -276,8 +269,9 @@ func (a *app) act(index int) tea.Cmd {
 
 		return nil
 
-	case chosen.kind == entryTask:
+	case chosen.kind == entryTask && a.branches() && a.shown.point(index) > 0:
 		a.palette = a.messageMenu(index)
+
 		return nil
 	}
 
@@ -286,20 +280,13 @@ func (a *app) act(index int) tea.Cmd {
 
 // messageMenu offers what can be done with what the person asked.
 func (a *app) messageMenu(index int) *palette {
-	chosen := a.shown.entries[index]
+	chosen, point := a.shown.entries[index], a.shown.point(index)
 
-	var entries []paletteEntry
-
-	if point := a.shown.point(index); point > 0 && a.offers("branch") && a.session != "" {
-		entries = append(entries,
-			paletteEntry{group: "in a branch that starts before it", name: "Change it", description: "Put it in the composer, to change it and send it", action: actionEdit, point: point, text: chosen.text, images: chosen.images},
-			paletteEntry{group: "in a branch that starts before it", name: "Ask it again", description: "Send it as it is", action: actionAskAgain, point: point, text: chosen.text, images: chosen.images},
-		)
-	}
-
-	entries = append(entries, paletteEntry{group: "this message", name: "Copy it", description: "Put its words in the clipboard", action: actionCopyText, text: chosen.text})
-
-	menu := newPalette(entries)
+	menu := newPalette([]paletteEntry{
+		{group: "in a branch that starts before it", name: "Change it", description: "Put it in the composer, to change it and send it", action: actionEdit, point: point, text: chosen.text, images: chosen.images},
+		{group: "in a branch that starts before it", name: "Ask it again", description: "Send it as it is", action: actionAskAgain, point: point, text: chosen.text, images: chosen.images},
+		{group: "this message", name: "Copy it", description: "Put its words in the clipboard", action: actionCopyText, text: chosen.text},
+	})
 	menu.title, menu.fixed = "your message", true
 
 	return menu
@@ -320,8 +307,9 @@ func (a *app) copy(text string) tea.Cmd {
 }
 
 // branchAt goes on in a branch of the session shown that starts before the
-// person's message numbered point, where what it said is put in the
-// composer to change, or, again, sent as it is once the branch is shown.
+// person's message numbered point: its host makes the branch, a rumbo is
+// started for it, and there what the message said is put in the composer
+// to change, or, again, sent as it is once the branch shows what it holds.
 func (a *app) branchAt(point int, text string, images []protocol.Image, again bool) tea.Cmd {
 	if a.asking {
 		a.notice = "a command is waiting for its answer"
@@ -329,8 +317,7 @@ func (a *app) branchAt(point int, text string, images []protocol.Image, again bo
 	}
 
 	params, _ := json.Marshal(map[string]string{"point": strconv.Itoa(point)})
-	line := "/branch " + strconv.Itoa(point)
-	a.shown.add(&entry{kind: entryTyped, text: line})
+	a.shown.add(&entry{kind: entryTyped, text: "/branch " + strconv.Itoa(point)})
 	a.shown.follow = true
 	a.asking = true
 
@@ -356,7 +343,7 @@ func (a *app) branchAt(point int, text string, images []protocol.Image, again bo
 		return nil
 	}
 
-	invoke := a.invoke(fromHost, "branch", params, a.shown, false)
+	invoke := a.invoke(fromHost, "branch", params, a.shown)
 
 	return func() tea.Msg {
 		answered := invoke()
@@ -390,10 +377,9 @@ func (a *app) sessionEntries() []paletteEntry {
 	}
 
 	add("Rename this session", "Give it a title of your own", actionRename, "rename")
-	add("Branch this session", "Go on in a copy of it; this one stays as it is", actionBranch, "branch")
+	add("Branch this session", "Go on in a copy of it, a session of its own; this one stays as it is", actionBranch, "branch")
 	add("Compact this session", "Replace its conversation with a summary now", actionCompact, "compact")
 	add("Copy the session's id", a.session, actionCopyID, "")
-	add("Delete this session", "For good, with its history", actionDelete, "delete")
 
 	return entries
 }
@@ -419,7 +405,7 @@ func (a *app) sessionAction(action int) tea.Cmd {
 		opened := functionForm(function("rename"), fromHost, a.info.Functions, nil)
 
 		if len(opened.fields) > 0 {
-			opened.fields[0].value.set(a.sessions.title(a.session))
+			opened.fields[0].value.set(titleOf(a.host))
 		}
 
 		return a.openForm(opened)
@@ -429,25 +415,6 @@ func (a *app) sessionAction(action int) tea.Cmd {
 		return a.run(fromHost, function("compact"), nil, "/compact")
 	case actionCopyID:
 		return a.copy(a.session)
-	case actionDelete:
-		return a.deleteSession(a.session)
-	}
-
-	return nil
-}
-
-// deleteSession deletes a session of the project, once the person agrees.
-func (a *app) deleteSession(session string) tea.Cmd {
-	if session == "" || !a.offers("delete") {
-		return nil
-	}
-
-	params, _ := json.Marshal(map[string]string{"session": session})
-
-	for _, each := range a.info.Functions {
-		if each.Name == "delete" {
-			return a.run(fromHost, each, params, "/delete "+session)
-		}
 	}
 
 	return nil

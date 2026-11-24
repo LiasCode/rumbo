@@ -597,7 +597,7 @@ func brings(added plugin) string {
 	if added.dir != "" {
 		place := filepath.Join(added.dir, skillsDir)
 
-		for _, skill := range ambient.FindSkills(context.Background(), added.dir, []string{place}).Found {
+		for _, skill := range ambient.FindSkills(added.dir, []string{place}).Found {
 			if strings.HasPrefix(skill.Path, place+string(filepath.Separator)) {
 				fmt.Fprintf(&out, "  the skill %s\n", skill.Name)
 			}

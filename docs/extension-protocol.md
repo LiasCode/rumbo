@@ -29,9 +29,10 @@ what it declares, and the host asks it for nothing else.
   extension's stdin (host to extension) and stdout (extension to host).
 - stdout carries only protocol messages. Diagnostics go to stderr, which the
   host shows to the user.
-- One process serves every session of the host, so the host may send a
-  `call` while another is in progress. An extension may answer them in any
-  order, or one at a time; each response names its request by `id`.
+- One process serves the host while it lasts, for its run and for what
+  the person asks of the extension meanwhile, so the host may send a
+  request while another is in progress. An extension may answer them in
+  any order, or one at a time; each response names its request by `id`.
 
 ## Methods
 
@@ -94,7 +95,7 @@ run keeps the ones it started with.
 `args` are the arguments the model gave, valid JSON that the host has not
 checked against the schema. `dir` is the directory the session works in,
 and `session` the session, for an extension that keeps something for each:
-one process serves them all.
+a host is one session, and each has a process of the extension.
 
 Result: `{"text": "kept"}`.
 
@@ -229,7 +230,7 @@ An extension that names event types in `events`, in the result of
 
 The events are those of the
 [Agent Frontend Protocol](frontend-protocol.md#event-notification-host-to-front-end),
-with the same fields, of every session the host works in. Two of them reach
+with the same fields, of the host's session. Two of them reach
 a front end only in a session's history, and an extension as they happen:
 `objective`, when a run starts, with what was asked, and `ended`, with how
 it ended. So an extension can notify when a run is done, count what the

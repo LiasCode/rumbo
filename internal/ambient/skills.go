@@ -1,7 +1,6 @@
 package ambient
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -54,18 +53,16 @@ type Skills struct {
 
 // FindSkills returns the skills the user's plugins bring, in the places
 // given, the user's own, in skills beside rumbo's settings, and the
-// project's, in .agents/skills from the project's root down to dir. A
-// skill with the name of another one replaces it in a more specific place.
-func FindSkills(ctx context.Context, dir string, plugins []string) Skills {
+// project's, in .agents/skills in dir. A skill with the name of another
+// one replaces it in a more specific place.
+func FindSkills(dir string, plugins []string) Skills {
 	found := Skills{Places: slices.Clone(plugins)}
 
 	if user, ok := userDir(); ok {
 		found.Places = append(found.Places, filepath.Join(user, "skills"))
 	}
 
-	for _, candidate := range projectDirs(ctx, dir) {
-		found.Places = append(found.Places, filepath.Join(candidate, ".agents", "skills"))
-	}
+	found.Places = append(found.Places, filepath.Join(dir, ".agents", "skills"))
 
 	named := map[string]Skill{}
 
@@ -92,8 +89,8 @@ func FindSkills(ctx context.Context, dir string, plugins []string) Skills {
 
 // skills tells the model of the skills that apply in dir, those in the
 // places the user's plugins have among them.
-func skills(ctx context.Context, dir string, plugins []string) string {
-	found := FindSkills(ctx, dir, plugins).Found
+func skills(dir string, plugins []string) string {
+	found := FindSkills(dir, plugins).Found
 
 	if len(found) == 0 {
 		return ""

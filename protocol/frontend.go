@@ -15,15 +15,21 @@ import (
 // a person uses to give objectives and watch the work. It uses the same
 // framing as the provider protocol. See docs/frontend-protocol.md.
 
+// FrontendVersion is the version of the front end protocol this package
+// implements. In version 2 a host is one session: a run names no session
+// and starts no other one, and history is the host's session's.
+const FrontendVersion = 2
+
 // Frontend method names. initialize and invoke are shared with the provider
 // protocol.
 const (
-	MethodRun      = "run"
-	MethodSteer    = "steer"
-	MethodEvent    = "event"
-	MethodDescribe = "describe"
-	MethodHistory  = "history"
-	MethodRecall   = "recall"
+	MethodRun       = "run"
+	MethodSteer     = "steer"
+	MethodEvent     = "event"
+	MethodDescribe  = "describe"
+	MethodHistory   = "history"
+	MethodRecall    = "recall"
+	MethodProcesses = "processes"
 )
 
 // When the host starts a front end, the protocol is on these file
@@ -51,8 +57,8 @@ const (
 )
 
 // What a function of the host acts on: rumbo itself, the same for every
-// session and provider; one session; the registered providers; or the
-// registered extensions.
+// session and provider; the host's session; the registered providers; or
+// the registered extensions.
 const (
 	GroupSystem    = "system"
 	GroupSession   = "session"
@@ -67,17 +73,32 @@ const (
 	RunCancelled = "cancelled"
 )
 
+// What a process of a host is: the host itself; the front end, when the
+// host started it; a provider or an extension, named; what the model left
+// running in the background; or a command the host runs for the moment,
+// such as one of the bash tool.
+const (
+	ProcessHost       = "host"
+	ProcessFrontend   = "frontend"
+	ProcessProvider   = "provider"
+	ProcessExtension  = "extension"
+	ProcessBackground = "background"
+	ProcessCommand    = "command"
+)
+
 // FrontendInitializeParams tells the front end what it is attached to.
-// Session is empty until the first run of a new session. Objective is what
-// the user already passed on the command line, if anything; the front end is
-// expected to run it. Resume means the user asked to continue the session's
-// unfinished run instead; the front end is expected to send a resume.
+// Session is empty until the first run of a new session, and Title is what
+// the session is called. Objective is what the user already passed on the
+// command line, if anything; the front end is expected to run it. Resume
+// means the user asked to continue the session's unfinished run instead;
+// the front end is expected to send a resume.
 // Functions are what the host itself can be asked through invoke, whatever
-// the provider: changing provider or session, compacting, quitting.
+// the provider: changing provider, compacting, quitting.
 type FrontendInitializeParams struct {
 	Protocol  int             `json:"protocol"`
 	Dir       string          `json:"dir"`
 	Session   string          `json:"session,omitempty"`
+	Title     string          `json:"title,omitempty"`
 	Provider  string          `json:"provider"`
 	Model     string          `json:"model"`
 	Objective string          `json:"objective,omitempty"`
@@ -96,32 +117,32 @@ type HostResult struct {
 	State  HostState `json:"state"`
 }
 
-// HostState is what a front end is attached to.
+// HostState is what a front end is attached to: the directory the session
+// works in, which is its root, the session and what it is called, both
+// empty until its first run makes it, and what it uses.
 type HostState struct {
 	Dir      string `json:"dir"`
 	Session  string `json:"session,omitempty"`
+	Title    string `json:"title,omitempty"`
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 }
 
 // RunParams starts a run on Objective, and the Images the person gave with
 // it, or, with Resume, continues the session's last run where it stopped.
-// Session names the session of the project to run in, and New asks for a
-// new one; with neither, the run goes to the current session. A session has
-// one run at a time. Model and Options choose, for this run, what the
-// provider described; what is left out keeps its stored value.
+// The run works in the host's session, which has one run at a time. Model
+// and Options choose, for this run, what the provider described; what is
+// left out keeps its stored value.
 type RunParams struct {
 	Objective string          `json:"objective,omitempty"`
 	Images    []Image         `json:"images,omitempty"`
 	Resume    bool            `json:"resume,omitempty"`
-	Session   string          `json:"session,omitempty"`
-	New       bool            `json:"new,omitempty"`
 	Model     string          `json:"model,omitempty"`
 	Options   json.RawMessage `json:"options,omitempty"`
 }
 
 // CancelRunParams names the run to cancel by the id of its run request.
-// Without one, every run in progress is cancelled. Invoke names instead a
+// Without one, the run in progress is cancelled. Invoke names instead a
 // function in progress, by the id of its invoke request.
 type CancelRunParams struct {
 	Run    int64 `json:"run,omitempty"`
@@ -143,7 +164,7 @@ type FrontendAskParams struct {
 }
 
 // SteerParams is what the user says to a run in progress, named by the id of
-// its run request; without one, to the only run in progress. It reaches the
+// its run request; without one, to the run in progress. It reaches the
 // model before its next request, and the run's objective stays as it was.
 type SteerParams struct {
 	Text   string  `json:"text"`
@@ -224,31 +245,47 @@ type Event struct {
 	Status   string          `json:"status,omitempty"`
 }
 
-// HistoryParams names the session whose history is asked for; without
-// one, the current session.
-type HistoryParams struct {
-	Session string `json:"session,omitempty"`
-}
-
-// HistoryResult is what a session holds, told in events, oldest first, so a
-// front end can show a session it opens as if it had followed every run.
-// Session is empty when the current session is new and holds nothing.
+// HistoryResult is what the host's session holds, told in events, oldest
+// first, so a front end can show a session it opens as if it had followed
+// every run. Session is empty when the session is new and holds nothing.
 type HistoryResult struct {
 	Session string  `json:"session,omitempty"`
 	Events  []Event `json:"events"`
 }
 
-// RecallResult is what the person asked in the project's sessions, most
-// recent first and each once: the objectives, and what was said to runs
-// while they worked. A front end brings it back to its input.
+// RecallResult is what the person asked in the sessions started in the
+// host's directory, most recent first and each once: the objectives, and
+// what was said to runs while they worked. A front end brings it back to
+// its input.
 type RecallResult struct {
 	Asked []string `json:"asked"`
 }
 
+// ProcessUsage is one process of a host and what it uses of the machine.
+// Role says what it is, and Name which provider or extension. A process
+// one of those started has its role and name, and Parent says which
+// started it. Memory is what it holds in memory now, in bytes, and CPU the
+// processor time it has used since it started, in seconds, both as the
+// system reports them.
+type ProcessUsage struct {
+	PID     int     `json:"pid"`
+	Parent  int     `json:"parent"`
+	Role    string  `json:"role"`
+	Name    string  `json:"name,omitempty"`
+	Command string  `json:"command"`
+	Memory  int64   `json:"memory"`
+	CPU     float64 `json:"cpu"`
+}
+
+// ProcessesResult is the processes of a host, itself first and each of the
+// others after the one that started it.
+type ProcessesResult struct {
+	Processes []ProcessUsage `json:"processes"`
+}
+
 // FrontendConn is the front end's side of the protocol, for front ends
 // written in Go. Its methods may be called from several goroutines at once,
-// so several runs can be in progress, and the host can be asked things
-// while they work.
+// so the host can be asked things while a run works.
 type FrontendConn struct {
 	done chan struct{}
 
@@ -303,12 +340,12 @@ func DialFrontendConfigured(r io.Reader, w io.Writer, name string, inForce func(
 		return nil, params, err
 	}
 
-	if params.Protocol != Version {
-		return nil, params, fmt.Errorf("host speaks protocol %d, front end speaks %d", params.Protocol, Version)
+	if params.Protocol != FrontendVersion {
+		return nil, params, fmt.Errorf("host speaks protocol %d, front end speaks %d", params.Protocol, FrontendVersion)
 	}
 
 	conn := &FrontendConn{done: make(chan struct{}), out: json.NewEncoder(w), waiting: map[int64]chan Frame{}, talking: map[int64]talking{}, asking: map[int64][]context.CancelFunc{}}
-	answer := InitializeResult{Protocol: Version, Name: name}
+	answer := InitializeResult{Protocol: FrontendVersion, Name: name}
 
 	if inForce != nil {
 		answer.Config = inForce(params.Config)
@@ -350,9 +387,9 @@ func (c *FrontendConn) Launch(params RunParams, onID func(run int64), onEvent fu
 	return result, c.exchange(MethodRun, params, &result, onID, onEvent)
 }
 
-// Steer tells the only run in progress text, and returns once it is
-// recorded for the model's next request. An error means it never will be:
-// no run is in progress, several are, or the run ended first.
+// Steer tells the run in progress text, and returns once it is recorded
+// for the model's next request. An error means it never will be: no run is
+// in progress, or the run ended first.
 func (c *FrontendConn) Steer(text string) error {
 	return c.SteerRun(0, text)
 }
@@ -372,20 +409,28 @@ func (c *FrontendConn) Describe() (DescribeResult, error) {
 	return result, c.request(MethodDescribe, struct{}{}, &result, nil)
 }
 
-// History returns what a session holds, told in events: the current
-// session's when session is empty.
-func (c *FrontendConn) History(session string) (HistoryResult, error) {
+// History returns what the host's session holds, told in events.
+func (c *FrontendConn) History() (HistoryResult, error) {
 	var result HistoryResult
 
-	return result, c.request(MethodHistory, HistoryParams{Session: session}, &result, nil)
+	return result, c.request(MethodHistory, struct{}{}, &result, nil)
 }
 
-// Recall returns what the person asked in the project's sessions, most
-// recent first.
+// Recall returns what the person asked in the sessions started in the
+// host's directory, most recent first.
 func (c *FrontendConn) Recall() (RecallResult, error) {
 	var result RecallResult
 
 	return result, c.request(MethodRecall, struct{}{}, &result, nil)
+}
+
+// Processes returns the processes of the host and what each uses of the
+// machine, so a front end that holds several hosts can say what they cost,
+// and close those it does not need.
+func (c *FrontendConn) Processes() (ProcessesResult, error) {
+	var result ProcessesResult
+
+	return result, c.request(MethodProcesses, struct{}{}, &result, nil)
 }
 
 // Invoke calls a function of the provider and returns its answer as JSON.
@@ -554,7 +599,7 @@ func (c *FrontendConn) forget(id int64) {
 	delete(c.waiting, id)
 }
 
-// Cancel asks the host to stop every run in progress. Each still returns,
+// Cancel asks the host to stop the run in progress, which still returns,
 // with the cancelled status.
 func (c *FrontendConn) Cancel() {
 	_ = c.send(Frame{Method: MethodCancel})

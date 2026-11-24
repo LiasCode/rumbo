@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/LiasCode/rumbo/internal/frontends/render"
 	"github.com/LiasCode/rumbo/internal/store"
@@ -22,34 +20,17 @@ import (
 // without knowing them beforehand, the way it does with a provider's.
 type hostFunction struct {
 	protocol.Function
-	// duringRun says the function answers while a run works even in a host
-	// that works in one session at a time (-single): it only reads, or
-	// stores what the run in progress already read when it started. There
-	// the others wait for the run to end. In a host with several sessions, each function waits
-	// only for the session it changes.
-	duringRun bool
-	// slow says the function reaches a provider, so it is answered without
-	// holding up the requests that come after it.
+	// slow says the function reaches a provider, or waits for the system,
+	// so it is answered without holding up the requests that come after it.
 	slow bool
 	call func(h *host, ctx context.Context, params map[string]string) (protocol.HostResult, error)
 }
 
-// sessionParam lets a function act on a session other than the current one.
-var sessionParam = protocol.Option{Name: "session", Type: protocol.OptionString, Values: "sessions", Optional: true}
-
-// projectParam lets sessions list another project's, so a front end can
-// show every project's sessions from one host.
-var projectParam = protocol.Option{
-	Name: "project", Type: protocol.OptionString, Values: "projects", Optional: true,
-	Description: "the root of another project; without it, this one",
-}
-
-// chosenProvider lets a function ask a provider other than the current
-// session's. A front end that lists a parameter's values with such a
+// chosenProvider lets a function ask a provider other than the session's. A front end that lists a parameter's values with such a
 // function passes the provider given before it, as use does.
 var chosenProvider = protocol.Option{
 	Name: "provider", Type: protocol.OptionString, Values: "providers", Optional: true,
-	Description: "without it, the current session's",
+	Description: "without it, the session's",
 }
 
 // chosenExtension names the extension a function acts on.
@@ -70,8 +51,7 @@ var hostFunctions = []hostFunction{
 			Description: "Show what is chosen and what applies here, this session first, each value with where it comes from",
 			Group:       protocol.GroupSystem,
 		},
-		duringRun: true,
-		call:      (*host).showConfig,
+		call: (*host).showConfig,
 	},
 	{
 		Function: protocol.Function{
@@ -80,28 +60,32 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{changeParam("system-values")},
 			Group:       protocol.GroupSystem,
 		},
-		duringRun: true,
-		call:      (*host).systemSet,
+		call: (*host).systemSet,
 	},
 	{
-		Function:  protocol.Function{Name: "system-values", Description: "List the changes system-set takes", Group: protocol.GroupSystem, Lists: true},
-		duringRun: true,
-		call:      (*host).systemValues,
+		Function: protocol.Function{Name: "system-values", Description: "List the changes system-set takes", Group: protocol.GroupSystem, Lists: true},
+		call:     (*host).systemValues,
 	},
 	{
-		Function:  protocol.Function{Name: "quit", Description: "Stop the providers and exit; runs in progress are cancelled", Group: protocol.GroupSystem},
-		duringRun: true,
-		call:      (*host).quit,
+		Function: protocol.Function{
+			Name:        "processes",
+			Description: "Show this rumbo's processes, and the memory and processor time each uses",
+			Group:       protocol.GroupSystem,
+		},
+		slow: true,
+		call: (*host).showProcesses,
+	},
+	{
+		Function: protocol.Function{Name: "quit", Description: "Stop the providers and exit; runs in progress are cancelled", Group: protocol.GroupSystem},
+		call:     (*host).quit,
 	},
 	{
 		Function: protocol.Function{
 			Name:        "status",
 			Description: "Show the session, the model, and what the conversation has cost",
-			Params:      []protocol.Option{sessionParam},
 			Group:       protocol.GroupSession,
 		},
-		duringRun: true,
-		call:      (*host).status,
+		call: (*host).status,
 	},
 	{
 		Function: protocol.Function{
@@ -109,41 +93,12 @@ var hostFunctions = []hostFunction{
 			Description: "List the skills the model is told of here, and why one is left out",
 			Group:       protocol.GroupSession,
 		},
-		duringRun: true,
-		call:      (*host).listSkills,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "sessions",
-			Description: "List the sessions of this project, or of another, most recently used first, with how each one stands",
-			Params:      []protocol.Option{projectParam},
-			Group:       protocol.GroupSession,
-		},
-		duringRun: true,
-		call:      (*host).listSessions,
-	},
-	{
-		Function:  protocol.Function{Name: "projects", Description: "List the projects that have sessions, most recently used first", Group: protocol.GroupSession},
-		duringRun: true,
-		call:      (*host).listProjects,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "open",
-			Description: "Continue another session of this project",
-			Params:      []protocol.Option{{Name: "session", Type: protocol.OptionString, Values: "sessions"}},
-			Group:       protocol.GroupSession,
-		},
-		call: (*host).openSession,
-	},
-	{
-		Function: protocol.Function{Name: "new", Description: "Start a new session with the next task", Group: protocol.GroupSession},
-		call:     (*host).newSession,
+		call: (*host).listSkills,
 	},
 	{
 		Function: protocol.Function{
 			Name:        "branch",
-			Description: "Go on in a new session that starts from this one, as it is or as it was before one of your messages; this one stays as it is, and so do the files",
+			Description: "Make a new session that starts from this one, as it is or as it was before one of your messages, for another rumbo to go on in; this one stays as it is, and so do the files",
 			Params: []protocol.Option{{
 				Name: "point", Type: protocol.OptionString, Values: "branch-points", Optional: true,
 				Description: "the number of one of your messages, which the branch starts before; without it, it starts from now",
@@ -153,19 +108,8 @@ var hostFunctions = []hostFunction{
 		call: (*host).branchSession,
 	},
 	{
-		Function:  protocol.Function{Name: "branch-points", Description: "List your messages in this session, which a branch can start before", Group: protocol.GroupSession, Lists: true},
-		duringRun: true,
-		call:      (*host).branchPoints,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "delete",
-			Description: "Delete a session of this project and its history",
-			Params:      []protocol.Option{{Name: "session", Type: protocol.OptionString, Values: "sessions"}},
-			Confirm:     "This deletes the session and everything recorded in it, for good. Files it changed stay as they are.",
-			Group:       protocol.GroupSession,
-		},
-		call: (*host).deleteSession,
+		Function: protocol.Function{Name: "branch-points", Description: "List your messages in this session, which a branch can start before", Group: protocol.GroupSession, Lists: true},
+		call:     (*host).branchPoints,
 	},
 	{
 		Function: protocol.Function{
@@ -174,26 +118,7 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{{Name: "title", Type: protocol.OptionString}},
 			Group:       protocol.GroupSession,
 		},
-		duringRun: true,
-		call:      (*host).renameSession,
-	},
-	{
-		Function: protocol.Function{
-			Name:        "prune",
-			Description: "List the sessions of this project not used in a given time, and delete them with their history",
-			Params: []protocol.Option{
-				{
-					Name: "age", Type: protocol.OptionString,
-					Description: "how long they have not been used: hours, days, or weeks, such as 12h, 30d, or 2w",
-				},
-				{
-					Name: "confirm", Type: protocol.OptionString, Enum: []string{"yes"}, Optional: true,
-					Description: "yes deletes them; without it, they are only listed",
-				},
-			},
-			Group: protocol.GroupSession,
-		},
-		call: (*host).pruneSessions,
+		call: (*host).renameSession,
 	},
 	{
 		Function: protocol.Function{
@@ -218,25 +143,22 @@ var hostFunctions = []hostFunction{
 		call: (*host).sessionSet,
 	},
 	{
-		Function:  protocol.Function{Name: "session-values", Description: "List the changes session-set takes", Group: protocol.GroupSession, Lists: true},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).sessionValues,
+		Function: protocol.Function{Name: "session-values", Description: "List the changes session-set takes", Group: protocol.GroupSession, Lists: true},
+		slow:     true,
+		call:     (*host).sessionValues,
 	},
 	{
 		Function: protocol.Function{
 			Name:        "compact",
 			Description: "Replace the conversation with a summary now, to free context",
-			Params:      []protocol.Option{sessionParam},
 			Group:       protocol.GroupSession,
 		},
 		slow: true,
 		call: (*host).compactNow,
 	},
 	{
-		Function:  protocol.Function{Name: "providers", Description: "List the providers there are, those plugins bring and those registered", Group: protocol.GroupProvider},
-		duringRun: true,
-		call:      (*host).listProviders,
+		Function: protocol.Function{Name: "providers", Description: "List the providers there are, those plugins bring and those registered", Group: protocol.GroupProvider},
+		call:     (*host).listProviders,
 	},
 	{
 		Function: protocol.Function{
@@ -245,9 +167,8 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{chosenProvider},
 			Group:       protocol.GroupProvider,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).providerModels,
+		slow: true,
+		call: (*host).providerModels,
 	},
 	{
 		Function: protocol.Function{
@@ -256,9 +177,8 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{chosenProvider},
 			Group:       protocol.GroupProvider,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).providerShow,
+		slow: true,
+		call: (*host).providerShow,
 	},
 	{
 		Function: protocol.Function{
@@ -281,9 +201,8 @@ var hostFunctions = []hostFunction{
 			Group:       protocol.GroupProvider,
 			Lists:       true,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).providerValues,
+		slow: true,
+		call: (*host).providerValues,
 	},
 	{
 		Function: protocol.Function{
@@ -295,9 +214,8 @@ var hostFunctions = []hostFunction{
 			},
 			Group: protocol.GroupProvider,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).registerProvider,
+		slow: true,
+		call: (*host).registerProvider,
 	},
 	{
 		Function: protocol.Function{
@@ -307,13 +225,11 @@ var hostFunctions = []hostFunction{
 			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched, and a provider a plugin brings stays, as the plugin has it.",
 			Group:       protocol.GroupProvider,
 		},
-		duringRun: true,
-		call:      (*host).unregisterProvider,
+		call: (*host).unregisterProvider,
 	},
 	{
-		Function:  protocol.Function{Name: "extensions", Description: "List the extensions there are, those plugins bring and those registered", Group: protocol.GroupExtension},
-		duringRun: true,
-		call:      (*host).listExtensions,
+		Function: protocol.Function{Name: "extensions", Description: "List the extensions there are, those plugins bring and those registered", Group: protocol.GroupExtension},
+		call:     (*host).listExtensions,
 	},
 	{
 		Function: protocol.Function{
@@ -322,9 +238,8 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{chosenExtension},
 			Group:       protocol.GroupExtension,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).extensionShow,
+		slow: true,
+		call: (*host).extensionShow,
 	},
 	{
 		Function: protocol.Function{
@@ -333,9 +248,8 @@ var hostFunctions = []hostFunction{
 			Params:      []protocol.Option{chosenExtension, changeParam("extension-values")},
 			Group:       protocol.GroupExtension,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).extensionSet,
+		slow: true,
+		call: (*host).extensionSet,
 	},
 	{
 		Function: protocol.Function{
@@ -345,8 +259,7 @@ var hostFunctions = []hostFunction{
 			Group:       protocol.GroupExtension,
 			Lists:       true,
 		},
-		duringRun: true,
-		call:      (*host).extensionValues,
+		call: (*host).extensionValues,
 	},
 	{
 		Function: protocol.Function{
@@ -361,9 +274,8 @@ var hostFunctions = []hostFunction{
 			},
 			Group: protocol.GroupExtension,
 		},
-		duringRun: true,
-		slow:      true,
-		call:      (*host).registerExtension,
+		slow: true,
+		call: (*host).registerExtension,
 	},
 	{
 		Function: protocol.Function{
@@ -373,8 +285,7 @@ var hostFunctions = []hostFunction{
 			Confirm:     "This removes the extension's registration and its configuration, and its tools are gone from the next run. The program itself is not touched, and an extension a plugin brings stays, as the plugin has it.",
 			Group:       protocol.GroupExtension,
 		},
-		duringRun: true,
-		call:      (*host).unregisterExtension,
+		call: (*host).unregisterExtension,
 	},
 }
 
@@ -412,10 +323,6 @@ func (h *host) invokeHost(ctx context.Context, name string, raw json.RawMessage)
 			continue
 		}
 
-		if h.single && !function.duringRun && h.working() {
-			return protocol.HostResult{}, fmt.Errorf("%s waits for the run in progress to end; cancel the run to use it now", name)
-		}
-
 		for _, param := range function.Params {
 			if params[param.Name] == "" && !param.Optional {
 				return protocol.HostResult{}, fmt.Errorf("%s needs %s", name, param.Name)
@@ -435,46 +342,19 @@ func (h *host) state() protocol.HostState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	return protocol.HostState{
-		Dir:      h.current.dir,
-		Session:  h.current.id(),
-		Provider: h.current.provider,
-		Model:    h.current.model,
-	}
-}
+	state := protocol.HostState{Dir: h.dir, Provider: h.provider, Model: h.model}
 
-// chosen returns the place a function acts on: the session it names, or
-// the current one. The caller holds the lock.
-func (h *host) chosen(params map[string]string) (*place, error) {
-	if params["session"] == "" {
-		return h.current, nil
+	if h.session != nil {
+		state.Session, state.Title = h.session.ID, h.session.Title
 	}
 
-	return h.known(params["session"])
+	return state
 }
 
-func (h *host) status(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+func (h *host) status(context.Context, map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	target, err := h.chosen(params)
-
-	if err != nil {
-		h.mu.Unlock()
-		return protocol.HostResult{}, err
-	}
-
-	session, dir, chosen, working := target.session, target.dir, target.choice, h.busy[target]
-
-	var others []string
-
-	for other := range h.busy {
-		if other != target && other.session != nil {
-			others = append(others, other.session.ID)
-		}
-	}
-
+	session, chosen, working := h.session, h.choice, h.busy
 	h.mu.Unlock()
-
-	slices.Sort(others)
 
 	var out strings.Builder
 
@@ -484,16 +364,12 @@ func (h *host) status(_ context.Context, params map[string]string) (protocol.Hos
 		return protocol.HostResult{}, err
 	}
 
-	fmt.Fprintf(&out, "provider: %s\nmodel: %s\n%s\ndirectory: %s", chosen.provider, chosen.model, options, dir)
+	fmt.Fprintf(&out, "provider: %s\nmodel: %s\n%s\ndirectory: %s", chosen.provider, chosen.model, options, h.dir)
 
 	if session == nil {
 		out.WriteString("\nsession: none yet; the next task starts one")
 	} else if err := h.describeSession(&out, *session, working); err != nil {
 		return protocol.HostResult{}, err
-	}
-
-	if len(others) > 0 {
-		fmt.Fprintf(&out, "\nworking here as well: %s", strings.Join(others, ", "))
 	}
 
 	return protocol.HostResult{Text: out.String()}, nil
@@ -556,331 +432,35 @@ func (h *host) describeSession(out *strings.Builder, session store.Session, work
 	return nil
 }
 
-func (h *host) listSessions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	project := params["project"]
-
-	if project == "" {
-		project = h.root
-	}
-
-	listed, err := standings(h.database, project)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	h.mu.Lock()
-	working := map[string]string{}
-	held := map[string]bool{h.current.id(): h.current.unlock != nil}
-
-	for target, what := range h.busy {
-		working[target.id()] = what
-	}
-
-	for id, target := range h.places {
-		held[id] = held[id] || target.unlock != nil
-	}
-
-	h.mu.Unlock()
-
-	var result protocol.HostResult
-
-	for _, each := range listed {
-		var parts []string
-
-		switch {
-		case working[each.ID] != "":
-			parts = append(parts, working[each.ID]+" in progress")
-		case each.inUse && !held[each.ID]:
-			parts = append(parts, "in use by another rumbo process")
-		default:
-			parts = append(parts, each.ended())
-		}
-
-		parts = append(parts, counted(each.summary.Turns, "turn"))
-
-		if each.Parent != "" {
-			parts = append(parts, "branch of "+each.Parent)
-		}
-
-		parts = append(parts, "last used "+each.ActiveAt.Format("2006-01-02 15:04"))
-		result.Values = append(result.Values, protocol.Value{Value: each.ID, Label: each.Title, Description: strings.Join(parts, "; ")})
-	}
-
-	if len(listed) == 0 && project == h.root {
-		result.Text = "this project has no sessions yet"
-	} else if len(listed) == 0 {
-		result.Text = project + " has no sessions"
-	}
-
-	return result, nil
-}
-
-// listProjects lists the projects that have sessions, by their root, most
-// recently used first, so a front end can show every project's sessions
-// and start rumbo in the one a person opens.
-func (h *host) listProjects(context.Context, map[string]string) (protocol.HostResult, error) {
-	sessions, err := h.database.Sessions("")
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	type project struct {
-		root     string
-		sessions int
-		used     string
-	}
-
-	var projects []*project
-
-	known := map[string]*project{}
-
-	// The sessions come most recently used first, so a project's first one
-	// says when it was last used.
-	for _, session := range sessions {
-		found, ok := known[session.Project]
-
-		if !ok {
-			found = &project{root: session.Project, used: session.ActiveAt.Format("2006-01-02 15:04")}
-			known[session.Project] = found
-			projects = append(projects, found)
-		}
-
-		found.sessions++
-	}
-
-	var result protocol.HostResult
-
-	for _, project := range projects {
-		description := counted(project.sessions, "session") + "; last used " + project.used
-
-		if project.root == h.root {
-			description = "this project; " + description
-		}
-
-		result.Values = append(result.Values, protocol.Value{Value: project.root, Label: filepath.Base(project.root), Description: description})
-	}
-
-	if len(projects) == 0 {
-		result.Text = "no project has sessions yet"
-	}
-
-	return result, nil
-}
-
-// counted says how many of something there are, such as 1 turn or 2 turns.
-func counted(count int, what string) string {
-	if count == 1 {
-		return "1 " + what
-	}
-
-	return fmt.Sprintf("%d %ss", count, what)
-}
-
-// openSession makes another session the current one. One that works goes
-// on working in the background.
-func (h *host) openSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	target, err := h.known(params["session"])
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	if err := h.hold(target); err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	previous := h.current
-	h.current = target
-	h.letGo(previous)
-	h.prune()
-
-	text := fmt.Sprintf("continuing session %s (%s) in %s", target.session.ID, target.session.Title, target.dir)
-
-	return protocol.HostResult{Text: text + h.background(previous)}, nil
-}
-
-// deleteSession removes a session for good. One that something works in,
-// or that another rumbo process is using, is left alone.
-func (h *host) deleteSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	target, err := h.known(params["session"])
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	if what := h.busy[target]; what != "" {
-		return protocol.HostResult{}, fmt.Errorf("%s is busy with %s; cancel it first", target.name(), what)
-	}
-
-	// The session has to be free: held here, or by no other process.
-	if err := h.hold(target); err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	if err := h.database.DeleteSession(target.session.ID); err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	target.release()
-	delete(h.places, target.session.ID)
-
-	if target == h.current {
-		h.current = h.fresh(target)
-	}
-
-	return protocol.HostResult{Text: fmt.Sprintf("deleted session %s (%s)", target.session.ID, target.session.Title)}, nil
-}
-
-// renameSession gives the current session a title of the person's own.
+// renameSession gives the session a title of the person's own.
 func (h *host) renameSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	target := h.current
-
-	if target.session == nil {
+	if h.session == nil {
 		return protocol.HostResult{}, errors.New("this session has no task yet: it takes its title from its first one, and can be renamed then")
 	}
 
-	title, err := retitle(h.database, target.session.ID, params["title"])
+	title, err := retitle(h.database, h.session.ID, params["title"])
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	// What works in the session keeps the copy it read; the place gets a
+	// What works in the session keeps the copy it read; the host gets a
 	// new one.
-	renamed := *target.session
+	renamed := *h.session
 	renamed.Title = title
-	target.session = &renamed
+	h.session = &renamed
 
 	return protocol.HostResult{Text: fmt.Sprintf("session %s is now %q", renamed.ID, title)}, nil
 }
 
-// pruneSessions lists the project's sessions not used in a while, and
-// deletes them when confirmed. Those this host holds, or something works
-// in, and those another rumbo process uses, are kept.
-func (h *host) pruneSessions(_ context.Context, params map[string]string) (protocol.HostResult, error) {
-	age, err := parseAge(params["age"])
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	confirmed := params["confirm"] == "yes"
-
-	if params["confirm"] != "" && !confirmed {
-		return protocol.HostResult{}, fmt.Errorf("confirm is yes, which deletes the sessions, or left out, which lists them; not %q", params["confirm"])
-	}
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	sessions, err := h.database.Sessions(h.root)
-
-	if err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	old := unused(sessions, time.Now().Add(-age))
-
-	if len(old) == 0 {
-		return protocol.HostResult{Text: fmt.Sprintf("no session of this project was last used more than %s ago", params["age"])}, nil
-	}
-
-	if !confirmed {
-		return h.prunable(old, params["age"])
-	}
-
-	var deleted, kept []string
-
-	for _, session := range old {
-		if h.holds(session.ID) {
-			kept = append(kept, session.ID)
-			continue
-		}
-
-		if err := discard(h.database, session.ID); errors.Is(err, store.ErrLocked) {
-			kept = append(kept, session.ID)
-			continue
-		} else if err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		delete(h.places, session.ID)
-		deleted = append(deleted, fmt.Sprintf("\n  %s  %s", session.ID, titled(session)))
-	}
-
-	text := fmt.Sprintf("deleted %s last used more than %s ago%s", counted(len(deleted), "session"), params["age"], strings.Join(deleted, ""))
-
-	if len(kept) > 0 {
-		text += fmt.Sprintf("\nkept %s in use: %s", counted(len(kept), "session"), strings.Join(kept, ", "))
-	}
-
-	return protocol.HostResult{Text: text}, nil
-}
-
-// prunable lists the sessions prune deletes when confirmed, and marks those
-// it keeps. The caller holds the lock.
-func (h *host) prunable(old []store.Session, age string) (protocol.HostResult, error) {
-	var out strings.Builder
-
-	fmt.Fprintf(&out, "%s of this project last used more than %s ago:", counted(len(old), "session"), age)
-
-	for _, session := range old {
-		used, err := h.database.SessionInUse(session.ID)
-
-		if err != nil {
-			return protocol.HostResult{}, err
-		}
-
-		mark := ""
-
-		if used || h.holds(session.ID) {
-			mark = "  (in use, kept)"
-		}
-
-		fmt.Fprintf(&out, "\n  %s  %s  %s%s", session.ID, session.ActiveAt.Format("2006-01-02 15:04"), titled(session), mark)
-	}
-
-	out.WriteString("\nwith confirm yes, prune deletes them with their history; those in use are kept")
-
-	return protocol.HostResult{Text: out.String()}, nil
-}
-
-// holds says whether this host keeps a session from being deleted: it is
-// the current one, the host holds it, or something works in it. The caller
-// holds the lock.
-func (h *host) holds(id string) bool {
-	target, known := h.places[id]
-
-	return id == h.current.id() || (known && (target.unlock != nil || h.busy[target] != ""))
-}
-
-func (h *host) newSession(context.Context, map[string]string) (protocol.HostResult, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	previous := h.current
-	h.current = h.fresh(previous)
-	h.letGo(previous)
-
-	return protocol.HostResult{Text: "the next task starts a new session" + h.background(previous)}, nil
-}
-
-// branchPoints lists the person's messages in the current session, by
-// number, which a branch can start before.
+// branchPoints lists the person's messages in the session, by number,
+// which a branch can start before.
 func (h *host) branchPoints(context.Context, map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	session := h.current.session
+	session := h.session
 	h.mu.Unlock()
 
 	if session == nil {
@@ -916,22 +496,21 @@ func (h *host) points(session string) ([]transcript.Point, error) {
 	return transcript.Points(entries)
 }
 
-// branchSession makes a branch of the current session the current one: a
-// new session with a copy of its entries up to now, or up to just before
-// one of the person's messages. The session it came from stays as it is,
-// and goes on working in the background when it was. The files are not the
+// branchSession makes a branch of the session: a new session with a copy of
+// its entries up to now, or up to just before one of the person's messages.
+// This host stays in its session, which is left as it is, and answers with
+// the branch, for another rumbo to go on in. The files are not the
 // session's, so they stay as they are.
 func (h *host) branchSession(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	source := h.current
-
-	if source.session == nil {
+	if h.session == nil {
 		return protocol.HostResult{}, errors.New("there is no session to branch yet")
 	}
 
-	points, err := h.points(source.session.ID)
+	source := h.session.ID
+	points, err := h.points(source)
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -943,11 +522,11 @@ func (h *host) branchSession(_ context.Context, params map[string]string) (proto
 	switch point := params["point"]; point {
 	case "":
 		// What a run records while it works is no place to start from.
-		if what := h.busy[source]; what != "" {
-			return protocol.HostResult{}, fmt.Errorf("%s is busy with %s; branch from before one of your messages, or once it ends", source.name(), what)
+		if h.busy != "" {
+			return protocol.HostResult{}, fmt.Errorf("%s is busy with %s; branch from before one of your messages, or once it ends", h.name(), h.busy)
 		}
 
-		entries, err := h.database.Entries(source.session.ID)
+		entries, err := h.database.Entries(source)
 
 		if err != nil {
 			return protocol.HostResult{}, err
@@ -967,47 +546,25 @@ func (h *host) branchSession(_ context.Context, params map[string]string) (proto
 		upTo, before = points[number-1].Seq-1, points[number-1].Text
 	}
 
-	created, err := h.database.BranchSession(source.session.ID, upTo)
+	created, err := h.database.BranchSession(source, upTo)
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	branch := h.fresh(source)
-	branch.session, branch.dir = &created, created.Dir
-	h.places[created.ID] = branch
-
-	if err := h.choose(branch, source.choice); err != nil {
-		return protocol.HostResult{}, err
-	}
-
-	h.current = branch
-	h.letGo(source)
-	h.prune()
-
-	text := fmt.Sprintf("now in session %s, a branch of %s as it is", created.ID, source.session.ID)
+	text := fmt.Sprintf("session %s is a branch of this one as it is", created.ID)
 
 	if before != "" {
-		text = fmt.Sprintf("now in session %s, a branch of %s from before your message %s; the files are as they are now, not as they were then", created.ID, source.session.ID, params["point"])
+		text = fmt.Sprintf("session %s is a branch of this one from before your message %s; the files are as they are now, not as they were then", created.ID, params["point"])
 	}
 
-	text += h.background(source)
+	text += fmt.Sprintf("\ngo on in it with: rumbo -s %s", created.ID)
 
 	if before != "" {
 		text += "\nyour message was:\n" + before
 	}
 
-	return protocol.HostResult{Text: text}, nil
-}
-
-// background says that a session left behind keeps working. The caller
-// holds the lock.
-func (h *host) background(previous *place) string {
-	if what := h.busy[previous]; what != "" {
-		return fmt.Sprintf("; %s goes on in %s", what, previous.name())
-	}
-
-	return ""
+	return protocol.HostResult{Text: text, Values: []protocol.Value{{Value: created.ID, Label: created.Title}}}, nil
 }
 
 func (h *host) listProviders(context.Context, map[string]string) (protocol.HostResult, error) {
@@ -1026,8 +583,8 @@ func (h *host) listProviders(context.Context, map[string]string) (protocol.HostR
 	return result, nil
 }
 
-// useProvider changes the provider and the model of the current session,
-// which keeps them from then on. The history is the host's, not the
+// useProvider changes the provider and the model of the session, which
+// keeps them from then on. The history is the host's, not the
 // provider's, so the session goes on. A run in progress keeps the provider
 // it started with.
 func (h *host) useProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
@@ -1042,14 +599,14 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 
 	// The options chosen in a session are for its provider, so another one
 	// starts without them.
-	before := h.current.options
+	before := h.options
 	options := before
 
-	if name != h.current.provider {
+	if name != h.provider {
 		options = nil
 	}
 
-	if err := h.choose(h.current, choice{provider: name, model: params["model"], options: options}); err != nil {
+	if err := h.choose(choice{provider: name, model: params["model"], options: options}); err != nil {
 		return protocol.HostResult{}, err
 	}
 
@@ -1061,22 +618,21 @@ func (h *host) useProvider(_ context.Context, params map[string]string) (protoco
 		text += fmt.Sprintf("; the options chosen in it, %s, were for another provider and are dropped", before)
 	}
 
-	if h.busy[h.current] != "" {
+	if h.busy != "" {
 		text += "; the run in progress keeps the provider it started with"
 	}
 
 	return protocol.HostResult{Text: text}, nil
 }
 
-// sessionSet changes a value of an option chosen in the current session,
+// sessionSet changes a value of an option chosen in the session,
 // checked against what its provider describes, which is started for it. The
 // session keeps what is chosen in it, as it keeps its model, over its
 // provider's configuration; a run in progress keeps the options it started
 // with.
 func (h *host) sessionSet(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	target := h.current
-	provider := target.provider
+	provider := h.provider
 	h.mu.Unlock()
 
 	described, _, err := h.offers(ctx, provider)
@@ -1090,52 +646,52 @@ func (h *host) sessionSet(ctx context.Context, params map[string]string) (protoc
 
 	// The provider was asked without the lock, and the session may have
 	// moved to another one meanwhile.
-	if target.provider != provider {
-		return protocol.HostResult{}, fmt.Errorf("%s changed provider meanwhile, to %s; choose its options again", target.name(), target.provider)
+	if h.provider != provider {
+		return protocol.HostResult{}, fmt.Errorf("%s changed provider meanwhile, to %s; choose its options again", h.name(), h.provider)
 	}
 
 	// The change goes over what the session has now, not what it had when
 	// this call began: a front end sends one change after another, and
 	// this function is answered in the background, so they may overlap.
-	options, said, err := chooseOptions(provider, described.Options, target.options, []string{params["change"]})
+	options, said, err := chooseOptions(provider, described.Options, h.options, []string{params["change"]})
 
 	if err != nil {
 		return protocol.HostResult{}, err
 	}
 
-	changed := target.choice
+	changed := h.choice
 	changed.options = options
 
-	if err := h.choose(target, changed); err != nil {
+	if err := h.choose(changed); err != nil {
 		return protocol.HostResult{}, err
 	}
 
 	applies := "kept for the session the next task starts"
 
-	if target.session != nil {
+	if h.session != nil {
 		applies = "kept with this session; it applies to the tasks that start from now on"
 	}
 
 	return protocol.HostResult{Text: strings.Join(said, "\n") + "\n" + applies}, nil
 }
 
-// choose makes chosen what a place uses, and what its session keeps. A new
+// choose makes chosen what the session uses, and what it keeps. A new
 // session stores it when it is made. The caller holds the lock.
-func (h *host) choose(target *place, chosen choice) error {
-	if target.session == nil {
-		target.choice = chosen
+func (h *host) choose(chosen choice) error {
+	if h.session == nil {
+		h.choice = chosen
 		return nil
 	}
 
-	if err := h.hold(target); err != nil {
+	if err := h.hold(); err != nil {
 		return err
 	}
 
-	before := target.choice
-	target.choice = chosen
+	before := h.choice
+	h.choice = chosen
 
-	if err := h.keep(target); err != nil {
-		target.choice = before
+	if err := h.keep(); err != nil {
+		h.choice = before
 		return err
 	}
 
@@ -1162,14 +718,14 @@ func (h *host) describeChoice(chosen choice) (string, error) {
 	return fmt.Sprintf("options chosen in the session: %s\nconfiguration of %s, under them: %s", options, chosen.provider, shown(program.Config)), nil
 }
 
-// showConfig shows what is chosen and what applies, the current session's
-// choice first, since it wins there.
+// showConfig shows what is chosen and what applies, the session's choice
+// first, since it wins there.
 func (h *host) showConfig(context.Context, map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	layer := sessionLayer{title: "this session, which is new", choice: h.current.choice}
+	layer := sessionLayer{title: "this session, which is new", choice: h.choice}
 
-	if h.current.session != nil {
-		layer.title = "this session, " + h.current.session.ID
+	if h.session != nil {
+		layer.title = "this session, " + h.session.ID
 	}
 
 	h.mu.Unlock()
@@ -1236,10 +792,10 @@ func (h *host) providerSet(_ context.Context, params map[string]string) (protoco
 }
 
 // providerShow starts a provider and shows its settings: the one named, or
-// the current session's, with what the session chose over the rest.
+// the session's, with what the session chose over the rest.
 func (h *host) providerShow(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	chosen := h.current.choice
+	chosen := h.choice
 	h.mu.Unlock()
 
 	name := params["provider"]
@@ -1259,7 +815,7 @@ func (h *host) providerShow(_ context.Context, params map[string]string) (protoc
 
 func (h *host) unregisterProvider(_ context.Context, params map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	inUse := h.uses(params["provider"])
+	inUse := h.provider == params["provider"]
 	h.mu.Unlock()
 
 	if inUse {
@@ -1356,20 +912,20 @@ func (h *host) unregisterExtension(_ context.Context, params map[string]string) 
 	return protocol.HostResult{Text: removed}, nil
 }
 
-// compactNow replaces a session's conversation with a summary. The session
-// is busy meanwhile, so no run starts in it.
-func (h *host) compactNow(ctx context.Context, params map[string]string) (protocol.HostResult, error) {
+// compactNow replaces the session's conversation with a summary. The
+// session is busy meanwhile, so no run starts in it.
+func (h *host) compactNow(ctx context.Context, _ map[string]string) (protocol.HostResult, error) {
 	h.mu.Lock()
-	target, err := h.chosen(params)
+
+	var err error
 
 	switch {
-	case err != nil:
-	case target.session == nil:
+	case h.session == nil:
 		err = errors.New("there is no session to compact yet")
-	case h.busy[target] != "":
-		err = fmt.Errorf("%s is busy with %s; compact it when that ends", target.name(), h.busy[target])
+	case h.busy != "":
+		err = fmt.Errorf("%s is busy with %s; compact it when that ends", h.name(), h.busy)
 	default:
-		err = h.hold(target)
+		err = h.hold()
 	}
 
 	if err != nil {
@@ -1377,11 +933,11 @@ func (h *host) compactNow(ctx context.Context, params map[string]string) (protoc
 		return protocol.HostResult{}, err
 	}
 
-	h.busy[target] = busyCompact
-	chosen, session := target.choice, *target.session
+	h.busy = busyCompact
+	chosen, session := h.choice, *h.session
 	h.mu.Unlock()
 
-	defer h.finish(target)
+	defer h.finish()
 
 	pool, err := h.ready(ctx, chosen.provider)
 
@@ -1389,7 +945,7 @@ func (h *host) compactNow(ctx context.Context, params map[string]string) (protoc
 		return protocol.HostResult{}, err
 	}
 
-	worker, err := h.agent(ctx, pool, chosen, nil, target.tools, h.conn.Report(session.ID))
+	worker, err := h.agent(ctx, pool, chosen, nil, h.conn.Report(session.ID))
 
 	if err != nil {
 		return protocol.HostResult{}, err

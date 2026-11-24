@@ -210,7 +210,7 @@ func TestTheMenuLearnsTheProvidersCommands(t *testing.T) {
 	s := composing(t)
 
 	s.text("/")
-	s.apply(describedMsg{described: protocol.DescribeResult{Offers: protocol.Description{Functions: []protocol.Function{{Name: "greet", Description: "Say hello"}}}}})
+	s.apply(describedMsg{host: s.a.host, described: protocol.DescribeResult{Offers: protocol.Description{Functions: []protocol.Function{{Name: "greet", Description: "Say hello"}}}}})
 
 	if !slices.ContainsFunc(s.a.menu.shown, func(offered choice) bool { return offered.value == "/greet" }) {
 		t.Fatalf("the menu holds %+v", s.a.menu.shown)

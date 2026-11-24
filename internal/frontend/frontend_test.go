@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -405,36 +406,33 @@ func TestSlowFunctionsDoNotHoldUpTheRest(t *testing.T) {
 	}
 }
 
-// A front end asks for a session's history, and hears why when there is
+// A front end asks for the session's history, and hears why when there is
 // none to tell.
 func TestHistoryTellsWhatTheHostHolds(t *testing.T) {
 	host, front, _ := connect(t, "")
-	asked := make(chan string, 1)
+
+	var gone atomic.Bool
 
 	go host.Serve(Handlers{
 		Run: working,
-		History: func(params protocol.HistoryParams) (protocol.HistoryResult, error) {
-			asked <- params.Session
-
-			if params.Session == "gone" {
+		History: func() (protocol.HistoryResult, error) {
+			if gone.Load() {
 				return protocol.HistoryResult{}, errors.New("session gone: not found")
 			}
 
-			return protocol.HistoryResult{Session: params.Session, Events: []protocol.Event{{Type: protocol.EventObjective, Text: "earlier"}}}, nil
+			return protocol.HistoryResult{Session: "s-1", Events: []protocol.Event{{Type: protocol.EventObjective, Text: "earlier"}}}, nil
 		},
 	})
 
-	told, err := front.History("s-1")
+	told, err := front.History()
 
 	if err != nil || told.Session != "s-1" || len(told.Events) != 1 || told.Events[0].Text != "earlier" {
 		t.Fatalf("history = %+v, err = %v", told, err)
 	}
 
-	if session := <-asked; session != "s-1" {
-		t.Fatalf("the host was asked about %q", session)
-	}
+	gone.Store(true)
 
-	if _, err := front.History("gone"); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, err := front.History(); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("history of a missing session: err = %v", err)
 	}
 }
@@ -461,6 +459,55 @@ func TestRecallTellsWhatWasAsked(t *testing.T) {
 
 	if _, err := front.Recall(); err == nil || !strings.Contains(err.Error(), "nothing to recall") {
 		t.Fatalf("recall from a host without it: err = %v", err)
+	}
+}
+
+// A front end asks what the host's processes use, which does not hold up
+// what it asks next, and a host that does not say it says so.
+func TestProcessesTellsWhatTheHostUses(t *testing.T) {
+	host, front, _ := connect(t, "")
+	release := make(chan struct{})
+
+	go host.Serve(Handlers{
+		Run: working,
+		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
+			return protocol.HostResult{Text: name}, nil
+		},
+		Processes: func(context.Context) (protocol.ProcessesResult, error) {
+			<-release
+
+			return protocol.ProcessesResult{Processes: []protocol.ProcessUsage{
+				{PID: 7, Parent: 1, Role: protocol.ProcessHost, Command: "rumbo", Memory: 2048, CPU: 1.5},
+				{PID: 9, Parent: 7, Role: protocol.ProcessProvider, Name: "toy", Command: "python3"},
+			}}, nil
+		},
+	})
+
+	measured := make(chan protocol.ProcessesResult, 1)
+
+	go func() {
+		result, _ := front.Processes()
+		measured <- result
+	}()
+
+	if answer, err := front.InvokeHost("status", nil); err != nil || answer.Text != "status" {
+		t.Fatalf("a function behind processes = %+v, err = %v", answer, err)
+	}
+
+	close(release)
+
+	result := <-measured
+
+	if len(result.Processes) != 2 || result.Processes[0].Memory != 2048 || result.Processes[0].CPU != 1.5 || result.Processes[1].Name != "toy" || result.Processes[1].Parent != 7 {
+		t.Fatalf("processes = %+v", result)
+	}
+
+	other, front, _ := connect(t, "")
+
+	go other.Serve(Handlers{Run: working})
+
+	if _, err := front.Processes(); err == nil || !strings.Contains(err.Error(), "does not say what its processes use") {
+		t.Fatalf("processes from a host without it: err = %v", err)
 	}
 }
 

@@ -133,6 +133,11 @@ func (s *Stdio) Exited() bool {
 	}
 }
 
+// Pid is the system's id of the provider's process.
+func (s *Stdio) Pid() int {
+	return s.cmd.Process.Pid
+}
+
 // Close asks the provider to shut down and kills it if it does not.
 func (s *Stdio) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), gracePeriod)

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LiasCode/rumbo/internal/project"
 	"github.com/LiasCode/rumbo/internal/transcript"
 )
 
@@ -57,7 +56,7 @@ func Defaults(skillPlaces ...string) []Collector {
 	return []Collector{
 		Func("environment", environment),
 		Func("instructions", instructions),
-		Func("skills", func(ctx context.Context, dir string) string { return skills(ctx, dir, skillPlaces) }),
+		Func("skills", func(_ context.Context, dir string) string { return skills(dir, skillPlaces) }),
 	}
 }
 
@@ -130,10 +129,11 @@ func bounded(path, text string) string {
 // preference. The first one found in a directory is used.
 var instructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 
-// instructions gathers the user's global guide and the guides from the
-// repository root down to dir, so the most specific one comes last.
-func instructions(ctx context.Context, dir string) string {
-	dirs := projectDirs(ctx, dir)
+// instructions gathers the user's global guide and the guide in dir, the
+// more specific one last. Nothing above dir is read: a session's root is
+// the directory it was started in.
+func instructions(_ context.Context, dir string) string {
+	dirs := []string{dir}
 
 	if user, found := userDir(); found {
 		dirs = append([]string{user}, dirs...)
@@ -171,22 +171,4 @@ func userDir() (string, bool) {
 	}
 
 	return filepath.Join(config, "rumbo"), true
-}
-
-// projectDirs returns the directories from the project's root down to dir,
-// so the most specific one comes last.
-func projectDirs(ctx context.Context, dir string) []string {
-	var dirs []string
-
-	root := project.Root(ctx, dir)
-
-	for current := dir; ; current = filepath.Dir(current) {
-		dirs = append([]string{current}, dirs...)
-
-		if current == root || current == filepath.Dir(current) {
-			break
-		}
-	}
-
-	return dirs
 }

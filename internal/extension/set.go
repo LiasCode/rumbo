@@ -424,6 +424,23 @@ func (s *Set) Tell(event protocol.Event) {
 	}
 }
 
+// Pids are the system's ids of the extensions' processes that run now, by
+// extension.
+func (s *Set) Pids() map[string]int {
+	s.listening.Lock()
+	defer s.listening.Unlock()
+
+	pids := map[string]int{}
+
+	for name, process := range s.listeners {
+		if !process.Exited() {
+			pids[name] = process.Pid()
+		}
+	}
+
+	return pids
+}
+
 // Declared are the tools and the sections the running extension called
 // name declared, which is nothing for one that is not running.
 func (s *Set) Declared(name string) ([]protocol.ToolDef, []string) {

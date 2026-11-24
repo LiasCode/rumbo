@@ -38,11 +38,14 @@ type Handlers struct {
 	// describe and the provider's own functions, are answered when they are
 	// done, without holding up the requests that come after them.
 	Slow func(name string) bool
-	// History tells what a session holds. It is answered in order, so a
+	// History tells what the session holds. It is answered in order, so a
 	// front end that asks for it before a run gets it whole.
-	History func(params protocol.HistoryParams) (protocol.HistoryResult, error)
-	// Recall tells what the person asked in the project's sessions.
+	History func() (protocol.HistoryResult, error)
+	// Recall tells what the person asked in the directory's sessions.
 	Recall func() (protocol.RecallResult, error)
+	// Processes tells which processes the host has running and what each
+	// uses of the machine. It is answered when it is known, as describe is.
+	Processes func(ctx context.Context) (protocol.ProcessesResult, error)
 }
 
 // Work is an accepted run. It returns the session the run worked in.
@@ -96,7 +99,7 @@ func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (
 	}
 
 	id := conn.nextID
-	info.Protocol = protocol.Version
+	info.Protocol = protocol.FrontendVersion
 	params, _ := json.Marshal(info)
 
 	if err := conn.send(protocol.Frame{ID: &id, Method: protocol.MethodInitialize, Params: params}); err != nil {
@@ -124,8 +127,8 @@ func Connect(r io.Reader, w io.Writer, info protocol.FrontendInitializeParams) (
 			return nil, err
 		}
 
-		if result.Protocol != protocol.Version {
-			return nil, fmt.Errorf("front end %q speaks protocol %d, host speaks %d", result.Name, result.Protocol, protocol.Version)
+		if result.Protocol != protocol.FrontendVersion {
+			return nil, fmt.Errorf("front end %q speaks protocol %d, host speaks %d", result.Name, result.Protocol, protocol.FrontendVersion)
 		}
 
 		conn.config = result.Config
@@ -201,6 +204,15 @@ func (c *Conn) Serve(handlers Handlers) error {
 		case protocol.MethodRecall:
 			c.recall(frame, handlers)
 
+		case protocol.MethodProcesses:
+			call, cancel := c.track(ctx, frame.ID)
+
+			active.Go(func() {
+				defer cancel()
+
+				c.processes(call, frame, handlers)
+			})
+
 		case protocol.MethodDescribe, protocol.MethodInvoke:
 			if c.slow(frame, handlers) {
 				call, cancel := c.track(ctx, frame.ID)
@@ -243,12 +255,6 @@ func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitG
 	}
 
 	params.Images = images
-
-	if params.New && (params.Session != "" || params.Resume) {
-		c.fail(frame.ID, protocol.CodeInvalidParams, "a run in a new session takes an objective and no session")
-		return
-	}
-
 	id := *frame.ID
 
 	c.running.Lock()
@@ -435,10 +441,8 @@ func (c *Conn) find(id int64) (*Run, error) {
 	return nil, errors.New("several runs are in progress; name the one to tell with run")
 }
 
-// history answers what a session holds.
+// history answers what the session holds.
 func (c *Conn) history(frame protocol.Frame, handlers Handlers) {
-	var params protocol.HistoryParams
-
 	switch {
 	case frame.ID == nil:
 		return
@@ -446,13 +450,9 @@ func (c *Conn) history(frame protocol.Frame, handlers Handlers) {
 	case handlers.History == nil:
 		c.fail(frame.ID, protocol.CodeMethodNotFound, "this host keeps no history")
 		return
-
-	case len(frame.Params) > 0 && json.Unmarshal(frame.Params, &params) != nil:
-		c.fail(frame.ID, protocol.CodeInvalidParams, "history takes the session to tell, as text")
-		return
 	}
 
-	result, err := handlers.History(params)
+	result, err := handlers.History()
 
 	if err != nil {
 		c.fail(frame.ID, protocol.CodeInternal, err.Error())
@@ -463,7 +463,7 @@ func (c *Conn) history(frame protocol.Frame, handlers Handlers) {
 	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
 }
 
-// recall answers what the person asked in the project's sessions.
+// recall answers what the person asked in the directory's sessions.
 func (c *Conn) recall(frame protocol.Frame, handlers Handlers) {
 	switch {
 	case frame.ID == nil:
@@ -475,6 +475,29 @@ func (c *Conn) recall(frame protocol.Frame, handlers Handlers) {
 	}
 
 	result, err := handlers.Recall()
+
+	if err != nil {
+		c.fail(frame.ID, protocol.CodeInternal, err.Error())
+		return
+	}
+
+	raw, _ := json.Marshal(result)
+	_ = c.send(protocol.Frame{ID: frame.ID, Result: raw})
+}
+
+// processes answers which processes the host has running, and what each
+// uses.
+func (c *Conn) processes(ctx context.Context, frame protocol.Frame, handlers Handlers) {
+	switch {
+	case frame.ID == nil:
+		return
+
+	case handlers.Processes == nil:
+		c.fail(frame.ID, protocol.CodeMethodNotFound, "this host does not say what its processes use")
+		return
+	}
+
+	result, err := handlers.Processes(ctx)
 
 	if err != nil {
 		c.fail(frame.ID, protocol.CodeInternal, err.Error())
@@ -730,6 +753,11 @@ func (p *Process) Wait() int {
 	}
 
 	return 0
+}
+
+// Pid is the system's id of the front end's process.
+func (p *Process) Pid() int {
+	return p.cmd.Process.Pid
 }
 
 // Kill stops a front end that did not complete the handshake.

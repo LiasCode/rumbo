@@ -15,8 +15,8 @@ import (
 // conversation is what the terminal UI shows of one session: what the
 // person asked and told its runs, what the model wrote, the tools it
 // called, and what the host, the provider, and commands said. It is built
-// from the protocol's events alone, and kept for each session shown or
-// working, so a session shown again is as it was left.
+// from the protocol's events alone, and kept while a rumbo is held for the
+// session, so a session shown again is as it was left.
 type conversation struct {
 	session string
 	entries []*entry

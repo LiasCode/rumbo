@@ -19,19 +19,6 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// place is a session as this host knows it: the provider it uses, and what
-// its tools have seen. A place without a session is where a run goes that
-// starts one.
-type place struct {
-	choice
-	session *store.Session
-	// dir is where the session works, or will work once it is made.
-	dir   string
-	tools *tool.Set
-	// unlock releases the session while this host holds it.
-	unlock func()
-}
-
 // choice is the provider a session uses, its model, and the values of the
 // provider's options chosen in it. What a run gets is worked out when it
 // starts, with the values in the provider's configuration under these.
@@ -47,97 +34,62 @@ const (
 	busyCompact = "a compaction"
 )
 
-// id is the place's session id, empty until the session is made.
-func (p *place) id() string {
-	if p.session == nil {
+// id is the session's id, empty until the session is made. The caller
+// holds the lock.
+func (h *host) id() string {
+	if h.session == nil {
 		return ""
 	}
 
-	return p.session.ID
+	return h.session.ID
 }
 
-// name says which session a place is, for messages.
-func (p *place) name() string {
-	if p.session == nil {
+// name says which session the host's is, for messages. The caller holds
+// the lock.
+func (h *host) name() string {
+	if h.session == nil {
 		return "the new session"
 	}
 
-	return "session " + p.session.ID
+	return "session " + h.session.ID
 }
 
-// release gives up the session, if this host holds it.
-func (p *place) release() {
-	if p.unlock != nil {
-		p.unlock()
-		p.unlock = nil
-	}
-}
-
-// accept implements frontend.Handlers.Run. It decides where the run goes and
-// whether it may start, in the order run requests arrive.
+// accept implements frontend.Handlers.Run. It decides whether the run may
+// start, in the order run requests arrive: the session has one at a time.
 func (h *host) accept(params protocol.RunParams, run *frontend.Run) (frontend.Work, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	target, err := h.target(params)
-
-	if err != nil {
-		return nil, err
-	}
-
 	switch {
-	case h.single && len(h.busy) > 0:
-		return nil, errors.New("a run is already in progress")
+	case h.busy != "":
+		return nil, fmt.Errorf("%s is busy with %s; cancel it, or tell it what you want with steer", h.name(), h.busy)
 
-	case h.busy[target] != "":
-		return nil, fmt.Errorf("%s is busy with %s; cancel it, or tell it what you want with steer", target.name(), h.busy[target])
-
-	case params.Resume && target.session == nil:
+	case params.Resume && h.session == nil:
 		return nil, errors.New("there is no session to resume")
 
-	case target.model == "" && params.Model == "":
-		return nil, fmt.Errorf("no model chosen for %[1]s: choose one with use, or set the one %[1]s starts with: provider-set %[1]s model=<model>", target.provider)
+	case h.model == "" && params.Model == "":
+		return nil, fmt.Errorf("no model chosen for %[1]s: choose one with use, or set the one %[1]s starts with: provider-set %[1]s model=<model>", h.provider)
 	}
 
-	if err := h.hold(target); err != nil {
+	if err := h.hold(); err != nil {
 		return nil, err
 	}
 
-	h.busy[target] = busyRun
+	h.busy = busyRun
 
 	return func(ctx context.Context) (string, error) {
-		defer h.finish(target)
+		defer h.finish()
 
-		return h.work(ctx, target, params, run)
+		return h.work(ctx, params, run)
 	}, nil
-}
-
-// target is the place a run goes to: the session it names, a new one, or
-// the current one. A host that works in one session at a time only takes
-// the current one.
-func (h *host) target(params protocol.RunParams) (*place, error) {
-	named := params.Session != "" && params.Session != h.current.id()
-
-	switch {
-	case (params.New || named) && h.single:
-		return nil, errors.New("this host works in one session at a time (-single); change the current session with open or new first")
-
-	case params.New:
-		return h.fresh(h.current), nil
-
-	case named:
-		return h.known(params.Session)
-	}
-
-	return h.current, nil
 }
 
 // work runs the agent for an accepted run. The provider starts before a new
 // session is made for it, so a provider that cannot start leaves nothing
 // behind.
-func (h *host) work(ctx context.Context, target *place, params protocol.RunParams, run *frontend.Run) (string, error) {
+func (h *host) work(ctx context.Context, params protocol.RunParams, run *frontend.Run) (string, error) {
 	h.mu.Lock()
-	chosen, id := target.choice, target.id()
+	chosen, id := h.choice, h.id()
 	h.mu.Unlock()
 
 	pool, err := h.ready(ctx, chosen.provider)
@@ -161,7 +113,7 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		return id, err
 	}
 
-	worker, err := h.agent(ctx, pool, chosen, options, target.tools, run)
+	worker, err := h.agent(ctx, pool, chosen, options, run)
 
 	if err != nil {
 		return id, err
@@ -174,7 +126,7 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 		title = "[image]"
 	}
 
-	session, err := h.made(target, title)
+	session, err := h.made(title)
 
 	if err != nil {
 		return session.ID, err
@@ -193,21 +145,21 @@ func (h *host) work(ctx context.Context, target *place, params protocol.RunParam
 	return session.ID, worker.Run(ctx, session, params.Objective, params.Images...)
 }
 
-// agent builds the loop for one piece of work in a session, with the
+// agent builds the loop for one piece of work in the session, with the
 // settings as they stand when it starts: a change to them applies to the
 // work that starts after it. options are the option values the work gets
 // with every request.
-func (h *host) agent(ctx context.Context, pool *provider.Pool, chosen choice, options json.RawMessage, tools *tool.Set, observer agent.Observer) (*agent.Agent, error) {
+func (h *host) agent(ctx context.Context, pool *provider.Pool, chosen choice, options json.RawMessage, observer agent.Observer) (*agent.Agent, error) {
 	settings, err := loadLimits(h.database)
 
 	if err != nil {
 		return nil, err
 	}
 
-	declared := tools.Tools()
+	declared := h.tools.Tools()
 
 	if settings.Computer {
-		declared = append(declared, tools.Computer())
+		declared = append(declared, h.tools.Computer())
 	}
 
 	extensions, err := extensionPrograms(h.database)
@@ -271,84 +223,74 @@ func (h *host) inForce(chosen choice, described protocol.Description) (json.RawM
 	return optionsInForce(program.Config, described.Options, chosen.options)
 }
 
-// keep stores what a place chose in its session, which keeps it from one
-// start of rumbo to the next. The caller holds the session.
-func (h *host) keep(target *place) error {
-	session := target.session
+// keep stores what the session chose in it, which keeps it from one start
+// of rumbo to the next. The caller holds the session.
+func (h *host) keep() error {
+	session := h.session
 
-	if err := h.database.SetSessionModel(session.ID, target.provider, target.model); err != nil {
+	if err := h.database.SetSessionModel(session.ID, h.provider, h.model); err != nil {
 		return err
 	}
 
-	if err := h.database.SetSessionOptions(session.ID, target.options); err != nil {
+	if err := h.database.SetSessionOptions(session.ID, h.options); err != nil {
 		return err
 	}
 
-	session.Provider, session.Model, session.Options = target.provider, target.model, target.options
+	session.Provider, session.Model, session.Options = h.provider, h.model, h.options
 
 	return nil
 }
 
-// made returns the place's session, making it first when the place has
-// none.
-func (h *host) made(target *place, objective string) (store.Session, error) {
+// made returns the host's session, making it first when its first run has
+// not yet.
+func (h *host) made(objective string) (store.Session, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if target.session != nil {
-		return *target.session, nil
+	if h.session != nil {
+		return *h.session, nil
 	}
 
-	created, err := h.database.CreateSession(target.dir, h.root, render.FirstLine(objective))
+	created, err := h.database.CreateSession(h.dir, render.FirstLine(objective))
 
 	if err != nil {
 		return created, err
 	}
 
-	target.session = &created
-	h.places[created.ID] = target
+	h.session = &created
 
 	// The session keeps its provider, and what was chosen for it, from one
 	// start of rumbo to the next.
-	if err := h.keep(target); err != nil {
+	if err := h.keep(); err != nil {
 		return created, err
 	}
 
-	return created, h.hold(target)
+	return created, h.hold()
 }
 
-// finish marks the end of what worked in a place.
-func (h *host) finish(target *place) {
+// finish marks the end of what worked in the session.
+func (h *host) finish() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	delete(h.busy, target)
-	h.letGo(target)
+	h.busy = ""
 	h.prune()
 }
 
-// history tells a front end what a session holds: the current session's
-// unless the params name another of the project.
-func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, error) {
+// history tells a front end what the session holds.
+func (h *host) history() (protocol.HistoryResult, error) {
 	told := protocol.HistoryResult{Events: []protocol.Event{}}
 
 	h.mu.Lock()
-	target, err := h.chosen(map[string]string{"session": params.Session})
-
-	var session store.Session
-
-	if err == nil && target.session != nil {
-		session = *target.session
-	}
-
+	id := h.id()
 	h.mu.Unlock()
 
 	// A new session holds nothing until its first run makes it.
-	if err != nil || session.ID == "" {
-		return told, err
+	if id == "" {
+		return told, nil
 	}
 
-	entries, err := h.database.Entries(session.ID)
+	entries, err := h.database.Entries(id)
 
 	if err != nil {
 		return told, err
@@ -360,10 +302,10 @@ func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, e
 		return told, err
 	}
 
-	told.Session = session.ID
+	told.Session = id
 
 	for _, event := range events {
-		event.Session = session.ID
+		event.Session = id
 		told.Events = append(told.Events, event)
 	}
 
@@ -373,12 +315,13 @@ func (h *host) history(params protocol.HistoryParams) (protocol.HistoryResult, e
 // recallLimit bounds how much of what the person asked a front end is told.
 const recallLimit = 1000
 
-// recall tells a front end what the person asked in the project's
-// sessions, most recent first and each once, so it can bring it back. The
-// same words given with other images are one text to bring back.
+// recall tells a front end what the person asked in the sessions started
+// in the host's directory, most recent first and each once, so it can bring
+// it back. The same words given with other images are one text to bring
+// back.
 func (h *host) recall() (protocol.RecallResult, error) {
 	recalled := protocol.RecallResult{Asked: []string{}}
-	entries, err := h.database.Recent(h.root, []string{transcript.KindUser, transcript.KindSteer}, recallLimit)
+	entries, err := h.database.Recent(h.dir, []string{transcript.KindUser, transcript.KindSteer}, recallLimit)
 
 	if err != nil {
 		return recalled, err
@@ -398,101 +341,31 @@ func (h *host) recall() (protocol.RecallResult, error) {
 	return recalled, nil
 }
 
-// known returns the place of a session of the project, by id. A session
-// this host has not worked in yet uses the provider and the options stored
-// with it, or the provider of the current one when it has none stored. The
-// caller holds the lock.
-func (h *host) known(id string) (*place, error) {
-	if found, ok := h.places[id]; ok {
-		return found, nil
-	}
-
-	session, err := h.database.Session(id)
-
-	if err != nil {
-		return nil, fmt.Errorf("session %s: %w", id, err)
-	}
-
-	// Settings were read for this project, so the session has to be one of
-	// its own.
-	if session.Project != h.root {
-		return nil, fmt.Errorf("session %s belongs to %s; start rumbo there to work in it", session.ID, session.Project)
-	}
-
-	known := h.fresh(h.current)
-	known.session, known.dir = &session, session.Dir
-
-	if session.Provider != "" {
-		known.choice = choice{provider: session.Provider, model: session.Model, options: session.Options}
-	}
-
-	h.places[id] = known
-
-	return known, nil
-}
-
-// fresh returns a place for a session still to be made, where from works and
-// with its provider.
-func (h *host) fresh(from *place) *place {
-	return &place{choice: from.choice, dir: from.dir, tools: h.tools.Separate()}
-}
-
-// hold takes the place's session for this process, if it has one this host
-// does not hold yet. The caller holds the lock.
-func (h *host) hold(target *place) error {
-	if target.session == nil || target.unlock != nil {
+// hold takes the session for this process, if it is made and this host does
+// not hold it yet, and keeps it until the host ends. The caller holds the
+// lock.
+func (h *host) hold() error {
+	if h.session == nil || h.unlock != nil {
 		return nil
 	}
 
 	// Another rumbo process may have deleted the session since this one
 	// read it, and nothing should be recorded in it then.
-	if _, err := h.database.Session(target.session.ID); errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("session %s was deleted by another rumbo process; start a new session, or open another", target.session.ID)
+	if _, err := h.database.Session(h.session.ID); errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("session %s was deleted by another rumbo process; start rumbo again to work in a new one", h.session.ID)
 	} else if err != nil {
 		return err
 	}
 
-	unlock, err := h.database.LockSession(target.session.ID)
+	unlock, err := h.database.LockSession(h.session.ID)
 
 	if err != nil {
-		return fmt.Errorf("session %s: %w", target.session.ID, err)
+		return fmt.Errorf("session %s: %w", h.session.ID, err)
 	}
 
-	target.unlock = unlock
+	h.unlock = unlock
 
 	return nil
-}
-
-// letGo releases a session once it is neither current nor busy, so another
-// rumbo process can work in it. The caller holds the lock.
-func (h *host) letGo(target *place) {
-	if target != h.current && h.busy[target] == "" {
-		target.release()
-	}
-}
-
-// working reports whether anything works in any session.
-func (h *host) working() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	return len(h.busy) > 0
-}
-
-// uses reports whether the current session, or one that works, uses the
-// provider called name. The caller holds the lock.
-func (h *host) uses(name string) bool {
-	if h.current.provider == name {
-		return true
-	}
-
-	for target := range h.busy {
-		if target.provider == name {
-			return true
-		}
-	}
-
-	return false
 }
 
 // pool returns the processes of the provider called name, which start as
@@ -560,11 +433,11 @@ func (h *host) drop(name string) bool {
 	return found
 }
 
-// prune stops the processes of the providers that no session uses now. The
-// caller holds the lock.
+// prune stops the processes of the providers the session does not use
+// now. The caller holds the lock.
 func (h *host) prune() {
 	for name := range h.pools {
-		if !h.uses(name) {
+		if name != h.provider {
 			h.drop(name)
 		}
 	}

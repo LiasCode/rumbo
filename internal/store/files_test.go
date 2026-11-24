@@ -23,7 +23,7 @@ func TestLockSessionExcludesOtherProcesses(t *testing.T) {
 	first := testFiles(t)
 	second := Open(first.config, first.data)
 
-	session, err := first.CreateSession("/project", "/project", "test")
+	session, err := first.CreateSession("/project", "test")
 
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestLockSessionExcludesOtherProcesses(t *testing.T) {
 		t.Fatalf("second lock: err = %v, want ErrLocked", err)
 	}
 
-	other, _ := first.CreateSession("/project", "/project", "other")
+	other, _ := first.CreateSession("/project", "other")
 
 	if used, err := second.SessionInUse(other.ID); err != nil || used {
 		t.Fatalf("a session never held in use: %v, %v", used, err)
@@ -81,7 +81,7 @@ func TestLockSessionExcludesOtherProcesses(t *testing.T) {
 func TestASessionIsFilesAPersonCanRead(t *testing.T) {
 	files := testFiles(t)
 
-	session, err := files.CreateSession("/repo/pkg", "/repo", "fix the parser")
+	session, err := files.CreateSession("/repo/pkg", "fix the parser")
 
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,6 @@ func TestASessionIsFilesAPersonCanRead(t *testing.T) {
 
 	for _, line := range []string{
 		`  "dir": "/repo/pkg",`,
-		`  "project": "/repo",`,
 		`  "title": "fix the parser",`,
 		`  "provider": "anthropic",`,
 		`  "model": "claude-opus-5-5",`,
@@ -127,6 +126,18 @@ func TestASessionIsFilesAPersonCanRead(t *testing.T) {
 		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.Mode().Perm()&0o077 != 0 {
 			t.Errorf("%s: mode %v, err %v", name, info.Mode(), err)
 		}
+	}
+
+	// A session made when sessions were kept by the top of a git repository
+	// says which that was. It is read as it is, and is its directory's.
+	withProject := strings.Replace(string(record), `"dir": "/repo/pkg",`, `"dir": "/repo/pkg",`+"\n"+`  "project": "/repo",`, 1)
+
+	if err := os.WriteFile(filepath.Join(dir, "session.json"), []byte(withProject), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if earlier, err := files.Sessions("/repo/pkg"); err != nil || len(earlier) != 1 || earlier[0].ID != session.ID || earlier[0].Model != "claude-opus-5-5" {
+		t.Fatalf("a session that names a project = %+v, err = %v", earlier, err)
 	}
 
 	// Another process numbers the next entry after the ones that are there.
@@ -156,7 +167,7 @@ func TestASessionIsFilesAPersonCanRead(t *testing.T) {
 // end. It is no entry, and the next one does not go on from the middle of it.
 func TestALineCutShortIsNoEntry(t *testing.T) {
 	files := testFiles(t)
-	session, _ := files.CreateSession("/repo", "/repo", "cut short")
+	session, _ := files.CreateSession("/repo", "cut short")
 	files.Append(session.ID, "user", map[string]string{"text": "whole"})
 
 	path := filepath.Join(files.data, "sessions", session.ID, "entries.jsonl")
@@ -193,7 +204,9 @@ func TestALineCutShortIsNoEntry(t *testing.T) {
 	}
 }
 
-func TestSessionsAreFoundByProjectAndOrderedByUse(t *testing.T) {
+// A session is its directory's alone: one started in a directory inside is
+// not listed with it.
+func TestSessionsAreFoundByDirectoryAndOrderedByUse(t *testing.T) {
 	files := testFiles(t)
 
 	if none, err := files.Sessions(""); err != nil || len(none) != 0 {
@@ -204,9 +217,10 @@ func TestSessionsAreFoundByProjectAndOrderedByUse(t *testing.T) {
 		t.Fatalf("latest before any: err = %v", err)
 	}
 
-	older, _ := files.CreateSession("/repo/pkg", "/repo", "older")
-	newer, _ := files.CreateSession("/repo", "/repo", "newer")
-	files.CreateSession("/elsewhere", "/elsewhere", "other project")
+	older, _ := files.CreateSession("/repo", "older")
+	newer, _ := files.CreateSession("/repo", "newer")
+	files.CreateSession("/repo/pkg", "inside")
+	files.CreateSession("/elsewhere", "other directory")
 
 	if sessions, _ := files.Sessions("/repo"); len(sessions) != 2 || sessions[0].ID != newer.ID {
 		t.Fatalf("sessions = %+v, want the one made last first", sessions)
@@ -217,7 +231,7 @@ func TestSessionsAreFoundByProjectAndOrderedByUse(t *testing.T) {
 
 	latest, err := files.LatestSession("/repo")
 
-	if err != nil || latest.ID != older.ID || latest.Dir != "/repo/pkg" {
+	if err != nil || latest.ID != older.ID || latest.Dir != "/repo" {
 		t.Fatalf("latest = %+v, err = %v, want the one used last", latest, err)
 	}
 
@@ -227,8 +241,8 @@ func TestSessionsAreFoundByProjectAndOrderedByUse(t *testing.T) {
 		t.Fatalf("sessions = %+v", sessions)
 	}
 
-	if all, _ := files.Sessions(""); len(all) != 3 {
-		t.Fatalf("all sessions = %d, want 3", len(all))
+	if all, _ := files.Sessions(""); len(all) != 4 {
+		t.Fatalf("all sessions = %d, want 4", len(all))
 	}
 
 	// Renaming a session is not using it.
@@ -241,14 +255,14 @@ func TestSessionsAreFoundByProjectAndOrderedByUse(t *testing.T) {
 	// A session being made or deleted when its process died is not listed.
 	os.MkdirAll(filepath.Join(files.data, "sessions", ".new-123"), 0o700)
 
-	if all, err := files.Sessions(""); err != nil || len(all) != 3 {
+	if all, err := files.Sessions(""); err != nil || len(all) != 4 {
 		t.Fatalf("with a session half made: %d sessions, err = %v", len(all), err)
 	}
 }
 
 func TestSessionsKeepTheirModel(t *testing.T) {
 	files := testFiles(t)
-	session, _ := files.CreateSession("/project", "/project", "test")
+	session, _ := files.CreateSession("/project", "test")
 
 	if err := files.SetSessionModel(session.ID, "anthropic", "claude-opus-5-5"); err != nil {
 		t.Fatal(err)
@@ -299,7 +313,7 @@ func TestSessionsKeepTheirModel(t *testing.T) {
 func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
 	files := testFiles(t)
 
-	source, _ := files.CreateSession("/project/sub", "/project", "fix the parser")
+	source, _ := files.CreateSession("/project", "fix the parser")
 	files.SetSessionModel(source.ID, "anthropic", "claude-opus-5-5")
 	files.SetSessionOptions(source.ID, json.RawMessage(`{"effort":"high"}`))
 
@@ -315,7 +329,7 @@ func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
 
 	found, _ := files.Session(branch.ID)
 
-	if found.Parent != source.ID || found.ParentSeq != 3 || found.Dir != "/project/sub" || found.Project != "/project" ||
+	if found.Parent != source.ID || found.ParentSeq != 3 || found.Dir != "/project" ||
 		found.Title != "fix the parser" || found.Provider != "anthropic" || string(found.Options) != `{"effort":"high"}` {
 		t.Fatalf("branch = %+v", found)
 	}
@@ -365,15 +379,15 @@ func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
 	}
 }
 
-// Recent goes through a project's sessions from the last entry back, keeps
+// Recent goes through a directory's sessions from the last entry back, keeps
 // the kinds asked for, and gives a payload once, the copies a branch holds
 // included.
 func TestRecentEntriesComeOnceNewestFirst(t *testing.T) {
 	files := testFiles(t)
 
-	first, _ := files.CreateSession("/repo", "/repo", "first")
-	second, _ := files.CreateSession("/repo/pkg", "/repo", "second")
-	other, _ := files.CreateSession("/elsewhere", "/elsewhere", "other project")
+	first, _ := files.CreateSession("/repo", "first")
+	second, _ := files.CreateSession("/repo", "second")
+	other, _ := files.CreateSession("/repo/pkg", "another directory")
 
 	for _, appended := range []struct {
 		session string

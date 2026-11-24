@@ -85,7 +85,7 @@ func TestAPluginBringsItsProgramsAndSkills(t *testing.T) {
 		t.Fatalf("program = %+v, err = %v", program, err)
 	}
 
-	worker, err := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+	worker, err := h.agent(context.Background(), nil, h.choice, nil, nil)
 
 	if err != nil || worker.Tools[len(worker.Tools)-1].Def().Name != "find" {
 		t.Fatalf("worker = %+v, err = %v", worker, err)
@@ -382,7 +382,7 @@ func TestAPluginReplacesAToolOnlyWhenTheUserAgreed(t *testing.T) {
 		t.Fatalf("added = %q, err = %v", added, err)
 	}
 
-	worker, err := h.agent(context.Background(), nil, h.current.choice, nil, h.current.tools, nil)
+	worker, err := h.agent(context.Background(), nil, h.choice, nil, nil)
 
 	if err != nil || len(worker.Tools) != 4 {
 		t.Fatalf("worker has %d tools, err = %v", len(worker.Tools), err)

@@ -174,6 +174,16 @@ func TestPastedImagesGoWithTheTask(t *testing.T) {
 func hosted(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInitializeParams) *protocol.FrontendConn {
 	t.Helper()
 
+	conn, _ := hostedUntil(t, handlers, info)
+
+	return conn
+}
+
+// hostedUntil is hosted, with what closes the connection, as ending the
+// host does.
+func hostedUntil(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInitializeParams) (*protocol.FrontendConn, func()) {
+	t.Helper()
+
 	hostReads, frontendWrites := io.Pipe()
 	frontendReads, hostWrites := io.Pipe()
 	dialed := make(chan *protocol.FrontendConn, 1)
@@ -197,7 +207,7 @@ func hosted(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInit
 	go host.Serve(handlers)
 	t.Cleanup(func() { frontendWrites.Close() })
 
-	return <-dialed
+	return <-dialed, func() { frontendWrites.Close() }
 }
 
 // An export names the images a person gave, under their words.
