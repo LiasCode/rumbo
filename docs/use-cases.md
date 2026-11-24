@@ -678,6 +678,10 @@ speaks the Agent Frontend Protocol with the host.
 - `/rumbos` says what the rumbo of each session open uses, from what each
   answers to `processes`: how many processes, their memory, and their
   processor time, each process counted once.
+- `/delete` deletes the session shown once the person agrees, with
+  `rumbo sessions rm`, after ending the rumbo it started for it, and shows
+  the first one in its place. It refuses the session of the rumbo that
+  started it, which that one holds, and one that works.
 - `/branch` shows the branch once its rumbo starts. In the conversation,
   Enter on what the person asked offers to change it or to ask it again in
   a branch that starts before it, which shows the same way.
@@ -716,8 +720,8 @@ speaks the Agent Frontend Protocol with the host.
 - Its commands are the functions the host, the provider, and the
   extensions describe, but for those there to list a parameter's values,
   and its own, which come before one of theirs of the same name: `/help`,
-  `/copy`, `/export`, and `/rumbos`. `/help` lists the host's by what they act on: the
-  system, the session, and the providers.
+  `/copy`, `/export`, `/rumbos`, and `/delete`. `/help` lists the host's
+  by what they act on: the system, the session, and the providers.
 - `/copy` puts the model's last answer in the clipboard, and `/copy code`
   only its last code block.
 - `/export` writes the session as Markdown, from its history: what

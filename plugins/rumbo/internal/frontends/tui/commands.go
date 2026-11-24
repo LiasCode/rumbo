@@ -20,6 +20,7 @@ const (
 	commandCopy   = "/copy"
 	commandExport = "/export"
 	commandRumbos = "/rumbos"
+	commandDelete = "/delete"
 )
 
 // ownCommands are the front end's own, described as functions are, so they
@@ -38,6 +39,7 @@ var ownCommands = []protocol.Function{
 		Params:      []protocol.Option{{Name: "path", Type: protocol.OptionString, Optional: true, Description: "without it, rumbo-<session>.md in the session's directory"}},
 	},
 	{Name: "rumbos", Description: "List the rumbos this terminal UI holds, one for each session open, and what each uses"},
+	{Name: "delete", Description: "Delete the session shown and its history, for good, once you agree"},
 }
 
 // Where a command acts and where an answer comes from. The host is rumbo

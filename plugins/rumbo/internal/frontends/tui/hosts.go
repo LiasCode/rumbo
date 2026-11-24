@@ -75,11 +75,13 @@ type started struct {
 }
 
 // rumbos is how the terminal UI reaches the other sessions: start begins a
-// rumbo in dir for a session, or for a new one when it names none, and
-// list says the sessions of dir, most recently used first.
+// rumbo in dir for a session, or for a new one when it names none, list
+// says the sessions of dir, most recently used first, and remove deletes
+// one of them, which no rumbo may hold.
 type rumbos struct {
-	start func(dir, session string) (started, error)
-	list  func(dir string) ([]protocol.Value, error)
+	start  func(dir, session string) (started, error)
+	list   func(dir string) ([]protocol.Value, error)
+	remove func(dir, session string) error
 }
 
 // The messages of the rumbos.
@@ -95,6 +97,15 @@ type (
 		started started
 		err     error
 		then    func() tea.Cmd
+	}
+	// deleteMsg is the person agreeing to delete the session of a rumbo
+	// held, and deletedMsg how deleting the session so called went.
+	deleteMsg struct {
+		host *host
+	}
+	deletedMsg struct {
+		title string
+		err   error
 	}
 	// rumbosMsg is what each rumbo held said of its processes.
 	rumbosMsg struct {
@@ -346,6 +357,82 @@ func (a *app) close(held *host) tea.Cmd {
 
 		return nil
 	}
+}
+
+// delete asks the person to agree to deleting the session shown. The one
+// rumbo started in is held by that rumbo for as long as the terminal UI
+// lives, so it is not one to delete from here.
+func (a *app) delete() tea.Cmd {
+	held, why := a.host, ""
+
+	switch {
+	case a.rumbos.remove == nil:
+		why = "this terminal UI cannot delete a session"
+	case held.session == "":
+		why = "this session is new, and holds nothing to delete"
+	case held == a.first():
+		why = "rumbo started in this session, and holds it until you quit; delete it then with:\nrumbo sessions rm " + held.session
+	case len(held.runs) > 0:
+		why = "this session is working; cancel its run first"
+	}
+
+	if why != "" {
+		a.shown.add(&entry{kind: entryAnswer, text: why, failed: true})
+		return nil
+	}
+
+	asked := protocol.Function{
+		Name:    "delete",
+		Confirm: "This deletes “" + titleOf(held) + "” and its history, for good. The files it changed stay as they are.",
+	}
+
+	a.confirming = &confirmation{function: asked, run: func() tea.Msg { return deleteMsg{held} }, conv: a.shown}
+
+	return nil
+}
+
+// deleting lets go of the rumbo of a session the person agreed to delete,
+// shows the first one in its place, and deletes the session once its rumbo
+// ended, which held it until then.
+func (a *app) deleting(held *host) tea.Cmd {
+	a.asking = false
+
+	if len(held.runs) > 0 {
+		a.notice = "“" + titleOf(held) + "” started working, and was not deleted"
+		return nil
+	}
+
+	a.hosts = slices.DeleteFunc(a.hosts, func(other *host) bool { return other == held })
+
+	if a.question != nil && a.questionIn == held.shown {
+		a.question = nil
+		a.reply.clear()
+	}
+
+	var shows tea.Cmd
+
+	if held == a.host {
+		shows = a.show(a.first())
+	}
+
+	stop, remove, dir, session, title := held.stop, a.rumbos.remove, a.first().info.Dir, held.session, titleOf(held)
+
+	return tea.Batch(shows, func() tea.Msg {
+		stop()
+
+		return deletedMsg{title, remove(dir, session)}
+	})
+}
+
+// deleted says how deleting a session went, and lists the ones left.
+func (a *app) deleted(msg deletedMsg) tea.Cmd {
+	a.notice = "“" + msg.title + "” was deleted"
+
+	if msg.err != nil {
+		a.notice = "“" + msg.title + "” was not deleted: " + msg.err.Error()
+	}
+
+	return a.list()
 }
 
 // gone takes in that a rumbo ended. The terminal UI ends with the one that
@@ -688,6 +775,26 @@ func listSessions(program string) func(dir string) ([]protocol.Value, error) {
 		}
 
 		return values, nil
+	}
+}
+
+// removeSession returns what deletes a session, as program, the rumbo this
+// terminal UI is of, deletes one from the command line.
+func removeSession(program string) func(dir, session string) error {
+	return func(dir, session string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, program, "sessions", "rm", session)
+		cmd.Dir = dir
+
+		output, err := cmd.CombinedOutput()
+
+		if why := strings.TrimSpace(string(output)); err != nil && why != "" {
+			return errors.New(why)
+		}
+
+		return err
 	}
 }
 

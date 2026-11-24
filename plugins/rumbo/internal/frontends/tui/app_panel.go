@@ -381,6 +381,10 @@ func (a *app) sessionEntries() []paletteEntry {
 	add("Compact this session", "Replace its conversation with a summary now", actionCompact, "compact")
 	add("Copy the session's id", a.session, actionCopyID, "")
 
+	if a.rumbos.remove != nil {
+		add("Delete this session", "Delete it and its history, for good, once you agree", actionDelete, "")
+	}
+
 	return entries
 }
 
@@ -415,6 +419,8 @@ func (a *app) sessionAction(action int) tea.Cmd {
 		return a.run(fromHost, function("compact"), nil, "/compact")
 	case actionCopyID:
 		return a.copy(a.session)
+	case actionDelete:
+		return a.command(commandDelete)
 	}
 
 	return nil

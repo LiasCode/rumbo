@@ -346,6 +346,12 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openedMsg:
 		cmd = a.opened(msg)
 
+	case deleteMsg:
+		cmd = a.deleting(msg.host)
+
+	case deletedMsg:
+		cmd = a.deleted(msg)
+
 	case rumbosMsg:
 		a.asking = false
 		msg.conv.add(&entry{kind: entryAnswer, text: a.rumbosText(msg.said)})

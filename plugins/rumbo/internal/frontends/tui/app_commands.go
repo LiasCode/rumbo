@@ -122,6 +122,8 @@ func (a *app) execute(line string) tea.Cmd {
 		return a.export(args)
 	case commandRumbos:
 		return a.usage()
+	case commandDelete:
+		return a.delete()
 	}
 
 	// The host's functions come first: they need no provider to be running.

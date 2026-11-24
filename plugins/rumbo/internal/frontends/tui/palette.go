@@ -31,6 +31,7 @@ const (
 	actionBranch
 	actionCompact
 	actionCopyID
+	actionDelete
 	// What can be done with a message the person wrote.
 	actionEdit
 	actionAskAgain

@@ -17,12 +17,13 @@ import (
 )
 
 // directory is the sessions of a folder, each a rumbo the terminal UI
-// starts when it is shown: what was started and stopped, in order, and
-// what each one's host was asked by name.
+// starts when it is shown: what was started, stopped, and deleted, in
+// order, and what each one's host was asked by name.
 type directory struct {
 	mu       sync.Mutex
 	started  []string
 	stopped  []string
+	removed  []string
 	asked    map[string][]string
 	sessions []protocol.Value
 	// branch is the session a host's branch function answers with.
@@ -111,7 +112,26 @@ func among(t *testing.T, sessions ...string) (*stage, *directory) {
 				folder.stopped = append(folder.stopped, session)
 			}}, nil
 		},
-		list: func(string) ([]protocol.Value, error) { return folder.sessions, nil },
+		list: func(string) ([]protocol.Value, error) {
+			folder.mu.Lock()
+			defer folder.mu.Unlock()
+
+			return slices.Clone(folder.sessions), nil
+		},
+		remove: func(_, session string) error {
+			folder.mu.Lock()
+			defer folder.mu.Unlock()
+
+			// A session is its rumbo's for as long as that one lives.
+			if !slices.Contains(folder.stopped, session) {
+				return errors.New("session " + session + " is in use")
+			}
+
+			folder.removed = append(folder.removed, session)
+			folder.sessions = slices.DeleteFunc(folder.sessions, func(each protocol.Value) bool { return each.Value == session })
+
+			return nil
+		},
 	}
 
 	s.run(tea.Batch(s.a.list(), s.a.load(s.a.host)))
@@ -438,5 +458,43 @@ func TestARumboThatEndsIsLetGo(t *testing.T) {
 
 	if quit := fmt.Sprintf("%T", messagesOf(cmd)[0]); quit != "tea.QuitMsg" {
 		t.Fatalf("the first rumbo ended, and the terminal UI did %s", quit)
+	}
+}
+
+// /delete deletes the session shown once the person agrees: its rumbo is
+// ended first, and the first one shows in its place. The session rumbo
+// started in is not one to delete from here.
+func TestTheSessionShownIsDeleted(t *testing.T) {
+	s, folder := among(t, "s1", "s2")
+
+	s.typing("/delete")
+
+	if s.a.confirming != nil || !strings.Contains(s.screen(), "rumbo sessions rm s1") {
+		t.Fatalf("the screen:\n%s", s.screen())
+	}
+
+	s.went("s2")
+	s.typing("/delete")
+
+	if s.a.confirming == nil || !inOrder(s.screen(), "delete", "This deletes “title of s2” and its history, for good.", "Cancel", "Delete") {
+		t.Fatalf("the screen:\n%s", s.screen())
+	}
+
+	s.press(tea.KeyEnter)
+
+	if len(folder.removed) != 0 || s.held() != "s1 s2" || !strings.Contains(s.screen(), "nothing was done") {
+		t.Fatalf("removed %v, holds %q:\n%s", folder.removed, s.held(), s.screen())
+	}
+
+	s.typing("/delete")
+	s.press(tea.KeyRight)
+	s.press(tea.KeyEnter)
+
+	if !slices.Equal(folder.removed, []string{"s2"}) || s.held() != "s1" || s.a.session != "s1" || s.a.asking {
+		t.Fatalf("removed %v, holds %q, shows %q", folder.removed, s.held(), s.a.session)
+	}
+
+	if screen := s.screen(); s.mark("title of s2") != "not listed" || !strings.Contains(screen, "“title of s2” was deleted") {
+		t.Fatalf("the screen:\n%s", screen)
 	}
 }

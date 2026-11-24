@@ -18,10 +18,11 @@ another `rumbo`. The front end protocol is at version 2 for it.
   or `rumbo -s <session>` for any; several run side by side, each a
   process of its own. `-single` is gone, since it is how rumbo works now.
 - The commands that reached other sessions from inside one are gone:
-  `/sessions`, `/projects`, `/open`, `/new`, `/delete`, and `/prune`. From
-  the command line, `rumbo sessions` lists them, `rumbo sessions rm`
-  deletes them, and `rumbo sessions prune` deletes those not used in a
-  while. `/status` and `/compact` are of the session you are in.
+  `/sessions`, `/projects`, `/open`, `/new`, and `/prune`, and `/delete`
+  is the terminal UI's own, for the session shown. From the command
+  line, `rumbo sessions` lists them, `rumbo sessions rm` deletes them, and
+  `rumbo sessions prune` deletes those not used in a while. `/status` and
+  `/compact` are of the session you are in.
 - `/branch` makes the branch and says which session it is; the rumbo that
   made it stays in its session, and another goes on in the branch: the
   terminal UI starts it and shows it, and elsewhere `rumbo -s <session>`
@@ -55,8 +56,10 @@ another `rumbo`. The front end protocol is at version 2 for it.
   "Close the rumbos not in use", in the palette, closes them all.
 - `/rumbos` says what the rumbo of each session open uses: its processes,
   their memory, and their processor time.
-- Delete in the sidebar no longer deletes a session: `rumbo sessions rm`
-  does, from the command line.
+- `/delete` deletes the session shown, once you agree, and "Delete this
+  session" in the palette does the same. It takes the place of Delete in
+  the sidebar. The session rumbo was started in is held until you quit,
+  and is deleted from the command line, with `rumbo sessions rm`.
 
 ### Front ends
 

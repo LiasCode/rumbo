@@ -65,7 +65,7 @@ func Run(r io.Reader, w io.Writer) int {
 	// The terminal UI is served by rumbo itself, which is the program that
 	// lists the other sessions and is the host of each.
 	if program, err := os.Executable(); err == nil {
-		shown.rumbos = rumbos{start: startRumbo(program, inForce), list: listSessions(program)}
+		shown.rumbos = rumbos{start: startRumbo(program, inForce), list: listSessions(program), remove: removeSession(program)}
 	}
 
 	program := tea.NewProgram(shown)

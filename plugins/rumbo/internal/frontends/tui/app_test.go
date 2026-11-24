@@ -331,7 +331,7 @@ func TestAFunctionThatCannotBeUndoneIsConfirmed(t *testing.T) {
 	deleted := 0
 
 	functions := []protocol.Function{{
-		Name: "delete", Group: protocol.GroupSession, Confirm: "This deletes the session, for good.",
+		Name: "forget", Group: protocol.GroupSession, Confirm: "This forgets the session, for good.",
 		Params: []protocol.Option{{Name: "session", Type: protocol.OptionString}},
 	}}
 
@@ -343,9 +343,9 @@ func TestAFunctionThatCannotBeUndoneIsConfirmed(t *testing.T) {
 		},
 	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: functions})
 
-	s.typing("/delete s1")
+	s.typing("/forget s1")
 
-	if s.a.confirming == nil || !inOrder(s.screen(), "delete", "This deletes the session, for good.", "Cancel", "Delete") {
+	if s.a.confirming == nil || !inOrder(s.screen(), "forget", "This forgets the session, for good.", "Cancel", "Forget") {
 		t.Fatalf("the screen:\n%s", s.screen())
 	}
 
@@ -355,11 +355,11 @@ func TestAFunctionThatCannotBeUndoneIsConfirmed(t *testing.T) {
 		t.Fatalf("deleted %d times:\n%s", deleted, s.screen())
 	}
 
-	s.typing("/delete s1")
+	s.typing("/forget s1")
 	s.press(tea.KeyRight)
 	s.press(tea.KeyEnter)
 
-	if deleted != 1 || !inOrder(s.screen(), "nothing was done", "› /delete s1", "deleted session s1") {
+	if deleted != 1 || !inOrder(s.screen(), "nothing was done", "› /forget s1", "deleted session s1") {
 		t.Fatalf("deleted %d times:\n%s", deleted, s.screen())
 	}
 }
