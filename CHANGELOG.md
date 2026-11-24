@@ -5,6 +5,11 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Features
+
+- In the terminal UI, a parameter that can be left out can be typed by
+  name, as `name=value`, such as `/prune 30d confirm=yes`.
+
 ## 0.9.0 (2026-11-24)
 
 ### Features

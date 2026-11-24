@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/LiasCode/rumbo/protocol"
@@ -292,14 +293,23 @@ func (f *form) arguments() (json.RawMessage, error) {
 }
 
 // line is the command a call of the form's function is, as it would be
-// typed.
+// typed: a parameter typed by name as name=value.
 func (f *form) line() string {
 	words := []string{"/" + f.function.Name}
+	order := ordered(f.function)
 
-	for _, value := range f.values() {
-		if value != "" {
-			words = append(words, value)
+	for index, value := range f.values() {
+		name := f.fields[index].param.Name
+
+		if value == "" {
+			continue
 		}
+
+		if !slices.ContainsFunc(order, func(param protocol.Option) bool { return param.Name == name }) {
+			value = name + "=" + value
+		}
+
+		words = append(words, value)
 	}
 
 	return strings.Join(words, " ")

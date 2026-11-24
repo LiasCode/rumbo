@@ -212,3 +212,32 @@ func TestABoxIsLaidOverTheScreen(t *testing.T) {
 		t.Fatalf("a wide rune cut in two: %q", got)
 	}
 }
+
+// A form's line types by name a parameter that the words typed would not
+// reach in turn, so the line does what the form does.
+func TestAFormsLineTypesByNameWhatIsNotInTurn(t *testing.T) {
+	add := protocol.Function{Name: "extension-add", Params: []protocol.Option{
+		{Name: "name", Type: protocol.OptionString},
+		{Name: "config", Type: protocol.OptionString, Optional: true},
+		{Name: "replaces", Type: protocol.OptionString, Optional: true},
+		{Name: "command", Type: protocol.OptionString},
+	}}
+
+	f := functionForm(add, fromHost, []protocol.Function{add}, nil)
+	f.fields[0].value.set("docs")
+	f.fields[1].value.set(`{"url":"https://example.com/mcp"}`)
+	f.fields[3].value.set("{self} extend mcp")
+
+	line := f.line()
+
+	if line != `/extension-add docs config={"url":"https://example.com/mcp"} {self} extend mcp` {
+		t.Fatalf("line = %q", line)
+	}
+
+	typed, err := arguments(add, strings.Fields(line)[1:])
+	formed, _ := f.arguments()
+
+	if err != nil || string(typed) != string(formed) {
+		t.Fatalf("typed %s, %v; the form %s", typed, err, formed)
+	}
+}

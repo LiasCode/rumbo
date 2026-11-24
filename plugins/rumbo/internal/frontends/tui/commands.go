@@ -150,8 +150,15 @@ func commands(functions []protocol.Function) []protocol.Function {
 
 func usage(function protocol.Function) string {
 	written := "/" + function.Name
+	order := ordered(function)
 
 	for _, param := range function.Params {
+		if !slices.ContainsFunc(order, func(each protocol.Option) bool { return each.Name == param.Name }) {
+			written += " [" + param.Name + "=…]"
+
+			continue
+		}
+
 		written += " " + signature(param)
 	}
 
@@ -168,32 +175,80 @@ func signature(param protocol.Option) string {
 	return "<" + param.Name + ">"
 }
 
-// arguments turns the words after a command into the function's parameters,
-// in the order the function lists them. The last one takes what is left.
-func arguments(function protocol.Function, args []string) (json.RawMessage, error) {
-	required := 0
-
-	for _, param := range function.Params {
-		if !param.Optional {
-			required++
-		}
-	}
-
-	if len(args) < required {
-		return nil, fmt.Errorf("usage: %s", strings.TrimSpace(usage(protocol.Function{Name: function.Name, Params: function.Params})))
-	}
-
-	params := map[string]json.RawMessage{}
+// ordered are the parameters the words typed after a command go to, in
+// turn. One that can be left out and comes before one that cannot is not
+// among them: it is given by name, as name=value, so that leaving it out
+// does not give its word to another.
+func ordered(function protocol.Function) []protocol.Option {
+	var order []protocol.Option
 
 	for index, param := range function.Params {
-		if index >= len(args) {
+		needed := func(later protocol.Option) bool { return !later.Optional }
+
+		if param.Optional && slices.ContainsFunc(function.Params[index+1:], needed) {
+			continue
+		}
+
+		order = append(order, param)
+	}
+
+	return order
+}
+
+// typedParams reads the words typed after a command as the values of the
+// function's parameters. A word name=value gives the parameter of that name
+// that can be left out, and the other words go to the ordered parameters in
+// turn, the last of which takes the rest of the words as they are. It also
+// returns the ordered parameters still without a value, in turn.
+func typedParams(function protocol.Function, args []string) (map[string]string, []protocol.Option) {
+	values := map[string]string{}
+	pending := ordered(function)
+
+	for index, word := range args {
+		if len(pending) == 0 {
 			break
 		}
 
-		value := args[index]
+		name, value, found := strings.Cut(word, "=")
+		_, taken := values[name]
+		optional := slices.ContainsFunc(function.Params, func(param protocol.Option) bool { return param.Name == name && param.Optional })
 
-		if index == len(function.Params)-1 {
-			value = strings.Join(args[index:], " ")
+		if found && optional && !taken {
+			values[name] = value
+			pending = slices.DeleteFunc(pending, func(param protocol.Option) bool { return param.Name == name })
+
+			continue
+		}
+
+		// The last one takes the rest.
+		if len(pending) == 1 && pending[0].Name == function.Params[len(function.Params)-1].Name {
+			values[pending[0].Name] = strings.Join(args[index:], " ")
+
+			return values, nil
+		}
+
+		values[pending[0].Name] = word
+		pending = pending[1:]
+	}
+
+	return values, pending
+}
+
+// arguments turns the words after a command into the function's
+// parameters, as typedParams reads them, in the types the function declares.
+func arguments(function protocol.Function, args []string) (json.RawMessage, error) {
+	values, _ := typedParams(function, args)
+	params := map[string]json.RawMessage{}
+
+	for _, param := range function.Params {
+		value, found := values[param.Name]
+
+		if !found {
+			if param.Optional {
+				continue
+			}
+
+			return nil, fmt.Errorf("usage: %s", strings.TrimSpace(usage(protocol.Function{Name: function.Name, Params: function.Params})))
 		}
 
 		encoded, err := encode(param, value)

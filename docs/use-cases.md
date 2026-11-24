@@ -704,6 +704,10 @@ speaks the Agent Frontend Protocol with the host.
   models of `openai`. After `/session-set `, `/provider-set <provider> `,
   and `/system-set `, the menu offers the changes each takes as
   `name=value`, with those in force marked.
+- The words after a command go to its parameters in turn, and the last
+  takes the rest of the line. One that can be left out is also typed by
+  name, as `name=value`, such as `/prune 30d confirm=yes`, and one that
+  comes before one that cannot only so.
 - Answers, errors, and diagnostics are marked `[host]`, `[provider
   <name>]`, or `[extension <name>]`, by where they come from; what an
   extension prints is marked `[extension]` and starts with its name.

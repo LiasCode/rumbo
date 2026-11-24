@@ -125,6 +125,56 @@ func TestArgumentsFollowTheFunctionsDescription(t *testing.T) {
 	}
 }
 
+// A parameter that can be left out and comes before one that cannot is
+// typed by name, so the words of the needed ones stay theirs, and the last
+// still takes the rest of the line. Any that can be left out can be typed by
+// name.
+func TestArgumentsTypedByName(t *testing.T) {
+	add := protocol.Function{Name: "extension-add", Params: []protocol.Option{
+		{Name: "name", Type: protocol.OptionString},
+		{Name: "config", Type: protocol.OptionString, Optional: true},
+		{Name: "replaces", Type: protocol.OptionString, Optional: true},
+		{Name: "command", Type: protocol.OptionString},
+	}}
+
+	prune := protocol.Function{Name: "prune", Params: []protocol.Option{
+		{Name: "age", Type: protocol.OptionString},
+		{Name: "confirm", Type: protocol.OptionString, Optional: true},
+	}}
+
+	for _, each := range []struct {
+		function protocol.Function
+		line     string
+		want     map[string]any
+	}{
+		{add, "files {self} extend mcp npx -y server", map[string]any{"name": "files", "command": "{self} extend mcp npx -y server"}},
+		{add, `docs config={"url":"https://example.com/mcp"} {self} extend mcp`, map[string]any{"name": "docs", "config": `{"url":"https://example.com/mcp"}`, "command": "{self} extend mcp"}},
+		{add, "shell replaces=bash sandbox run config=x", map[string]any{"name": "shell", "replaces": "bash", "command": "sandbox run config=x"}},
+		{prune, "30d yes", map[string]any{"age": "30d", "confirm": "yes"}},
+		{prune, "30d confirm=yes", map[string]any{"age": "30d", "confirm": "yes"}},
+		{prune, "confirm=yes 30d", map[string]any{"age": "30d", "confirm": "yes"}},
+	} {
+		raw, err := arguments(each.function, strings.Fields(each.line))
+
+		if err != nil {
+			t.Fatalf("%s: %v", each.line, err)
+		}
+
+		var got map[string]any
+		json.Unmarshal(raw, &got)
+
+		if !reflect.DeepEqual(got, each.want) {
+			t.Errorf("%s: arguments = %v, want %v", each.line, got, each.want)
+		}
+	}
+
+	_, err := arguments(add, []string{"docs", `config={}`})
+
+	if err == nil || !strings.Contains(err.Error(), "/extension-add <name> [config=…] [replaces=…] <command>") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // Up and Down move the selection of an open menu, and Tab takes the one
 // they moved to.
 func TestTheArrowsChooseInTheMenu(t *testing.T) {

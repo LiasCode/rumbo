@@ -486,19 +486,17 @@ func (a *app) offer(asked *menu) tea.Cmd {
 			}
 		}
 
-		position := len(words) - 1
-
-		if !found || position >= len(function.Params) {
+		if !found {
 			return choicesMsg{menu: asked}
 		}
 
-		given := map[string]string{}
+		given, pending := typedParams(function, words[1:])
 
-		for index, param := range function.Params[:position] {
-			given[param.Name] = words[index+1]
+		if len(pending) == 0 {
+			return choicesMsg{menu: asked}
 		}
 
-		param := function.Params[position]
+		param := pending[0]
 		functions := functionsOf(target, host, described)
 
 		var params json.RawMessage
