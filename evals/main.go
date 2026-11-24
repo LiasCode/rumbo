@@ -331,9 +331,9 @@ func environment(task, workdir string) []string {
 }
 
 // registeredProvider looks the model's provider up in the user's own
-// configuration. Runs use a fresh one, which knows only the built-in
-// providers as rumbo has them, so what the user registered, or chose for a
-// built-in one, has to be carried over.
+// configuration. Runs use a fresh one, which knows only the providers of
+// rumbo's own plugin as it has them, so what the user registered, or chose
+// for one of those, has to be carried over.
 func registeredProvider(model string) (*store.Program, error) {
 	name, _, _ := strings.Cut(model, "/")
 	path, err := cli.ConfigPath()

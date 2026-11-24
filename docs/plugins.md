@@ -60,7 +60,8 @@ Each program is named as a plugin is, and has:
 
 A key rumbo does not know, in the manifest or in a program, is refused, so
 that a misspelled one is not ignored. A program cannot have the name of one
-rumbo has built in, such as the provider `openai`.
+rumbo has, built in or in its own plugin, such as the front end `plain` or
+the provider `openai`.
 
 **Skills** need nothing in the manifest: each directory in `skills/` that
 has a `SKILL.md` is one, in the [Agent Skills](https://agentskills.io)
@@ -173,8 +174,8 @@ Before a plugin is added, and again when it is updated:
   rumbo does not know, a program without a `command`, or `replaces` on a
   program that is not an extension.
 - Nothing it brings is already there: no other plugin has its name, and no
-  program of it is one another plugin brings, one the person registered
-  themselves, or one rumbo has built in.
+  program of it is one another plugin brings, rumbo's own among them, one
+  the person registered themselves, or one rumbo has built in.
 - What it asks to replace is exactly what the person agreed to.
 - What it brings starts: each provider, and every extension with all the
   others, so a tool that two extensions both declare is found then. A front
@@ -185,8 +186,9 @@ is not left behind. An update that does not pass leaves the plugin as it
 was.
 
 If a plugin's manifest can no longer be read, because its directory was
-moved for one, rumbo stops and says how to take the plugin out, instead of
-going on without what it brought.
+moved for one, or a change to it brings what another plugin brings, rumbo
+stops and says how to take the plugin out, instead of going on without what
+it brought.
 
 ## Where a plugin lives
 
@@ -198,6 +200,19 @@ going on without what it brought.
 `rumbo plugin rm` takes the plugin out, with what the person had set for
 the programs it brought, and removes the copy; a directory it was added
 from is left as it is.
+
+## rumbo's own plugin
+
+What comes with rumbo beyond the host is a plugin too, called `rumbo`: the
+providers `anthropic`, `openai`, and `chatgpt`, and the front end `tui`.
+`rumbo plugin show rumbo` says so. Its manifest,
+[plugins/rumbo/plugin.yaml](../plugins/rumbo/plugin.yaml), is built into
+the executable with the code of its programs, which the executable serves
+itself, so each of its commands starts with `{self}`. It is there before
+any plugin you add, with nothing of it in `config.yaml`, and cannot be
+taken out or updated apart from rumbo. Its extension for MCP servers is in
+it too, but not in its manifest, since it would start with no server: you
+add it once for each server, as `{self} extend mcp <the server's command>`.
 
 ## What to keep in mind
 

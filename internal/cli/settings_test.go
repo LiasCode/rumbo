@@ -202,9 +202,9 @@ func TestAProviderIsStartedWhenAdded(t *testing.T) {
 		t.Fatalf("show with a session:\n%s", shown)
 	}
 
-	// A built-in says how rumbo has it.
-	if shown, _ := showProvider(database, "openai", nil, io.Discard); !strings.HasPrefix(shown, "openai: {self} provide openai, built in\n") || !strings.Contains(shown, "api = responses  (built in)") {
-		t.Fatalf("show of a built-in:\n%s", shown)
+	// One of rumbo's own plugin says it comes from it, and how it has it.
+	if shown, _ := showProvider(database, "openai", nil, io.Discard); !strings.HasPrefix(shown, "openai: {self} provide openai, from the plugin rumbo\n") || !strings.Contains(shown, "api = responses  (plugin rumbo)") {
+		t.Fatalf("show of one of rumbo's own plugin:\n%s", shown)
 	}
 
 	// One that does not start is not registered.
@@ -264,9 +264,9 @@ func TestSettingAProviderIsCheckedByIt(t *testing.T) {
 		t.Fatalf("the change that fixes it: %v", err)
 	}
 
-	// A built-in says how rumbo has a field nothing is set for.
-	if _, err := setProgram(database, store.KindProvider, "openai", []string{"api="}, io.Discard); err == nil || !strings.Contains(err.Error(), "responses is how rumbo has it built in") {
-		t.Fatalf("giving back a built-in field: err = %v", err)
+	// One a plugin brings says how the plugin has a field nothing is set for.
+	if _, err := setProgram(database, store.KindProvider, "openai", []string{"api="}, io.Discard); err == nil || !strings.Contains(err.Error(), "responses is how the plugin rumbo brings it") {
+		t.Fatalf("giving back a field the plugin gives: err = %v", err)
 	}
 
 	if _, err := setProgram(database, store.KindProvider, "missing", []string{"a=b"}, io.Discard); err == nil || !strings.Contains(err.Error(), "not registered") {
@@ -304,9 +304,10 @@ func TestSettingAProviderIsCheckedByIt(t *testing.T) {
 	}
 }
 
-// The built-in programs are there without being registered. What the user
-// sets for one is all that is kept of it, over what it is built in with.
-func TestBuiltinsAreThereWithoutBeingRegistered(t *testing.T) {
+// rumbo's own programs are there without being registered: those of its
+// own plugin, and plain, which it has built in. What the user sets for one
+// is all that is kept of it, over what it comes with.
+func TestRumbosOwnProgramsAreThereWithoutBeingRegistered(t *testing.T) {
 	database := testStore(t)
 
 	// The openai one speaks the Responses API, which OpenAI's own models
@@ -320,7 +321,7 @@ func TestBuiltinsAreThereWithoutBeingRegistered(t *testing.T) {
 	}
 
 	if _, err := database.Program(store.KindProvider, "openai"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a built-in nothing was set for is registered: err = %v", err)
+		t.Fatalf("one of rumbo's nothing was set for is registered: err = %v", err)
 	}
 
 	listed, err := listPrograms(database, store.KindFrontend)
@@ -337,8 +338,8 @@ func TestBuiltinsAreThereWithoutBeingRegistered(t *testing.T) {
 		t.Fatalf("kept of openai: %+v", kept)
 	}
 
-	// A field given back goes to what the built-in has, and nothing is kept
-	// of a built-in once nothing is set for it.
+	// A field given back goes to what the plugin gives, and nothing is kept
+	// of the program once nothing is set for it.
 	setProgram(database, store.KindProvider, "openai", []string{"api="}, io.Discard)
 
 	if back, _ := findProgram(database, store.KindProvider, "openai"); string(back.Config) != `{"api":"responses","effort":"high"}` || back.Model != "gpt-x" {
@@ -348,21 +349,25 @@ func TestBuiltinsAreThereWithoutBeingRegistered(t *testing.T) {
 	setProgram(database, store.KindProvider, "openai", []string{"effort=", "model="}, io.Discard)
 
 	if _, err := database.Program(store.KindProvider, "openai"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a built-in with nothing set is still registered: err = %v", err)
+		t.Fatalf("one of rumbo's with nothing set is still registered: err = %v", err)
 	}
 
-	// It cannot be removed; what was set for it can.
-	if _, err := removeProgram(database, store.KindProvider, "openai"); err == nil || !strings.Contains(err.Error(), "is built in") {
+	// Neither can be removed; what was set for them can.
+	if _, err := removeProgram(database, store.KindProvider, "openai"); err == nil || !strings.Contains(err.Error(), "comes with rumbo's own plugin") {
+		t.Fatalf("removing one of rumbo's own plugin: err = %v", err)
+	}
+
+	if _, err := removeProgram(database, store.KindFrontend, "plain"); err == nil || !strings.Contains(err.Error(), "is built in") {
 		t.Fatalf("removing a built-in: err = %v", err)
 	}
 
 	setProgram(database, store.KindProvider, "openai", []string{"effort=low"}, io.Discard)
 
-	if removed, err := removeProgram(database, store.KindProvider, "openai"); err != nil || !strings.Contains(removed, "as rumbo has it again") {
-		t.Fatalf("removing what was set for a built-in: %q, err = %v", removed, err)
+	if removed, err := removeProgram(database, store.KindProvider, "openai"); err != nil || !strings.Contains(removed, "as the plugin rumbo brings it again") {
+		t.Fatalf("removing what was set for one of rumbo's own plugin: %q, err = %v", removed, err)
 	}
 
-	// One registered under a built-in's name takes its place.
+	// One registered under its name takes its place.
 	registerProgram(database, store.KindProvider, "openai", []string{"my-openai"}, nil)
 
 	if mine, _ := findProgram(database, store.KindProvider, "openai"); strings.Join(mine.Command, " ") != "my-openai" || mine.Config != nil {
@@ -410,11 +415,11 @@ func TestTheConfigurationSaysWhereEachValueComesFrom(t *testing.T) {
 		"max_turns":        {"max_turns 90 config.yaml"},
 		"max_tokens":       {"max_tokens (not set) the provider's own limit"},
 		"compact_at":       {"compact_at 80% default"},
-		"openai":           {"openai built in"},
-		"api":              {"api responses built in"},
+		"openai":           {"openai plugin rumbo"},
+		"api":              {"api responses plugin rumbo"},
 		"local":            {"local python3 provider.py"},
 		"base_url":         {"base_url http://localhost config.yaml"},
-		"tui":              {"tui built in"},
+		"tui":              {"tui plugin rumbo"},
 		"theme":            {"theme plain config.yaml"},
 	} {
 		if !slices.Equal(rows[name], want) {
@@ -494,9 +499,10 @@ func TestHostFunctionsForSettingsAndProviders(t *testing.T) {
 		}
 	}
 
-	// A built-in provider cannot be removed, only what was set for it.
-	if err := refused(t, h, "provider-rm", `{"provider":"chatgpt"}`); !strings.Contains(err, "is built in") {
-		t.Fatalf("removing a built-in: %s", err)
+	// A provider of rumbo's own plugin cannot be removed, only what was set
+	// for it.
+	if err := refused(t, h, "provider-rm", `{"provider":"chatgpt"}`); !strings.Contains(err, "comes with rumbo's own plugin") {
+		t.Fatalf("removing one of rumbo's own plugin: %s", err)
 	}
 }
 

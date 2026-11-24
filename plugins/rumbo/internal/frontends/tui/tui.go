@@ -1,4 +1,4 @@
-// Package tui is the built-in terminal front end. It takes the whole
+// Package tui is rumbo's plugin's terminal front end. It takes the whole
 // screen, as rumbo-gui takes a window: the project's sessions in a sidebar,
 // the conversation of the one shown, and a composer under it with the
 // model, how full its context is, and what the session spent; and, over

@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LiasCode/rumbo/internal/credentials"
-	"github.com/LiasCode/rumbo/internal/signin"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/credentials"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/signin"
 )
 
 // Signing in follows OpenAI's Sign in with ChatGPT for open-source apps: an

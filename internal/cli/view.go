@@ -122,7 +122,7 @@ func writeSettings(table io.Writer, settings []effective, indent string) {
 }
 
 // describePrograms writes the programs of a kind there are, each with what
-// was chosen for it and how rumbo has it built in.
+// was chosen for it and how it comes, built in or from a plugin.
 func describePrograms(table io.Writer, database store.Store, kind string) error {
 	programs, err := listPrograms(database, kind)
 
@@ -155,8 +155,12 @@ func describePrograms(table io.Writer, database store.Store, kind string) error 
 		if len(chosen.Command) > 0 {
 			started = strings.Join(chosen.Command, " ")
 
-			if origin == sourceBuiltin {
+			switch {
+			case origin == sourceBuiltin:
 				started += ", in place of the built-in one"
+
+			case origin != "":
+				started += ", in place of the one of the " + origin
 			}
 		}
 
@@ -212,9 +216,9 @@ func mergedKeys(objects ...map[string]json.RawMessage) map[string]bool {
 
 // showProvider starts a provider and says, for each of its settings, the
 // value that applies and where it comes from: the session, when the provider
-// is the one it uses; the configuration file; how rumbo has it built in; or
-// the provider's own default. Then it says what else the provider offers.
-// It is also the test that the provider starts.
+// is the one it uses; the configuration file; how the plugin that brings it
+// has it; or the provider's own default. Then it says what else the provider
+// offers. It is also the test that the provider starts.
 func showProvider(database store.Store, name string, session *choice, diagnostics io.Writer) (string, error) {
 	chosen, registered, err := chosenProgram(database, store.KindProvider, name)
 

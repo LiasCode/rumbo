@@ -83,7 +83,8 @@ its own default.
 
 **Source.** Where the value of a setting in force comes from: the session
 that chose it, `config.yaml`, rumbo's own default, how rumbo has a built-in
-program, or the program's own default, which only the program knows.
+program or a plugin brings it, or the program's own default, which only the
+program knows.
 
 **Configuration file.** `config.yaml`, in rumbo's directory of the user's
 configuration: what the user chose, and nothing else. It holds the system
@@ -139,9 +140,9 @@ input. It is read from the sessions, so it keeps nothing of its own.
 **Program.** A provider, front end, or extension rumbo can start: a name,
 the command that starts it, and its configuration, which for a provider
 holds the values of its options too; a provider also has the model a new
-session that uses it starts with. The built-in ones are always there, and
-so are those a plugin brings while the plugin is added; the user registers
-others.
+session that uses it starts with. `plain`, which rumbo has built in, and
+those of rumbo's own plugin are always there, and so are those another
+plugin brings while the plugin is added; the user registers others.
 Only what the user chose is kept of a configuration: what is not chosen is
 the program's own default, which the program says when it starts.
 
@@ -161,8 +162,8 @@ extension's tool and not rumbo's.
 extension. Specified in [extension-protocol.md](extension-protocol.md).
 
 **MCP.** The Model Context Protocol, a contract of others' by which a
-server offers tools to any agent. rumbo's built-in `mcp` extension speaks
-it with one server and gives the model that server's tools.
+server offers tools to any agent. The `mcp` extension of rumbo's own plugin
+speaks it with one server and gives the model that server's tools.
 
 **Computer tool.** The tool that sees and uses the desktop rumbo runs in:
 screenshots, the pointer, and the keyboard. Its coordinates are pixels of
@@ -179,6 +180,11 @@ extensions, and skills, all at once, named in its `plugin.yaml`. The user
 adds it from a directory or from the address of a Git repository. What it
 brings is there without being registered, as what rumbo has built in is.
 Described in [plugins.md](plugins.md).
+
+**rumbo's own plugin.** The plugin called `rumbo`, built into the
+executable with its programs: rumbo's providers, its terminal front end,
+and its extension for MCP servers. It is there before any the user adds,
+and cannot be taken out (`plugins/rumbo`).
 
 **Skill.** Instructions for one kind of task, kept by the user, a plugin of
 theirs, or the project in a directory with a `SKILL.md`, in the

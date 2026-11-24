@@ -17,36 +17,30 @@ import (
 )
 
 // This file owns the programs rumbo starts, providers, front ends, and
-// extensions: the ones it has built in and the ones the user registers,
-// adding one, changing its configuration, and asking a provider what it
-// offers. The command line and the host's functions both go through it.
+// extensions: the ones it has built in, the ones plugins bring, and the ones
+// the user registers, adding one, changing its configuration, and asking a
+// provider what it offers. The command line and the host's functions both go
+// through it.
 //
 // A program's configuration holds what the user chose for it, and nothing
 // else. What is not chosen is the program's own default, which only the
 // program knows, and says when it starts.
 
 // selfPlaceholder in a registered command stands for the rumbo executable, so
-// built-in programs keep working wherever the binary is installed.
+// the programs it serves itself, its own plugin's among them, keep working
+// wherever the binary is installed.
 const selfPlaceholder = "{self}"
 
 // builtins are the programs served by the rumbo executable itself, by kind,
-// with the subcommand that serves them. They are there without being
-// registered.
+// with the subcommand that serves them, apart from those of its own plugin
+// (plugins.go): plain, the front end for pipes and scripts, which needs no
+// plugin. They are there without being registered.
 var builtins = []struct {
 	kind       string
 	subcommand string
 	names      []string
-	// configs are what a built-in starts with, by name, when it is more
-	// than its defaults. What the user chooses for it goes over them.
-	configs map[string]json.RawMessage
 }{
-	{store.KindProvider, "provide", []string{"anthropic", "openai", "chatgpt"}, map[string]json.RawMessage{
-		// The provider speaks Chat Completions unless told otherwise, as most
-		// servers do; OpenAI's own reasoning models need the Responses API to
-		// use tools with an effort.
-		"openai": json.RawMessage(`{"api":"responses"}`),
-	}},
-	{store.KindFrontend, "attach", []string{"tui", "plain"}, nil},
+	{store.KindFrontend, "attach", []string{"plain"}},
 }
 
 // kindNames are what a person calls each kind of program.
@@ -60,7 +54,7 @@ var kindNames = map[string]string{
 func builtin(kind, name string) (store.Program, bool) {
 	for _, group := range builtins {
 		if group.kind == kind && slices.Contains(group.names, name) {
-			return store.Program{Name: name, Command: []string{selfPlaceholder, group.subcommand, name}, Config: group.configs[name]}, true
+			return store.Program{Name: name, Command: []string{selfPlaceholder, group.subcommand, name}}, true
 		}
 	}
 
@@ -128,7 +122,8 @@ func startedWith(database store.Store, kind, name string, chosen store.Program, 
 	case !registered && !built:
 		return store.Program{}, fmt.Errorf(`%s %q is not registered; see "rumbo %s list"`, kindNames[kind], name, kind)
 
-	// One registered under the name of a built-in takes its place.
+	// One registered under the name of a built-in, or of one a plugin
+	// brings, takes its place.
 	case len(chosen.Command) > 0:
 		return chosen, nil
 
@@ -576,6 +571,9 @@ func removeProgram(database store.Store, kind, name string) (string, error) {
 	err = database.DeleteProgram(kind, name)
 
 	switch {
+	case errors.Is(err, store.ErrNotFound) && brought && isOwn(plugin):
+		return "", fmt.Errorf("%s %q comes with rumbo's own plugin, with nothing of yours to remove; it is always there", kindNames[kind], name)
+
 	case errors.Is(err, store.ErrNotFound) && brought:
 		return "", fmt.Errorf(`%s %q comes with the plugin %s, with nothing of yours to remove; "rumbo plugin rm %s" takes the plugin out`, kindNames[kind], name, plugin, plugin)
 

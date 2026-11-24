@@ -6,19 +6,20 @@ turn it on, until the model is done. The models behind it, the interfaces
 in front of it, and any tools you add to it, from an MCP server, a plugin,
 or a program of your own, are separate programs you can replace.
 
-![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, and a fifth for the screen when turned on, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol; extensions, the built-in mcp, a plugin's, or yours, give the model more tools and context through the Agent Extension Protocol.](docs/how-it-works.svg)
+![Front ends speak the Agent Frontend Protocol with the rumbo host, which runs the agent loop with four tools, and a fifth for the screen when turned on, keeps each session as an append-only log, and asks a provider for each message through the Agent Provider Protocol; extensions, rumbo's mcp, a plugin's, or yours, give the model more tools and context through the Agent Extension Protocol.](docs/how-it-works.svg)
 
 ## What makes it different
 
 - **Any model, any interface, any language.** Providers and front ends are
-  programs that speak a small JSON-RPC protocol over stdio. The built-in
-  ones use the same protocols as the ones you write; none gets a shortcut.
+  programs that speak a small JSON-RPC protocol over stdio. The ones that
+  come with rumbo use the same protocols as the ones you write; none gets
+  a shortcut.
 - **Tools of your own, without changing rumbo.** An extension is one more
   program: it gives the model tools, tells it what most tasks need, offers
   you commands, and can take the place of one of rumbo's tools when you
-  say so. MCP servers are reached through a built-in one, and a plugin
-  brings extensions, providers, and skills in one step. Only the
-  extensions you add cost tokens.
+  say so. MCP servers are reached through one that comes with rumbo, and a
+  plugin brings extensions, providers, and skills in one step, as rumbo's
+  own come in one. Only the extensions you add cost tokens.
 - **History you can replay.** A session is an append-only log, one entry
   to a line in a file you can read.
   Every request sent to the model can be rebuilt from it (`rumbo request`
@@ -64,7 +65,7 @@ project's `AGENTS.md`, its files, or command output, can steer it, so work
 on code you do not trust inside a container or a virtual machine. Sessions
 keep what the model saw, secrets in command output included, in
 `~/.local/share/rumbo/sessions/`, readable only by you. An API key you give
-a built-in provider's
+a provider of rumbo's
 `/login` is kept in `~/.config/rumbo/credentials/`
 (`~/Library/Application Support/rumbo/credentials/` on macOS), readable only
 by you, and so by the model too. rumbo itself contacts no server: only your
@@ -133,7 +134,7 @@ Each session is a directory in `~/.local/share/rumbo/sessions/`:
 entry to a line.
 
 Any server compatible with OpenAI's Chat Completions, local ones included,
-works through the built-in `openai` provider:
+works through the `openai` provider that comes with rumbo:
 
 ```sh
 rumbo provider add -config '{"base_url":"http://localhost:11434/v1"}' local '{self}' provide openai
@@ -142,12 +143,12 @@ rumbo provider set local model=qwen3-coder context_window=32768   # a server can
 rumbo -p local "fix the failing test"               # the session keeps its provider and model
 ```
 
-The built-in `openai` provider speaks OpenAI's Responses API, which its
-reasoning models need to use tools with an effort. One you add from the same
-program, as `local` above, speaks Chat Completions, as most servers do,
-unless you give it `api=responses`.
+The `openai` provider that comes with rumbo speaks OpenAI's Responses API,
+which its reasoning models need to use tools with an effort. One you add
+from the same program, as `local` above, speaks Chat Completions, as most
+servers do, unless you give it `api=responses`.
 
-The built-in `chatgpt` provider uses your ChatGPT plan instead of an API key:
+The `chatgpt` provider uses your ChatGPT plan instead of an API key:
 
 ```sh
 rumbo -p chatgpt      # then /login signs in with ChatGPT, and /use chatgpt lists the plan's models
@@ -186,8 +187,8 @@ is told of where you are, and says why one is left out.
 ## Use an MCP server
 
 The tools of a [Model Context Protocol](https://modelcontextprotocol.io)
-server become the model's through the built-in `mcp` extension, registered
-once for each server:
+server become the model's through the `mcp` extension that comes with
+rumbo, registered once for each server:
 
 ```sh
 # one started with a command
@@ -220,7 +221,8 @@ rumbo plugin update team    # bring it up to date
 rumbo plugin rm team
 ```
 
-What it brings is there as what rumbo has built in is, and you set it the
+What it brings is there as what comes with rumbo is, which is a plugin too
+(`rumbo plugin show rumbo`), and you set it the
 same way (`rumbo extension set`, `rumbo provider set`). A plugin runs with
 your rights, so add one whose code you trust; when one of its extensions
 takes the place of a tool of rumbo's own, adding it says so and asks you to

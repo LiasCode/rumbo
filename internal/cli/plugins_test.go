@@ -160,7 +160,9 @@ func TestAPluginThatDoesNotFitIsNotAdded(t *testing.T) {
 		"its name is taken":          {finder, "there is a plugin of that name already"},
 		"another brings the program": {"name: other\nextensions:\n  finder:\n    command: [x]\n", "it brings the extension finder, which the plugin finder already brings"},
 		"the user registered one":    {"name: other\nextensions:\n  mine:\n    command: [x]\n", `it brings the extension mine, and you registered one of that name; "rumbo extension rm mine" takes yours out`},
-		"rumbo has one built in":     {"name: other\nproviders:\n  openai:\n    command: [x]\n", "rumbo has a provider called openai built in"},
+		"rumbo's own plugin has it":  {"name: other\nproviders:\n  openai:\n    command: [x]\n", "it brings the provider openai, which the plugin rumbo already brings"},
+		"rumbo has one built in":     {"name: other\nfrontends:\n  plain:\n    command: [x]\n", "rumbo has a front end called plain built in"},
+		"the name of rumbo's own":    {"name: rumbo\n", "rumbo's own plugin is called rumbo"},
 		"a misspelled key":           {"name: other\nextension:\n  a:\n    command: [x]\n", "field extension not found among what a plugin has: name, description, providers, frontends, and extensions"},
 		"a program without command":  {"name: other\nextensions:\n  a:\n    config: {a: 1}\n", "the extension a has no command to start it"},
 		"a provider that replaces":   {"name: other\nproviders:\n  a:\n    command: [x]\n    replaces: [bash]\n", "has replaces, which only an extension has"},
@@ -181,6 +183,77 @@ func TestAPluginThatDoesNotFitIsNotAdded(t *testing.T) {
 				t.Fatalf("it was kept: %+v", kept)
 			}
 		})
+	}
+}
+
+// rumbo's own plugin is a plugin like any other, there before any the user
+// adds and without an entry in the configuration file: it brings rumbo's
+// providers and front end, which start, and it cannot be taken out or
+// updated apart from rumbo.
+func TestRumbosOwnPluginIsOneMore(t *testing.T) {
+	h := testHost(t)
+	plugins, err := installed(h.database)
+
+	if err != nil || len(plugins) != 1 || plugins[0].Name != "rumbo" || plugins[0].Source != sourceBuiltin {
+		t.Fatalf("plugins = %+v, err = %v", plugins, err)
+	}
+
+	own := plugins[0]
+
+	if said := brings(own); said != "  the provider anthropic\n  the provider chatgpt\n  the provider openai\n  the front end tui" {
+		t.Fatalf("it brings:\n%s", said)
+	}
+
+	// Its programs are served by the executable, whatever directory rumbo
+	// is in, and its providers start, as any plugin's do when it is added.
+	for _, kind := range pluginKinds {
+		for name, program := range own.manifest.programs(kind) {
+			if program.Command[0] != selfPlaceholder || strings.Contains(strings.Join(program.Command, " "), pluginPlaceholder) {
+				t.Errorf("the %s %s is started with %q", kindNames[kind], name, program.Command)
+			}
+		}
+	}
+
+	if err := tryPlugin(h.database, own, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if kept, _ := h.database.Plugins(); len(kept) != 0 {
+		t.Fatalf("rumbo's own plugin was written in the file: %+v", kept)
+	}
+
+	if places, err := skillPlaces(h.database); err != nil || len(places) != 0 {
+		t.Fatalf("skill places = %q, err = %v", places, err)
+	}
+
+	if _, err := removePlugin(h.database, "rumbo"); err == nil || !strings.Contains(err.Error(), "comes with rumbo and is always there") {
+		t.Fatalf("removing it: err = %v", err)
+	}
+
+	if _, err := updatePlugin(h.database, "rumbo", io.Discard); err == nil || !strings.Contains(err.Error(), "is as new as the rumbo you have") {
+		t.Fatalf("updating it: err = %v", err)
+	}
+}
+
+// A plugin added from a directory that comes to bring what another plugin
+// brings stops rumbo, saying how to take it out, instead of being left
+// without it.
+func TestAPluginThatComesToBringWhatAnotherDoesIsSaid(t *testing.T) {
+	h := testHost(t)
+	dir := pluginIn(t, finder)
+
+	if _, err := addPlugin(h.database, dir, nil, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, manifestFile), []byte("name: finder\nfrontends:\n  tui:\n    command: [x]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := findProgram(h.database, store.KindFrontend, "tui")
+
+	if err == nil || !strings.Contains(err.Error(), `it brings the front end tui, which the plugin rumbo already brings; "rumbo plugin rm finder" takes it out`) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

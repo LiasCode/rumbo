@@ -99,7 +99,7 @@ with the front end's own default for every field it was not given. The host
 stores none of it: only what the user chose is kept. Nor does it check what
 the user chose, since a front end needs its terminal to start: a front end
 refuses a field it does not have, or a value it cannot use, and says why,
-as the built-in ones do.
+as rumbo's own do.
 
 ### `run` (request, front end to host)
 
@@ -414,7 +414,7 @@ The functions of this version, by group:
 
 | Function | Group | Parameters | What it does |
 |---|---|---|---|
-| `config` | system | | Shows what is chosen and what applies, the current session's choice first, then the system settings, the providers, and the front ends, each value with where it comes from: the session, `config.yaml`, rumbo's default, or how rumbo has a built-in program. It starts nothing, so a program's own defaults are not in it. |
+| `config` | system | | Shows what is chosen and what applies, the current session's choice first, then the system settings, the providers, and the front ends, each value with where it comes from: the session, `config.yaml`, rumbo's default, or how rumbo has a built-in program or a plugin brings it. It starts nothing, so a program's own defaults are not in it. |
 | `system-set` | system | `change` | Changes a system setting, as `name=value`; an empty value gives it back to its default. It is checked first, and applies to the runs that start after it; `default_provider` and `frontend` from the next start. |
 | `system-values` | system | | Lists the changes `system-set` takes. Marked `lists`. |
 | `quit` | system | | Stops the providers and ends the host, which closes the connection. Runs in progress are cancelled. |
@@ -433,13 +433,13 @@ The functions of this version, by group:
 | `session-set` | session | `change` | Chooses, as `name=value`, a value of one of the provider's options for the current session, which keeps it over the provider's configuration; an empty value gives it back. The provider is asked what it describes, and an option it does not describe, or a value it does not take, is refused. |
 | `session-values` | session | | Lists the changes `session-set` takes: the values of the current provider's options, those in force marked. Marked `lists`. |
 | `compact` | session | `session`? | Replaces the conversation with a summary now. |
-| `providers` | provider | | Lists the providers there are: the built-in ones and those registered. |
+| `providers` | provider | | Lists the providers there are: those plugins bring, rumbo's own among them, and those registered. |
 | `provider-models` | provider | `provider`? | Lists the models a provider offers, asking it; without a `provider`, the current session's, with the one it uses marked. The `model` of `use` lists its values with it. |
 | `provider-show` | provider | `provider`? | Starts a provider and shows each of its settings, its model, the fields of its configuration, and its options, with the value that applies and where it comes from, its own defaults included, and what it offers. Without a `provider`, the current session's, with what the session chose over the rest. Also the test that it works. |
 | `provider-set` | provider | `provider`, `change` | Sets, as `name=value`, a provider's model, a field of its configuration, or one of its options; an empty value gives it back to its default. The provider is started to check it: a name it does not describe, a value of another type or not among those it lists, and a configuration it does not start with are refused, and nothing is kept. |
 | `provider-values` | provider | `provider` | Lists the changes `provider-set` takes for a provider: its models, and the values of its fields and options. Marked `lists`. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, which is the test that it works; one that does not start is not registered. |
-| `provider-rm` | provider | `provider` | Removes a provider the user registered, or what they chose for a built-in one, which stays. Asks to be confirmed. |
+| `provider-rm` | provider | `provider` | Removes a provider the user registered, or what they chose for one a plugin brings, which stays. Asks to be confirmed. |
 
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.

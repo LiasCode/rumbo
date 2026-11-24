@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LiasCode/rumbo/internal/credentials"
-	"github.com/LiasCode/rumbo/internal/signin"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/credentials"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/signin"
 	"github.com/LiasCode/rumbo/protocol"
 )
 

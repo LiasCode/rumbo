@@ -58,6 +58,13 @@ it. The commits hold the reasons.
   the plugin comes from. A plugin whose extension takes the place of one of
   rumbo's own tools says so and is added only with `-replaces <tool>`.
   `examples/plugin` is one to start from.
+- What comes with rumbo besides the host is a plugin too, `rumbo`, built
+  into it and always there: the providers `anthropic`, `openai`, and
+  `chatgpt`, the terminal UI, and the extension for MCP servers. `rumbo
+  plugin show rumbo` says what it brings, and `rumbo provider list` and
+  `rumbo config` say `plugin rumbo` where they said `built in`. What you
+  set for them is kept and read as before; only the `plain` front end is
+  still built in.
 
 ### Terminal UI
 

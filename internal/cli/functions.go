@@ -231,7 +231,7 @@ var hostFunctions = []hostFunction{
 		call: (*host).compactNow,
 	},
 	{
-		Function:  protocol.Function{Name: "providers", Description: "List the providers there are, built in and registered", Group: protocol.GroupProvider},
+		Function:  protocol.Function{Name: "providers", Description: "List the providers there are, those plugins bring and those registered", Group: protocol.GroupProvider},
 		duringRun: true,
 		call:      (*host).listProviders,
 	},
@@ -299,9 +299,9 @@ var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
 			Name:        "provider-rm",
-			Description: "Remove a provider you registered, or what you set for a built-in one",
+			Description: "Remove a provider you registered, or what you set for one a plugin brings",
 			Params:      []protocol.Option{{Name: "provider", Type: protocol.OptionString, Values: "providers"}},
-			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched, and a built-in provider stays, as rumbo has it.",
+			Confirm:     "This removes the provider's registration and its configuration. The program itself is not touched, and a provider a plugin brings stays, as the plugin has it.",
 			Group:       protocol.GroupProvider,
 		},
 		duringRun: true,

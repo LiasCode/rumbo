@@ -1,5 +1,5 @@
-// Package render holds the wording the built-in front ends share, so the
-// same event reads the same in each of them.
+// Package render holds the wording rumbo's own front ends share, plain and
+// its plugin's tui, so the same event reads the same in each of them.
 package render
 
 import (

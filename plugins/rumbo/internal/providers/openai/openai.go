@@ -1,7 +1,7 @@
-// Package openai is the built-in provider for servers that speak the OpenAI
-// Chat Completions API, which covers OpenAI itself and most local and hosted
-// model servers, or OpenAI's Responses API, which the built-in openai speaks
-// and responses.go holds.
+// Package openai is rumbo's plugin's provider for servers that speak the
+// OpenAI Chat Completions API, which covers OpenAI itself and most local and
+// hosted model servers, or OpenAI's Responses API, which the plugin's openai
+// speaks and responses.go holds.
 package openai
 
 import (
@@ -17,7 +17,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/LiasCode/rumbo/internal/credentials"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/credentials"
 	"github.com/LiasCode/rumbo/protocol"
 )
 

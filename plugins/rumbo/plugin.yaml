@@ -1,0 +1,28 @@
+# The plugin that comes with rumbo. It is built into the rumbo executable,
+# which reads this file as it reads any plugin's and serves each of its
+# programs through a command of its own, so every command here starts with
+# the executable, "{self}", and none names a file of a directory.
+name: rumbo
+description: The providers, the terminal front end, and the MCP extension that come with rumbo.
+
+providers:
+  anthropic:
+    command: ["{self}", provide, anthropic]
+  chatgpt:
+    command: ["{self}", provide, chatgpt]
+  openai:
+    command: ["{self}", provide, openai]
+    config:
+      # The provider speaks Chat Completions unless told otherwise, as most
+      # servers do; OpenAI's own reasoning models need the Responses API to
+      # use tools with an effort.
+      api: responses
+
+frontends:
+  tui:
+    command: ["{self}", attach, tui]
+
+# Its extension for MCP servers is not brought here, since it would start
+# with no server: it gives the model the tools of one, so a person adds it
+# once for each, as "rumbo extension add <name> {self} extend mcp <the
+# server's command>".

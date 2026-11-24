@@ -1,6 +1,6 @@
-// Package anthropic is the built-in provider for the Claude API. It is an
-// ordinary protocol.Handler: the host reaches it through the same protocol as
-// any provider a user writes.
+// Package anthropic is rumbo's plugin's provider for the Claude API. It is
+// an ordinary protocol.Handler: the host reaches it through the same
+// protocol as any provider a user writes.
 package anthropic
 
 import (
@@ -18,7 +18,7 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
 
-	"github.com/LiasCode/rumbo/internal/credentials"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/credentials"
 	"github.com/LiasCode/rumbo/protocol"
 )
 

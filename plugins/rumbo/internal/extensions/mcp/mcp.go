@@ -1,4 +1,4 @@
-// Package mcp is rumbo's built-in extension for the Model Context Protocol:
+// Package mcp is rumbo's plugin's extension for the Model Context Protocol:
 // it gives the model the tools of one MCP server, which it starts as a
 // child process or reaches over HTTP. The host does not know MCP; this
 // adapter speaks it on one side and the Agent Extension Protocol on the

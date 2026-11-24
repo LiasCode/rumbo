@@ -2,8 +2,8 @@
 
 What each of the four parts of rumbo must do, can do, and must not do. The
 host is rumbo itself. Providers, front ends, and extensions are separate
-programs that speak a protocol with it, whether they are built in or written
-by a user.
+programs that speak a protocol with it, whether they come with rumbo or are
+written by a user.
 
 [architecture.md](architecture.md) explains how the parts fit together,
 [protocol.md](protocol.md), [frontend-protocol.md](frontend-protocol.md),
@@ -33,7 +33,7 @@ nothing and knows no model API.
 - Summarize a conversation before it outgrows the model's context, and
   recover the same way when a request does not fit anyway.
 - Reach models only through providers, and people only through front ends,
-  the built-in ones included, always over the protocols.
+  rumbo's own included, always over the protocols.
 - Leave the terminal to the front end: write nothing to it, and ignore the
   interrupt, which is the front end's to interpret.
 - End on SIGTERM and SIGHUP as it does when the front end disconnects: its
@@ -167,10 +167,11 @@ nothing and knows no model API.
 **Providers**
 
 - Register, set, show, and remove providers. A provider is started
-  when it is added, which is the test that it works. The built-in
-  `anthropic`, `openai`, and `chatgpt` are there without being registered,
-  and cannot be removed; one registered under the name of a built-in takes
-  its place. `{self}` stands for rumbo's own executable in a command.
+  when it is added, which is the test that it works. The `anthropic`,
+  `openai`, and `chatgpt` of rumbo's own plugin are there without being
+  registered, and cannot be removed; one registered under the name of one
+  of them takes its place. `{self}` stands for rumbo's own executable in a
+  command.
 - Keep of each provider and front end only what the user chose for it,
   and for a provider the model new sessions start with. What is not chosen
   is the program's own default, so one a new version changes applies to
@@ -199,17 +200,17 @@ nothing and knows no model API.
 - Relay what a provider's function says to the person and asks of them while
   it works, and the answers back, and give the function up when the person
   does.
-- Serve the built-in providers itself (`rumbo provide <name>`), over the same
-  protocol as any other.
+- Serve the providers of its own plugin itself (`rumbo provide <name>`),
+  over the same protocol as any other.
 
 **Front ends**
 
 - Start a registered front end and give it the terminal, or be started by
   one (`rumbo serve`). Without `-f` or the `frontend` setting it starts `tui`
   in a terminal and `plain` elsewhere.
-- Register, configure, show, and remove front ends, and serve the built-in
-  `tui` and `plain` itself (`rumbo attach <name>`), which are there without
-  being registered.
+- Register, configure, show, and remove front ends, and serve `tui`, its
+  own plugin's, and `plain`, which it has built in, itself (`rumbo attach
+  <name>`); both are there without being registered.
 - Describe functions of its own, which any front end offers as commands
   without knowing them, each saying what it acts on. For the system:
   `config`, `system-set`, and `quit`. For a session: `status`, `skills`,
@@ -282,8 +283,8 @@ nothing and knows no model API.
   (`rumbo extension show`).
 - Pass an extension's diagnostics to the front end, each line with the
   extension's name.
-- Serve the built-in extension itself (`rumbo extend mcp`), over the same
-  protocol as any other.
+- Serve its own plugin's extension itself (`rumbo extend mcp`), over the
+  same protocol as any other.
 
 **Plugins**
 
@@ -314,8 +315,13 @@ nothing and knows no model API.
   added from is left as it is.
 - List the plugins and say what each brings (`rumbo plugin list`, `rumbo
   plugin show`), and stop with a plugin whose manifest can no longer be
-  read, saying how to take it out, instead of going on without what it
-  brought.
+  read, or that comes to bring what another plugin brings, saying how to
+  take it out, instead of going on without what it brought.
+- Have its own plugin there before any the user adds, built into the
+  executable with its programs: its providers, its terminal front end, and
+  its extension for MCP servers. It is listed, shown, and set like any
+  other, has nothing in the configuration file, and is never taken out or
+  updated apart from rumbo.
 - Keep of a plugin, in the configuration file, only where it comes from
   and the replacements the user agreed to.
 
@@ -409,7 +415,7 @@ the Agent Provider Protocol on its stdin and stdout.
 - Rely on anything but the request it is answering: the next request of the
   same session may go to another process.
 
-### Built in
+### Of rumbo's own plugin
 
 - **`anthropic`** reaches the Claude API with `ANTHROPIC_API_KEY`,
   `ANTHROPIC_AUTH_TOKEN`, the key its `login` stored, or the profile from
@@ -423,7 +429,7 @@ the Agent Provider Protocol on its stdin and stdout.
   `effort` option, sent as `reasoning_effort` only when it or the
   configuration chooses one, and takes the size of the context from its
   configuration, since a server cannot say. With `api` set to `responses`
-  in its configuration, as rumbo has the built-in `openai`, it speaks
+  in its configuration, as rumbo's own plugin has `openai`, it speaks
   OpenAI's Responses API instead, which its reasoning models need to use
   tools with an effort: nothing is stored on the server, and a model's
   encrypted reasoning goes back to that model alone, in opaque blocks.
@@ -445,7 +451,7 @@ the Agent Provider Protocol on its stdin and stdout.
   manage the plan's usage, in `account` and when a usage limit is reached.
   `logout` forgets the sign-in and takes it back on OpenAI's side.
 - Anthropic's terms do not let other applications use a Claude
-  subscription, so no built-in provider does; `anthropic` takes an API key.
+  subscription, so no provider of rumbo's does; `anthropic` takes an API key.
 
 ## Extension
 
@@ -505,7 +511,7 @@ being asked. It speaks the Agent Extension Protocol on its stdin and stdout.
   what happens, and decides only what its own tools do.
 - Hold up its reading of events, which the host does not wait for.
 
-### Built in
+### Of rumbo's own plugin
 
 **`mcp`** gives the model the tools of one server of the
 [Model Context Protocol](https://modelcontextprotocol.io). It is registered
@@ -607,9 +613,9 @@ speaks the Agent Frontend Protocol with the host.
 - Read the configuration registered with it.
 - End the host by closing the connection.
 
-### Built in
+### Those that come with rumbo
 
-**`tui`**, the terminal UI:
+**`tui`**, the terminal UI, of rumbo's own plugin:
 
 - It takes the whole screen, as rumbo-gui takes a window: a header with
   the project and the session shown; the project's sessions in a sidebar,
@@ -749,7 +755,7 @@ speaks the Agent Frontend Protocol with the host.
   ends, and leaves in it the command that continues its session,
   `rumbo -s <session>`.
 
-**`plain`**, for pipes and scripts:
+**`plain`**, for pipes and scripts, which rumbo has built in:
 
 - It takes the objective from the command line or from piped input, or
   reads objectives line by line.

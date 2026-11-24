@@ -89,7 +89,7 @@ type Store interface {
 	Settings() (map[string]string, error)
 
 	// Program returns what the user registered under a name, which says
-	// nothing of the programs rumbo has built in.
+	// nothing of the programs rumbo has built in or plugins bring.
 	Program(kind, name string) (Program, error)
 	PutProgram(kind string, program Program) error
 	DeleteProgram(kind, name string) error

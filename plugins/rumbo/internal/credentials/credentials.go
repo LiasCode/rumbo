@@ -1,4 +1,4 @@
-// Package credentials keeps what the built-in providers and extensions need
+// Package credentials keeps what the plugin's providers and extension need
 // to reach a server: an API key a person gave to a provider's login, or
 // what signing in with OAuth gave it. It is theirs: each keeps a file that
 // only the user can read, and the host never sees it.
@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Store is the file of one provider, or of one built-in extension, which
+// Store is the file of one provider, or of the plugin's extension, which
 // holds the credentials of each server it reaches, by the server's address.
 type Store struct {
 	// Path is the file. Empty means there is nowhere to keep credentials,

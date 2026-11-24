@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,72 +11,39 @@ import (
 	"text/tabwriter"
 
 	"github.com/LiasCode/rumbo/internal/agent"
-	"github.com/LiasCode/rumbo/internal/extensions/mcp"
 	"github.com/LiasCode/rumbo/internal/frontends/plain"
-	"github.com/LiasCode/rumbo/internal/frontends/tui"
-	"github.com/LiasCode/rumbo/internal/providers/anthropic"
-	"github.com/LiasCode/rumbo/internal/providers/chatgpt"
-	"github.com/LiasCode/rumbo/internal/providers/openai"
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/internal/transcript"
+	"github.com/LiasCode/rumbo/plugins/rumbo"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// provide runs a built-in provider as a protocol server on stdin and stdout.
+// provide runs a provider of rumbo's own plugin as a protocol server on
+// stdin and stdout.
 func provide(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: rumbo provide <anthropic|openai|chatgpt>")
+		return errors.New("usage: rumbo provide <name>")
 	}
 
-	var handler protocol.Handler
-
-	switch args[0] {
-	case "anthropic":
-		handler = anthropic.New()
-	case "openai":
-		handler = openai.New()
-	case "chatgpt":
-		handler = chatgpt.New()
-	default:
-		return fmt.Errorf("unknown built-in provider %q", args[0])
-	}
-
-	return protocol.Serve(context.Background(), os.Stdin, os.Stdout, handler)
+	return rumbo.Provide(args[0])
 }
 
-// extend runs a built-in extension as a protocol server on stdin and
-// stdout. mcp is the only one: it gives the model the tools of the MCP
-// server the rest of the command starts, or of the one at the url of its
-// configuration.
+// extend runs an extension of rumbo's own plugin as a protocol server on
+// stdin and stdout, with the rest of the command, such as the MCP server
+// to start.
 func extend(args []string) error {
-	if len(args) == 0 || args[0] != "mcp" {
-		return errors.New("usage: rumbo extend mcp [<command>...]")
+	if len(args) == 0 {
+		return errors.New("usage: rumbo extend <name> [<command>...]")
 	}
 
-	adapter := mcp.New(args[1:], release(), os.Stderr)
-	defer adapter.Close()
-
-	served := make(chan error, 1)
-
-	go func() {
-		served <- protocol.ServeExtension(context.Background(), os.Stdin, os.Stdout, adapter)
-	}()
-
-	select {
-	case err := <-served:
-		return err
-
-	// Without its server it can answer nothing; the host starts it again,
-	// and the server with it, for the next call.
-	case <-adapter.Lost():
-		return errors.New("the MCP server exited")
-	}
+	return rumbo.Extend(args[0], args[1:], release())
 }
 
-// attach runs a built-in front end on the protocol's file descriptors.
+// attach runs a front end on the protocol's file descriptors: plain, which
+// rumbo has built in, or one of its own plugin.
 func attach(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: rumbo attach <tui|plain>")
+		return errors.New("usage: rumbo attach <name>")
 	}
 
 	// Started by hand these descriptors are not open, and the front end
@@ -86,14 +52,16 @@ func attach(args []string) error {
 	writer := os.NewFile(protocol.FrontendWriteFD, "frontend-to-host")
 
 	var code int
+	var err error
 
-	switch args[0] {
-	case "tui":
-		code = tui.Run(reader, writer)
-	case "plain":
+	if args[0] == "plain" {
 		code = plain.Run(reader, writer)
-	default:
-		return fmt.Errorf("unknown built-in front end %q", args[0])
+	} else {
+		code, err = rumbo.Attach(args[0], reader, writer)
+	}
+
+	if err != nil {
+		return err
 	}
 
 	if code != 0 {
@@ -107,7 +75,7 @@ func attach(args []string) error {
 var programHelp = map[string]string{
 	store.KindProvider:  "A provider is any program that speaks the Agent Provider Protocol on its\nstdin and stdout.",
 	store.KindFrontend:  "A front end is any program that speaks the Agent Frontend Protocol on file\ndescriptors 3 (read) and 4 (write). It keeps the terminal on stdin and stdout.",
-	store.KindExtension: "An extension is any program that speaks the Agent Extension Protocol on its\nstdin and stdout. The tools it declares are the model's, beside rumbo's own,\nand declaring them adds to every request. One of them takes the place of a\ntool of rumbo's, such as bash, when you say so with replaces. It can also\ndeclare sections, which the model is told when a run starts, and functions,\nwhich a front end offers you as commands named after it.\n\nrumbo has one built in for the servers of the Model Context Protocol:\n  rumbo extension add files {self} extend mcp <the server's command>...\n  rumbo extension add -config '{\"url\":\"https://...\"}' docs {self} extend mcp\nA server at a url that wants a sign-in offers a login command in a front end.\nIts fields are url; token_env, the environment variable with a token of your\nown for a server at a url that takes one; client_id, for an authorization\nserver that registers no clients by itself; prefix, which goes before each\ntool's name; and tools, the names of the ones the model is given, separated\nby commas.",
+	store.KindExtension: "An extension is any program that speaks the Agent Extension Protocol on its\nstdin and stdout. The tools it declares are the model's, beside rumbo's own,\nand declaring them adds to every request. One of them takes the place of a\ntool of rumbo's, such as bash, when you say so with replaces. It can also\ndeclare sections, which the model is told when a run starts, and functions,\nwhich a front end offers you as commands named after it.\n\nrumbo's own plugin has one for the servers of the Model Context Protocol,\nadded once for each:\n  rumbo extension add files {self} extend mcp <the server's command>...\n  rumbo extension add -config '{\"url\":\"https://...\"}' docs {self} extend mcp\nA server at a url that wants a sign-in offers a login command in a front end.\nIts fields are url; token_env, the environment variable with a token of your\nown for a server at a url that takes one; client_id, for an authorization\nserver that registers no clients by itself; prefix, which goes before each\ntool's name; and tools, the names of the ones the model is given, separated\nby commas.",
 }
 
 func programUsage(kind string) string {
@@ -125,7 +93,7 @@ func programUsage(kind string) string {
 	}
 
 	// There are no extensions but the ones the user added.
-	listed, removed := "the "+kindNames[kind]+"s there are, built in and yours", "remove one you added, or what you set for a built-in one"
+	listed, removed := "the "+kindNames[kind]+"s there are: rumbo's, plugins', and yours", "remove yours, or what you set for rumbo's or a plugin's"
 
 	if kind == store.KindExtension {
 		listed, removed = "the extensions you added", "remove one"

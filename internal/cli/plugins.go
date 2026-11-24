@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"go.yaml.in/yaml/v4"
@@ -22,6 +23,7 @@ import (
 	"github.com/LiasCode/rumbo/internal/ambient"
 	"github.com/LiasCode/rumbo/internal/extension"
 	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/plugins/rumbo"
 )
 
 // This file owns the plugins: a plugin is a directory that brings programs,
@@ -29,6 +31,8 @@ import (
 // manifest names. What it brings is there as what rumbo has built in is,
 // without an entry of its own in the configuration file, which keeps of a
 // plugin only where it comes from and what the user agreed it replaces.
+// rumbo's own plugin (plugins/rumbo) is one more, there before any the user
+// adds, whose manifest is built into the executable with its programs.
 
 const (
 	// manifestFile is the file at a plugin's root that says what it brings.
@@ -73,11 +77,28 @@ func (m manifest) programs(kind string) map[string]manifestProgram {
 	return m.Extensions
 }
 
-// plugin is a plugin the user added: where it is, and what it brings.
+// plugin is a plugin the user added, or rumbo's own: where it is, and what
+// it brings. rumbo's own has no directory.
 type plugin struct {
 	store.Plugin
 	dir      string
 	manifest manifest
+}
+
+// ownPlugin is rumbo's own plugin, read from the manifest the executable
+// was built with. It comes from no file of the user's, so its source is
+// that it is built in.
+var ownPlugin = sync.OnceValues(func() (plugin, error) {
+	said, err := parseManifest(rumbo.Manifest, "rumbo's own "+manifestFile)
+
+	return plugin{Plugin: store.Plugin{Name: said.Name, Source: sourceBuiltin}, manifest: said}, err
+})
+
+// isOwn reports whether the plugin called name is rumbo's own.
+func isOwn(name string) bool {
+	own, err := ownPlugin()
+
+	return err == nil && own.Name == name
 }
 
 // pluginKinds are the kinds of programs a plugin brings, in the order they
@@ -120,14 +141,19 @@ func dirOf(added store.Plugin) (string, error) {
 // readManifest reads what the plugin in dir brings, refusing what rumbo
 // would read something else from than its writer meant.
 func readManifest(dir string) (manifest, error) {
-	var read manifest
-
 	path := filepath.Join(dir, manifestFile)
 	raw, err := os.ReadFile(path)
 
 	if err != nil {
-		return read, fmt.Errorf("it has no %s, which says what a plugin brings: %w", manifestFile, err)
+		return manifest{}, fmt.Errorf("it has no %s, which says what a plugin brings: %w", manifestFile, err)
 	}
+
+	return parseManifest(raw, path)
+}
+
+// parseManifest reads a manifest, which path names in what is said of it.
+func parseManifest(raw []byte, path string) (manifest, error) {
+	var read manifest
 
 	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)
@@ -168,19 +194,26 @@ func readManifest(dir string) (manifest, error) {
 	return read, nil
 }
 
-// installed returns the plugins the user added, by name, each with what it
-// brings. One that cannot be read fails all of it, saying how to take it
-// out: its programs would otherwise be gone without a word.
+// installed returns the plugins there are, rumbo's own first and then the
+// ones the user added, by name, each with what it brings. One that cannot
+// be read, or that brings what one before it does, fails all of it, saying
+// how to take it out: its programs would otherwise be gone without a word.
 func installed(database store.Store) ([]plugin, error) {
+	own, err := ownPlugin()
+
+	if err != nil {
+		return nil, err
+	}
+
 	added, err := database.Plugins()
 
 	if err != nil {
 		return nil, err
 	}
 
-	plugins := make([]plugin, len(added))
+	plugins := []plugin{own}
 
-	for index, each := range added {
+	for _, each := range added {
 		dir, err := dirOf(each)
 
 		if err != nil {
@@ -189,14 +222,38 @@ func installed(database store.Store) ([]plugin, error) {
 
 		said, err := readManifest(dir)
 
+		if err == nil && each.Name == own.Name {
+			err = fmt.Errorf("rumbo's own plugin is called %s", own.Name)
+		}
+
+		if err == nil {
+			err = broughtAlready(plugins, said)
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf(`the plugin %s, in %s: %w; "rumbo plugin rm %s" takes it out`, each.Name, dir, err, each.Name)
 		}
 
-		plugins[index] = plugin{Plugin: each, dir: dir, manifest: said}
+		plugins = append(plugins, plugin{Plugin: each, dir: dir, manifest: said})
 	}
 
 	return plugins, nil
+}
+
+// broughtAlready refuses a manifest that brings a program one of the
+// plugins brings.
+func broughtAlready(plugins []plugin, said manifest) error {
+	for _, kind := range pluginKinds {
+		for _, name := range slices.Sorted(maps.Keys(said.programs(kind))) {
+			for _, other := range plugins {
+				if _, brought := other.manifest.programs(kind)[name]; brought {
+					return fmt.Errorf("it brings the %s %s, which the plugin %s already brings", kindNames[kind], name, other.Name)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // program returns the program of a kind the plugin brings under name, as
@@ -247,7 +304,8 @@ func broughtBy(database store.Store, kind, name string) (store.Program, string, 
 	return store.Program{}, "", nil
 }
 
-// skillPlaces are where the plugins keep their skills.
+// skillPlaces are where the plugins keep their skills. rumbo's own, which
+// has no directory, has none.
 func skillPlaces(database store.Store) ([]string, error) {
 	plugins, err := installed(database)
 
@@ -255,10 +313,12 @@ func skillPlaces(database store.Store) ([]string, error) {
 		return nil, err
 	}
 
-	places := make([]string, len(plugins))
+	var places []string
 
-	for index, each := range plugins {
-		places[index] = filepath.Join(each.dir, skillsDir)
+	for _, each := range plugins {
+		if each.dir != "" {
+			places = append(places, filepath.Join(each.dir, skillsDir))
+		}
 	}
 
 	return places, nil
@@ -375,6 +435,14 @@ func fits(database store.Store, said manifest, agreed []string, again bool) erro
 		return err
 	}
 
+	// One of its name is the plugin itself when it is updated, and is said
+	// below when it is added.
+	others := slices.DeleteFunc(slices.Clone(plugins), func(other plugin) bool { return other.Name == said.Name })
+
+	if err := broughtAlready(others, said); err != nil {
+		return err
+	}
+
 	var asked []string
 
 	for _, kind := range pluginKinds {
@@ -385,18 +453,16 @@ func fits(database store.Store, said manifest, agreed []string, again bool) erro
 		}
 
 		for _, name := range slices.Sorted(maps.Keys(said.programs(kind))) {
-			for _, other := range plugins {
-				if _, brought := other.manifest.programs(kind)[name]; brought && other.Name != said.Name {
-					return fmt.Errorf("it brings the %s %s, which the plugin %s already brings", kindNames[kind], name, other.Name)
-				}
-			}
-
 			if slices.ContainsFunc(registered, func(mine store.Program) bool { return mine.Name == name && len(mine.Command) > 0 }) {
 				return fmt.Errorf(`it brings the %[1]s %[2]s, and you registered one of that name; "rumbo %[3]s rm %[2]s" takes yours out`, kindNames[kind], name, kind)
 			}
 
 			asked = append(asked, said.programs(kind)[name].Replaces...)
 		}
+	}
+
+	if isOwn(said.Name) {
+		return fmt.Errorf("rumbo's own plugin is called %s; give yours another name in its %s", said.Name, manifestFile)
 	}
 
 	for _, plugin := range plugins {
@@ -486,11 +552,14 @@ func brings(added plugin) string {
 	}
 
 	// Its skills are those in its own directory, among all that are found.
-	place := filepath.Join(added.dir, skillsDir)
+	// rumbo's own has no directory, and none.
+	if added.dir != "" {
+		place := filepath.Join(added.dir, skillsDir)
 
-	for _, skill := range ambient.FindSkills(context.Background(), added.dir, []string{place}).Found {
-		if strings.HasPrefix(skill.Path, place+string(filepath.Separator)) {
-			fmt.Fprintf(&out, "  the skill %s\n", skill.Name)
+		for _, skill := range ambient.FindSkills(context.Background(), added.dir, []string{place}).Found {
+			if strings.HasPrefix(skill.Path, place+string(filepath.Separator)) {
+				fmt.Fprintf(&out, "  the skill %s\n", skill.Name)
+			}
 		}
 	}
 
@@ -513,7 +582,11 @@ func removePlugin(database store.Store, name string) (string, error) {
 
 	index := slices.IndexFunc(added, func(each store.Plugin) bool { return each.Name == name })
 
-	if index < 0 {
+	switch {
+	case index < 0 && isOwn(name):
+		return "", fmt.Errorf(`the plugin %s comes with rumbo and is always there; "rumbo provider rm <name>" and "rumbo frontend rm <name>" take out what you set for what it brings`, name)
+
+	case index < 0:
 		return "", fmt.Errorf(`there is no plugin called %s; "rumbo plugin list" says which there are`, name)
 	}
 
@@ -575,6 +648,9 @@ func updatePlugin(database store.Store, name string, diagnostics io.Writer) (str
 	case index < 0:
 		return "", fmt.Errorf(`there is no plugin called %s; "rumbo plugin list" says which there are`, name)
 
+	case isOwn(name):
+		return "", fmt.Errorf("the plugin %s comes with rumbo, and is as new as the rumbo you have", name)
+
 	case !remote(plugins[index].Source):
 		return "", fmt.Errorf("the plugin %s is the directory %s, read as it is each time: there is nothing to update", name, plugins[index].dir)
 	}
@@ -629,7 +705,7 @@ func updatePlugin(database store.Store, name string, diagnostics io.Writer) (str
 }
 
 const pluginUsage = `usage:
-  rumbo plugin list                               the plugins you added
+  rumbo plugin list                               rumbo's own plugin, and those you added
   rumbo plugin show <name>                        where it is, and what it brings
   rumbo plugin add [-replaces <tools>] <source>   a directory, or the address of a Git repository
   rumbo plugin update <name>                      bring one added from an address up to date
@@ -639,6 +715,8 @@ A plugin is a directory with a plugin.yaml that names the programs it brings,
 providers, front ends, and extensions, and with skills in skills/. What it
 brings is there once it is added, as what rumbo has built in is, and is set
 with "rumbo provider set", "rumbo frontend set", and "rumbo extension set".
+rumbo's own plugin, rumbo, is built into it and always there; "rumbo plugin
+show rumbo" says what it brings.
 A plugin runs with your rights: add one whose code you trust. When one of its
 extensions takes the place of a tool of rumbo's own, such as bash, adding it
 says so and asks you to agree with -replaces.`
@@ -680,8 +758,13 @@ func pluginCommands(database store.Store, args []string) error {
 		shown := plugins[index]
 		where := "in " + shown.dir
 
-		// One added from an address is kept in a copy.
-		if remote(shown.Source) {
+		// One added from an address is kept in a copy, and rumbo's own is
+		// in rumbo.
+		switch {
+		case isOwn(shown.Name):
+			where = "built into rumbo"
+
+		case remote(shown.Source):
 			where = "from " + shown.Source + ", kept in " + shown.dir
 		}
 

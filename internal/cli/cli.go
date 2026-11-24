@@ -40,9 +40,9 @@ Usage:
   rumbo frontend ...             add, show, and set front ends
   rumbo extension ...            add, show, and set extensions, which give the model tools
   rumbo plugin ...               add, show, update, and remove plugins, which bring programs and skills
-  rumbo provide <name>           run a built-in provider on stdin/stdout
-  rumbo attach <name>            run a built-in front end on descriptors 3/4
-  rumbo extend mcp [command...]  run the built-in extension for an MCP server on stdin/stdout
+  rumbo provide <name>           run a provider of rumbo's own plugin on stdin/stdout
+  rumbo attach <name>            run plain, or a front end of rumbo's own plugin, on descriptors 3/4
+  rumbo extend mcp [command...]  run rumbo's own plugin's extension for an MCP server on stdin/stdout
   rumbo version                  print the version
 
 Flags:

@@ -6,7 +6,7 @@ others. Three of them cross a process boundary through a protocol, which is
 what lets users bring their own: the front end a person uses, the provider
 that reaches the model, and the extensions that give the model more tools.
 
-![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process, and Tool and Collector the Agent Extension Protocol with the extension processes: the user's, a plugin's, or the built-in mcp.](architecture.svg)
+![The front end process speaks the Agent Frontend Protocol with the host process, rumbo, whose agent loop hears from an Inbox, reports to an Observer, and depends on Provider, Tool, Collector, and Store; the Provider speaks the Agent Provider Protocol with the provider process, and Tool and Collector the Agent Extension Protocol with the extension processes: the user's, a plugin's, or the mcp of rumbo's own plugin.](architecture.svg)
 
 The host is the only part that is always rumbo. It owns the sessions, the
 tools, and the loop; it shows nothing and knows no model API. It is not tied
@@ -28,10 +28,11 @@ each. A process answers one request at a time, so the host keeps a pool of
 them per provider and starts another when every one is busy; any of them can
 answer any request, since every request carries the whole conversation.
 Each session uses the provider chosen for it, and keeps it from one start of
-rumbo to the next. The built-in providers
-(`internal/providers`) are served by the same binary through `rumbo provide
-<name>` and get no shortcut: they cross the same protocol as a provider a
-user writes. Credentials belong to the provider, which keeps them where it
+rumbo to the next. The providers that come with rumbo, `anthropic`,
+`openai`, and `chatgpt`, are its own plugin's (`plugins/rumbo`), served by
+the same binary through `rumbo provide <name>`, and get no shortcut: they
+cross the same protocol as a provider a user writes. Credentials belong to
+the provider, which keeps them where it
 chooses; the host keeps none, and relays one a person types at a
 provider's question without recording it. A provider also describes
 itself: the options it accepts and the functions it can be asked, such as
@@ -74,9 +75,10 @@ the host, so what an extension holds, such as a connection, is there for
 the next call. The extensions are the user's, the same in every project,
 and a run has those registered when it starts: one that does not start, or
 whose tools the model cannot be given, stops the run instead of leaving it
-with tools missing. The built-in extension (`internal/extensions/mcp`),
-served by the same binary through `rumbo extend mcp`, gives the model the
-tools of a Model Context Protocol server. It is where MCP ends: the host
+with tools missing. rumbo's own plugin has an extension (`plugins/rumbo`),
+served by the same binary through `rumbo extend mcp` and added once for
+each server, which gives the model the tools of a Model Context Protocol
+server. It is where MCP ends: the host
 knows only its own protocol, so what comes after MCP is another extension.
 
 **Screen** (`internal/computer`). The desktop rumbo runs in, for the
@@ -111,6 +113,15 @@ its programs are the same programs, there without being registered as the
 built-in ones are, and its skills are told with the user's. The
 configuration file keeps only where a plugin comes from, and which tools of
 the host's own the user agreed its extensions replace.
+rumbo's own plugin (`plugins/rumbo`) is one more, there before any the
+user adds: what comes with rumbo beyond the host, its providers, its
+terminal front end, and its extension for MCP servers. Its manifest and its
+code are built into the executable, which serves its programs, so it has
+no directory, no entry in the configuration file, and no way to be taken
+out or updated apart from rumbo. The host reaches its code only through
+the package at its root, which starts its programs; everything else of it
+is internal to it. What the host keeps of its own is its tools and `plain`,
+the front end for pipes and scripts.
 [plugins.md](plugins.md) says what is in one and how to write it.
 
 **Store** (`internal/store`). Settings, registered programs, sessions, and
@@ -134,8 +145,9 @@ to starts.
 reaches the loop. The host sends it events and receives objectives, steers,
 and cancellations over the Agent Frontend Protocol. Inside the host, the
 connection gives each run an `Observer` and an `Inbox`, so what a run does
-reaches the front end naming the run and its session. The built-in front ends
-(`internal/frontends`) are served by the same binary through `rumbo attach
+reaches the front end naming the run and its session. The front ends that
+come with rumbo, `tui`, its own plugin's, and `plain`, which it has built in
+(`internal/frontends`), are served by the same binary through `rumbo attach
 <name>` and cross the same protocol as one a user writes. A front end either
 is started by the host, which leaves it the terminal, or starts the host
 itself with `rumbo serve`, as an editor would. What a person can do beyond
@@ -152,8 +164,9 @@ rumbo's own, the same everywhere. A session keeps what it chose, which wins
 over them there: its provider, its model, and values of the provider's
 options. A provider has the model a new session that uses it starts with,
 and one configuration: what it starts with, and the values of its options,
-which it gets with every request under those a session chose. The built-in
-programs are there without being registered; what the user chooses for one
+which it gets with every request under those a session chose. The programs
+rumbo has built in, and those plugins bring, its own among them, are there
+without being registered; what the user chooses for one
 is all that is kept of it. Every level is changed the same way, as
 `name=value`, where an empty value gives a setting back to the level under
 it (`changes.go`), and every value is checked before it is kept: a

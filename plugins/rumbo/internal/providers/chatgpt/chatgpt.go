@@ -1,4 +1,4 @@
-// Package chatgpt is the built-in provider that uses the person's ChatGPT
+// Package chatgpt is rumbo's plugin's provider that uses the person's ChatGPT
 // plan: they sign in with ChatGPT, and requests go to OpenAI's Responses API
 // with the tokens that gives, drawing on what the plan includes rather than
 // on an API key. OpenAI offers this to open-source apps that run where the
@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LiasCode/rumbo/internal/credentials"
-	"github.com/LiasCode/rumbo/internal/providers/openai"
-	"github.com/LiasCode/rumbo/internal/signin"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/credentials"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/providers/openai"
+	"github.com/LiasCode/rumbo/plugins/rumbo/internal/signin"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
