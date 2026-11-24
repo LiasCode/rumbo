@@ -95,7 +95,7 @@ another `rumbo`. The front end protocol is at version 2 for it.
   the commands of an extension, such as `/docs-login`, as soon as it is
   added.
 - In the terminal UI, a parameter that can be left out can be typed by
-  name, as `name=value`: `/prune 30d confirm=yes`, or `/extension-add docs
+  name, as `name=value`: `/extension-add docs
   config={"url":"https://example.com/mcp"} {self} extend mcp`.
 
 ### Going back to an earlier rumbo
