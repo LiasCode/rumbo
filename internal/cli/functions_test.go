@@ -696,7 +696,7 @@ func TestBranchesStartFromAPointOfASession(t *testing.T) {
 
 	branched := call(t, h, "branch", `{"point":"2"}`)
 
-	if len(branched.Values) != 1 || branched.Values[0].Label != "fix the parser" {
+	if len(branched.Values) != 1 || branched.Values[0].Label != "Branch fix the parser" {
 		t.Fatalf("branch answered with %+v", branched.Values)
 	}
 

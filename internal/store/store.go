@@ -118,7 +118,7 @@ type Store interface {
 
 	// BranchSession makes a new session from another one, with the same
 	// directory, provider, model, and options, and a copy of its entries up
-	// to upTo. The other session is left as it is.
+	// to upTo, titled as a branch of it. The other session is left as it is.
 	BranchSession(from string, upTo int64) (Session, error)
 
 	// DeleteSession removes a session and its entries for good.

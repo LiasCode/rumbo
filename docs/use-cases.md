@@ -136,10 +136,10 @@ knows no model API.
   with `-yes`. A session a rumbo process is using is kept, and a host
   whose session another process deleted says so instead of working in it.
 - Branch its session (`branch`): make a new one that starts with a copy of
-  it, as it is or as it was before one of the person's messages, and say
-  which it is, for another rumbo to go on in (`-s`). The host stays in its
-  session, which is left as it is; the files are not the session's, and
-  stay as they are.
+  it, as it is or as it was before one of the person's messages, titled
+  "Branch" and that one's title, and say which it is, for another rumbo
+  to go on in (`-s`). The host stays in its session, which is left as it
+  is; the files are not the session's, and stay as they are.
 - Show its session's status: its provider and model, the size of its context,
   what it has spent and how much of its input the provider read from its
   cache, and how its last run stands.

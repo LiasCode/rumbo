@@ -330,7 +330,7 @@ func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
 	found, _ := files.Session(branch.ID)
 
 	if found.Parent != source.ID || found.ParentSeq != 3 || found.Dir != "/project" ||
-		found.Title != "fix the parser" || found.Provider != "anthropic" || string(found.Options) != `{"effort":"high"}` {
+		found.Title != "Branch fix the parser" || found.Provider != "anthropic" || string(found.Options) != `{"effort":"high"}` {
 		t.Fatalf("branch = %+v", found)
 	}
 
@@ -345,6 +345,13 @@ func TestBranchesCopyASessionUpToAPoint(t *testing.T) {
 		if entry.Seq != original[index].Seq || string(entry.Payload) != string(original[index].Payload) || !entry.CreatedAt.Equal(original[index].CreatedAt) {
 			t.Fatalf("entry %d = %+v, want %+v", index, entry, original[index])
 		}
+	}
+
+	// A branch of a branch is not called a branch twice.
+	if again, _ := files.BranchSession(branch.ID, 3); again.Title != "Branch fix the parser" {
+		t.Fatalf("the branch of the branch is called %q", again.Title)
+	} else if err := files.DeleteSession(again.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	// It goes on from there, and is the session -c continues.

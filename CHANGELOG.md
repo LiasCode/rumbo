@@ -25,7 +25,8 @@ another `rumbo`. The front end protocol is at version 2 for it.
 - `/branch` makes the branch and says which session it is; the rumbo that
   made it stays in its session, and another goes on in the branch: the
   terminal UI starts it and shows it, and elsewhere `rumbo -s <session>`
-  does.
+  does. A branch is titled "Branch", then the title of the session it
+  came from, so a list tells them apart.
 - `rumbo sessions -json` lists the sessions for a program to read: each
   with its directory, its title, how its last run ended, and whether a
   rumbo holds it now.

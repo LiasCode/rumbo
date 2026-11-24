@@ -219,6 +219,10 @@ func (f *Files) CreateSession(dir, title string) (Session, error) {
 	return f.create(Session{Dir: dir, Title: title, CreatedAt: now, ActiveAt: now}, nil)
 }
 
+// branchPrefix starts the title of a branch, before the title of the
+// session it came from.
+const branchPrefix = "Branch "
+
 // BranchSession implements Store.
 func (f *Files) BranchSession(from string, upTo int64) (Session, error) {
 	source, err := f.Session(from)
@@ -253,6 +257,13 @@ func (f *Files) BranchSession(from string, upTo int64) (Session, error) {
 
 	branch := source
 	branch.Parent, branch.ParentSeq = source.ID, upTo
+
+	// A list of sessions tells the branch from where it came from by its
+	// title. A branch of a branch is told from it by where each is listed.
+	if branch.Title != "" && !strings.HasPrefix(branch.Title, branchPrefix) {
+		branch.Title = branchPrefix + branch.Title
+	}
+
 	branch.CreatedAt = time.Now()
 	branch.ActiveAt = branch.CreatedAt
 
