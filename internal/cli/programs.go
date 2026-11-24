@@ -28,7 +28,8 @@ import (
 
 // selfPlaceholder in a registered command stands for the rumbo executable, so
 // the programs it serves itself, its own plugin's among them, keep working
-// wherever the binary is installed.
+// wherever the binary is installed, and so a front end that starts a rumbo
+// for each other session can be told which one started it.
 const selfPlaceholder = "{self}"
 
 // builtins are the programs served by the rumbo executable itself, by kind,
@@ -601,14 +602,20 @@ func programCommand(command []string) ([]string, error) {
 	resolved := make([]string, len(command))
 	copy(resolved, command)
 
-	if len(resolved) > 0 && resolved[0] == selfPlaceholder {
-		self, err := os.Executable()
+	if !slices.Contains(resolved, selfPlaceholder) {
+		return resolved, nil
+	}
 
-		if err != nil {
-			return nil, err
+	self, err := os.Executable()
+
+	if err != nil {
+		return nil, err
+	}
+
+	for index, word := range resolved {
+		if word == selfPlaceholder {
+			resolved[index] = self
 		}
-
-		resolved[0] = self
 	}
 
 	return resolved, nil

@@ -55,7 +55,7 @@ Each program is named as a plugin is, and has:
 
 | Key | Meaning |
 |---|---|
-| `command` | The program and its arguments, as a list. Required. `{plugin}` in any word stands for the directory the plugin is in, wherever it was added from, and `{self}` as the first word for the rumbo executable. |
+| `command` | The program and its arguments, as a list. Required. `{plugin}` in any word stands for the directory the plugin is in, wherever it was added from, and `{self}` as a word for the rumbo executable: the first one for a program rumbo serves itself, or an argument for a program that starts rumbo, as a front end does for each other session it shows. |
 | `config` | The configuration the plugin gives the program, which reaches it at `initialize`. What the user sets goes over it, field by field. |
 | `replaces` | For an extension only: the tools of rumbo's own, such as `bash`, that it asks to take the place of. See [Replacing a tool](#replacing-a-tool). |
 

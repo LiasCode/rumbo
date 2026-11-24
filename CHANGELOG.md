@@ -67,6 +67,10 @@ another `rumbo`. The front end protocol is at version 2 for it.
   the `dir` each says. `initialize` and the state of every answer say what
   the session is called, as `title`, and `branch` answers with the session
   it made. The provider and extension protocols are as they were.
+- `{self}` stands for the rumbo executable as any word of a program's
+  command, not only the first, so a front end rumbo starts can be told
+  which rumbo to start for the other sessions it shows, as
+  `[my-frontend, --rumbo, "{self}"]`.
 - A front end can ask a host which processes it has running and what each
   uses, with the new `processes` request: the host, its front end, its
   providers and extensions, what those started, and what the model left
