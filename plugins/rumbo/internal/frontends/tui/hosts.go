@@ -300,12 +300,13 @@ func (a *app) show(held *host) tea.Cmd {
 }
 
 // idle reports whether a rumbo has nothing to do and can be closed: the
-// terminal UI started it, it is not shown, nothing runs in it, and nothing
-// it asked waits for an answer.
+// terminal UI started it, it is not shown, nothing runs in it, no run
+// ended there that the person has not seen, and nothing it asked waits for
+// an answer.
 func (a *app) idle(held *host) bool {
 	asked := a.question != nil && a.questionIn == held.shown
 
-	return held.stop != nil && held != a.host && len(held.runs) == 0 && !asked
+	return held.stop != nil && held != a.host && len(held.runs) == 0 && !held.unseen && !asked
 }
 
 // tidy closes the rumbos with nothing to do past the kept that were shown

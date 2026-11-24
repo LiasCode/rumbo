@@ -302,6 +302,29 @@ func TestRumbosLeftUnusedAreClosed(t *testing.T) {
 		t.Fatalf("stopped %v, holds %q", folder.stopped, s.held())
 	}
 
+	// One whose run ended unseen is kept until it is shown, so what it did
+	// and its mark are not lost.
+	closeAll := func() {
+		s.apply(ctrl('p'))
+		s.text("close the rumbos")
+		s.press(tea.KeyEnter)
+	}
+
+	s.apply(endedMsg{working, protocol.RunResult{Status: protocol.RunDone, Session: "s3"}, nil})
+	closeAll()
+
+	if s.held() != "s1 s3 s2" || s.mark("title of s3") != "•" {
+		t.Fatalf("holds %q, s3 is marked %q", s.held(), s.mark("title of s3"))
+	}
+
+	s.went("s3")
+	s.went("s2")
+	closeAll()
+
+	if s.held() != "s1 s2" {
+		t.Fatalf("holds %q once s3 was seen", s.held())
+	}
+
 	// Quitting ends the ones it started, and not the one that started it.
 	s.a.shutdown()
 	slices.Sort(folder.stopped)
