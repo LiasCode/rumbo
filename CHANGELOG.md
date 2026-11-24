@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.10.0 (2026-11-25)
+
 A rumbo is one session. Each `rumbo` you start works in a session of its
 own, with its own provider and extensions, in the directory it was started
 in, and no longer serves the others of a project: another session is
