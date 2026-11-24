@@ -16,11 +16,12 @@ it. The commits hold the reasons.
   provider. rumbo keeps one process of each while it runs, so an extension
   can hold a connection from one call to the next. The specification is
   `docs/extension-protocol.md`.
-- MCP servers work through the built-in `mcp` extension: `rumbo extension
-  add files {self} extend mcp npx -y @modelcontextprotocol/server-filesystem
-  ~/notes` for one started with a command, or `-config
-  '{"url":"https://..."}'` for one reached over HTTP. `tools=a,b` gives the
-  model only those tools of the server, and `prefix=` renames them.
+- MCP servers work through the `mcp` extension that comes with rumbo:
+  `rumbo extension add files {self} extend mcp npx -y
+  @modelcontextprotocol/server-filesystem ~/notes` for one started with a
+  command, or `-config '{"url":"https://..."}'` for one reached over HTTP.
+  `tools=a,b` gives the model only those tools of the server, and
+  `prefix=` renames them.
 - An MCP server that wants a sign-in gets one in your browser: registered
   as `docs`, it offers `/docs-login` in the terminal UI, and once you are
   signed in its tools are the model's from the next run, with
