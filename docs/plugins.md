@@ -46,6 +46,7 @@ extensions:
 |---|---|
 | `name` | What the plugin is called: lowercase letters, digits, `_`, and `-`, starting with a letter. A person has one plugin of a name. |
 | `description` | A line for a person, shown by `rumbo plugin list` and `rumbo plugin show`. |
+| `build` | The command that builds the plugin's programs, as a list, run in the plugin's directory when it is added and when it is updated. See [Building a plugin](#building-a-plugin). |
 | `extensions` | The extensions it brings, by name. |
 | `providers` | The providers it brings, by name. |
 | `frontends` | The front ends it brings, by name. |
@@ -110,6 +111,37 @@ rumbo plugin add -replaces bash ./my-plugin   # agreed
 What was agreed is kept, and an update that asks to replace more is refused
 and undone. Say in the plugin's description, or its README, what it
 replaces and why, since the person has to type it.
+
+## Building a plugin
+
+A plugin's programs can be written in a language that is compiled, without
+publishing a program for each system: `build` says how the plugin is built,
+and rumbo builds it on the person's machine.
+
+```yaml
+name: team
+build: [go, build, -o, bin/greeter, ./cmd/greeter]
+extensions:
+  greeter:
+    command: ["{plugin}/bin/greeter"]
+```
+
+- It runs in the plugin's directory, with `{plugin}` and `{self}` as in a
+  program's `command`. A list is no shell: for several steps, run a script
+  of the plugin's, such as `[sh, "{plugin}/build.sh"]`.
+- It runs when the plugin is added, before what it brings is started, and
+  when an update brings something new. What it prints goes to the
+  person's terminal, after a line that says what is run.
+- A build that fails keeps the plugin from being added. An update whose
+  build fails, or whose programs do not start after it, goes back to what
+  the plugin was and builds that again, since the failed build may have
+  changed what it left.
+- What it needs to run, such as Go, is the person's to have: say so in
+  the plugin's README. A build that does not find it fails, and says why.
+- Build into files the repository ignores, in `.gitignore`, so an update
+  finds the copy as Git left it.
+- A plugin added from a directory is built when it is added, and not
+  again: while you work on it, build it yourself.
 
 ## Writing a plugin
 
@@ -177,6 +209,7 @@ Before a plugin is added, and again when it is updated:
   program of it is one another plugin brings, rumbo's own among them, one
   the person registered themselves, or one rumbo has built in.
 - What it asks to replace is exactly what the person agreed to.
+- Its build, if it has one, succeeds, once everything above has passed.
 - What it brings starts: each provider, and every extension with all the
   others, so a tool that two extensions both declare is found then. A front
   end needs the terminal, and is tried when it is first used.
@@ -217,8 +250,8 @@ add it once for each server, as `{self} extend mcp <the server's command>`.
 ## What to keep in mind
 
 - **A plugin runs with the rights of whoever adds it.** rumbo neither
-  reviews nor confines it. Say what yours does, and add only one whose code
-  you trust.
+  reviews nor confines it, and its build runs as soon as it is added. Say
+  what yours does, and add only one whose code you trust.
 - **Everything declared costs tokens.** Each tool of an extension, and each
   skill's description, is sent to the model in every task, whether the task
   uses it or not. Bring few, described briefly.

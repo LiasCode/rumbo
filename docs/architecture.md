@@ -108,7 +108,8 @@ with its tools, when it needs it.
 **Plugins** (`internal/cli/plugins.go`). How a user gets, at once, what
 someone else put together: a plugin is a directory, or a Git repository
 rumbo keeps a copy of, whose manifest names the providers, front ends, and
-extensions it brings, and which keeps skills. It adds no part of its own:
+extensions it brings, and the command that builds them where it is added,
+and which keeps skills. It adds no part of its own:
 its programs are the same programs, there without being registered as the
 built-in ones are, and its skills are told with the user's. The
 configuration file keeps only where a plugin comes from, and which tools of

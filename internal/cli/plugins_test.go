@@ -163,11 +163,12 @@ func TestAPluginThatDoesNotFitIsNotAdded(t *testing.T) {
 		"rumbo's own plugin has it":  {"name: other\nproviders:\n  openai:\n    command: [x]\n", "it brings the provider openai, which the plugin rumbo already brings"},
 		"rumbo has one built in":     {"name: other\nfrontends:\n  plain:\n    command: [x]\n", "rumbo has a front end called plain built in"},
 		"the name of rumbo's own":    {"name: rumbo\n", "rumbo's own plugin is called rumbo"},
-		"a misspelled key":           {"name: other\nextension:\n  a:\n    command: [x]\n", "field extension not found among what a plugin has: name, description, providers, frontends, and extensions"},
+		"a misspelled key":           {"name: other\nextension:\n  a:\n    command: [x]\n", "field extension not found among what a plugin has: name, description, build, providers, frontends, and extensions"},
 		"a program without command":  {"name: other\nextensions:\n  a:\n    config: {a: 1}\n", "the extension a has no command to start it"},
 		"a provider that replaces":   {"name: other\nproviders:\n  a:\n    command: [x]\n    replaces: [bash]\n", "has replaces, which only an extension has"},
 		"no name":                    {"description: nameless\n", `name is ""`},
 		"an extension that fails":    {"name: other\nextensions:\n  broken:\n    command: [/nonexistent/extension]\n", "the plugin other was not added: extension broken: start extension"},
+		"a build that fails":         {"name: other\nbuild: [sh, -c, exit 3]\n", "the plugin other was not added: its build, sh -c exit 3, failed: exit status 3"},
 		"a tool another has":         {"name: other\nextensions:\n  second:\n    command: [\"{self}\", extend, find]\n", `extension second declares the tool "find", which the extension finder already has`},
 	}
 
@@ -254,6 +255,110 @@ func TestAPluginThatComesToBringWhatAnotherDoesIsSaid(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), `it brings the front end tui, which the plugin rumbo already brings; "rumbo plugin rm finder" takes it out`) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A plugin with a build is built where it is: the program its build makes
+// is the one started, an update builds it again, and an update whose build
+// fails goes back to what it was, built again, since the failed build may
+// have broken what was there.
+func TestAPluginIsBuiltWhereItIsAdded(t *testing.T) {
+	t.Setenv("RUMBO_DATA", t.TempDir())
+
+	self, err := os.Executable()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The build makes a program that starts the test binary as the
+	// extension whose tool is named in the file tool.
+	t.Setenv("RUMBO_TEST_SELF", self)
+
+	h := testHost(t)
+	repository := pluginIn(t, "name: builder\nbuild: [sh, \"{plugin}/build.sh\"]\nextensions:\n  builder:\n    command: [\"{plugin}/bin/builder\"]\n")
+	builds := "mkdir -p bin\nprintf '#!/bin/sh\\nexec \"%s\" extend %s\\n' \"$RUMBO_TEST_SELF\" \"$(cat tool)\" > bin/builder\nchmod +x bin/builder\n"
+
+	git := func(args ...string) {
+		t.Helper()
+
+		command := exec.Command("git", append([]string{"-C", repository, "-c", "user.email=test@example.com", "-c", "user.name=test"}, args...)...)
+
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, output)
+		}
+	}
+
+	commit := func(files map[string]string) {
+		t.Helper()
+
+		for name, text := range files {
+			if err := os.WriteFile(filepath.Join(repository, name), []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		git("add", "-A")
+		git("commit", "--quiet", "-m", "a change")
+	}
+
+	// The program is started anew each time: a host keeps the process of an
+	// extension whose command has not changed.
+	tool := func() string {
+		t.Helper()
+
+		program, err := findProgram(h.database, store.KindExtension, "builder")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		said, err := tryExtension(h.database, program, io.Discard)
+
+		if err != nil || len(said.tools) != 1 {
+			t.Fatalf("declared %+v, err = %v", said.tools, err)
+		}
+
+		return said.tools[0].Name
+	}
+
+	git("init", "--quiet")
+	commit(map[string]string{"build.sh": builds, "tool": "find", ".gitignore": "bin/\n"})
+
+	var said strings.Builder
+
+	if _, err := addPlugin(h.database, "file://"+repository, nil, &said); err != nil {
+		t.Fatalf("err = %v, said:\n%s", err, said.String())
+	}
+
+	if !strings.Contains(said.String(), `building the plugin builder: sh {plugin}/build.sh`) {
+		t.Fatalf("what was said:\n%s", said.String())
+	}
+
+	if got := tool(); got != "find" {
+		t.Fatalf("the tool is %s", got)
+	}
+
+	commit(map[string]string{"tool": "seek"})
+
+	if _, err := updatePlugin(h.database, "builder", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := tool(); got != "seek" {
+		t.Fatalf("after an update, the tool is %s", got)
+	}
+
+	commit(map[string]string{"build.sh": "rm -f bin/builder\nexit 3\n"})
+
+	_, err = updatePlugin(h.database, "builder", io.Discard)
+
+	if err == nil || !strings.Contains(err.Error(), "the plugin builder was left as it was, and built again, since what it is now does not pass: its build, sh {plugin}/build.sh, failed: exit status 3") {
+		t.Fatalf("err = %v", err)
+	}
+
+	if got := tool(); got != "seek" {
+		t.Fatalf("after an update whose build failed, the tool is %s", got)
 	}
 }
 

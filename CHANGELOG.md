@@ -65,6 +65,12 @@ it. The commits hold the reasons.
   `rumbo config` say `plugin rumbo` where they said `built in`. What you
   set for them is kept and read as before; only the `plain` front end is
   still built in.
+- A plugin can be built where it is added, so its author publishes its
+  source and not a program for each system: `build: [go, build, -o,
+  bin/greeter, ./cmd/greeter]` in its `plugin.yaml` runs in its directory
+  when you add it and when `rumbo plugin update` brings something new, and
+  you see what it prints. An update whose build fails goes back to what
+  the plugin was, and builds that again.
 
 ### Terminal UI
 

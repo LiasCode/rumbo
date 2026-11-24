@@ -298,6 +298,11 @@ nothing and knows no model API.
 - Start what a plugin brings before it is added, its providers and, with
   all the others, its extensions, which is the test that it works; one that
   does not pass is not added, and a copy made for it is not left behind.
+- Build a plugin where it is, with the command its manifest gives as
+  `build`, in its directory, when it is added and when an update brings
+  something new, showing what it prints; a plugin whose build fails is not
+  added, and an update whose build fails goes back to what it was and
+  builds that again.
 - Have what a plugin brings there without being registered, as what is
   built in is: listed, shown, and set like any other program, with what the
   user sets for it over what the plugin gives it, and only that kept.

@@ -47,10 +47,11 @@ const (
 // pluginName is what a plugin, and a program it brings, can be called.
 var pluginName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
-// manifest is what a plugin says it brings.
+// manifest is what a plugin says it brings, and how it is built.
 type manifest struct {
 	Name        string                     `yaml:"name"`
 	Description string                     `yaml:"description"`
+	Build       []string                   `yaml:"build"`
 	Providers   map[string]manifestProgram `yaml:"providers"`
 	Frontends   map[string]manifestProgram `yaml:"frontends"`
 	Extensions  map[string]manifestProgram `yaml:"extensions"`
@@ -162,7 +163,7 @@ func parseManifest(raw []byte, path string) (manifest, error) {
 	if err := decoder.Decode(&read); err != nil {
 		said := strings.NewReplacer(
 			"in type cli.manifestProgram", "among what a program has: command, config, and replaces",
-			"in type cli.manifest", "among what a plugin has: name, description, providers, frontends, and extensions",
+			"in type cli.manifest", "among what a plugin has: name, description, build, providers, frontends, and extensions",
 		).Replace(err.Error())
 
 		return read, fmt.Errorf("%s: %s", path, said)
@@ -267,11 +268,7 @@ func (p plugin) program(kind, name string) (store.Program, bool) {
 		return store.Program{}, false
 	}
 
-	brought := store.Program{Name: name, Command: make([]string, len(said.Command))}
-
-	for index, word := range said.Command {
-		brought.Command[index] = strings.ReplaceAll(word, pluginPlaceholder, p.dir)
-	}
+	brought := store.Program{Name: name, Command: p.resolved(said.Command)}
 
 	if len(said.Config) > 0 {
 		brought.Config, _ = json.Marshal(said.Config)
@@ -284,6 +281,45 @@ func (p plugin) program(kind, name string) (store.Program, bool) {
 	}
 
 	return brought, true
+}
+
+// resolved is a command of the manifest in the plugin's directory.
+func (p plugin) resolved(command []string) []string {
+	words := make([]string, len(command))
+
+	for index, word := range command {
+		words[index] = strings.ReplaceAll(word, pluginPlaceholder, p.dir)
+	}
+
+	return words
+}
+
+// build runs what the plugin's manifest says builds it, in the plugin's
+// directory, with its output where the person follows it. A plugin is
+// built where it is added, so its author does not publish a program for
+// each system. One that says nothing needs no build.
+func build(p plugin, diagnostics io.Writer) error {
+	if len(p.manifest.Build) == 0 {
+		return nil
+	}
+
+	command, err := programCommand(p.resolved(p.manifest.Build))
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(diagnostics, "building the plugin %s: %s\n", p.Name, strings.Join(p.manifest.Build, " "))
+
+	run := exec.Command(command[0], command[1:]...)
+	run.Dir = p.dir
+	run.Stdout, run.Stderr = diagnostics, diagnostics
+
+	if err := run.Run(); err != nil {
+		return fmt.Errorf("its build, %s, failed: %w", strings.Join(p.manifest.Build, " "), err)
+	}
+
+	return nil
 }
 
 // broughtBy returns the program of a kind a plugin brings under name, and
@@ -364,6 +400,11 @@ func addPlugin(database store.Store, source string, agreed []string, diagnostics
 	}
 
 	candidate := store.Plugin{Name: said.Name, Source: source, Replaces: agreed}
+
+	// It is built once all that can be checked without running it passes.
+	if err := build(plugin{Plugin: candidate, dir: dir, manifest: said}, diagnostics); err != nil {
+		return "", fmt.Errorf("the plugin %s was not added: %w", said.Name, err)
+	}
 
 	if err := database.PutPlugin(candidate); err != nil {
 		return "", err
@@ -676,10 +717,22 @@ func updatePlugin(database store.Store, name string, diagnostics io.Writer) (str
 		return "the plugin " + name + " is up to date", nil
 	}
 
+	// A build of what it is now may have changed what the build of what it
+	// was made, so going back builds that again.
+	built := false
+
 	back := func(why error) (string, error) {
 		_, _ = git("reset", "--quiet", "--hard", before)
 
-		return "", fmt.Errorf("the plugin %s was left as it was, since what it is now does not pass: %w", name, why)
+		if !built {
+			return "", fmt.Errorf("the plugin %s was left as it was, since what it is now does not pass: %w", name, why)
+		}
+
+		if err := build(current, diagnostics); err != nil {
+			return "", fmt.Errorf("the plugin %s went back to what it was, since what it is now does not pass: %w; and building what it was again failed too, so it may not work until it is: %v", name, why, err)
+		}
+
+		return "", fmt.Errorf("the plugin %s was left as it was, and built again, since what it is now does not pass: %w", name, why)
 	}
 
 	said, err := readManifest(current.dir)
@@ -697,11 +750,18 @@ func updatePlugin(database store.Store, name string, diagnostics io.Writer) (str
 		return back(err)
 	}
 
-	if err := tryPlugin(database, plugin{Plugin: current.Plugin, dir: current.dir, manifest: said}, diagnostics); err != nil {
+	next := plugin{Plugin: current.Plugin, dir: current.dir, manifest: said}
+	built = len(said.Build) > 0
+
+	if err := build(next, diagnostics); err != nil {
 		return back(err)
 	}
 
-	return "updated the plugin " + name + ", which brings:\n" + brings(plugin{Plugin: current.Plugin, dir: current.dir, manifest: said}), nil
+	if err := tryPlugin(database, next, diagnostics); err != nil {
+		return back(err)
+	}
+
+	return "updated the plugin " + name + ", which brings:\n" + brings(next), nil
 }
 
 const pluginUsage = `usage:
@@ -715,6 +775,8 @@ A plugin is a directory with a plugin.yaml that names the programs it brings,
 providers, front ends, and extensions, and with skills in skills/. What it
 brings is there once it is added, as what rumbo has built in is, and is set
 with "rumbo provider set", "rumbo frontend set", and "rumbo extension set".
+One whose plugin.yaml has a build command is built where it is when it is
+added and updated, so its programs can be built from their source.
 rumbo's own plugin, rumbo, is built into it and always there; "rumbo plugin
 show rumbo" says what it brings.
 A plugin runs with your rights: add one whose code you trust. When one of its

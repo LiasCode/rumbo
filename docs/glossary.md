@@ -178,7 +178,8 @@ the user. They are where the user says how work should be done.
 **Plugin.** A directory that brings programs, providers, front ends, and
 extensions, and skills, all at once, named in its `plugin.yaml`. The user
 adds it from a directory or from the address of a Git repository. What it
-brings is there without being registered, as what rumbo has built in is.
+brings is there without being registered, as what rumbo has built in is,
+and is built on the user's machine when its manifest says how.
 Described in [plugins.md](plugins.md).
 
 **rumbo's own plugin.** The plugin called `rumbo`, built into the
