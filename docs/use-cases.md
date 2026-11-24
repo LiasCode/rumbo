@@ -217,11 +217,12 @@ nothing and knows no model API.
   `sessions`, `projects`, `open`, `new`, `branch`, `delete`, `rename`,
   `prune`, `use`, `session-set`, and `compact`. For the providers:
   `providers`, `provider-models`, `provider-show`, `provider-set`,
-  `provider-add`, and `provider-rm`.
+  `provider-add`, and `provider-rm`. For the extensions: `extensions`,
+  `extension-show`, `extension-set`, `extension-add`, and `extension-rm`.
 - Mark the functions that are there to list the values a parameter takes,
   so a front end offers their values and not them as commands:
-  `system-values`, `branch-points`, `session-values`, and
-  `provider-values`.
+  `system-values`, `branch-points`, `session-values`, `provider-values`,
+  and `extension-values`.
 - Mark the functions that cannot be undone, so a front end asks the person
   to confirm them.
 - Answer its own functions, and the provider's description and functions,
@@ -233,7 +234,8 @@ nothing and knows no model API.
 
 **Extensions**
 
-- Register, set, show, and remove extensions (`rumbo extension`), which are
+- Register, set, show, and remove extensions (`rumbo extension`, or the
+  host's functions of the `extension` group from any front end), which are
   the user's and the same in every project. One is started when it is
   added, when it is shown, and with a change to its configuration, together
   with the others, which is the test that it works and that the model can
@@ -702,12 +704,13 @@ speaks the Agent Frontend Protocol with the host.
   one that still needs something opens the menu of what it takes next, or
   says what that is: `/open` lists the sessions, and `/use openai` the
   models of `openai`. After `/session-set `, `/provider-set <provider> `,
-  and `/system-set `, the menu offers the changes each takes as
-  `name=value`, with those in force marked.
+  `/extension-set <extension> `, and `/system-set `, the menu offers the
+  changes each takes as `name=value`, with those in force marked.
 - The words after a command go to its parameters in turn, and the last
   takes the rest of the line. One that can be left out is also typed by
   name, as `name=value`, such as `/prune 30d confirm=yes`, and one that
-  comes before one that cannot only so.
+  comes before one that cannot only so: `/extension-add docs
+  config={"url":"https://example.com/mcp"} {self} extend mcp`.
 - Answers, errors, and diagnostics are marked `[host]`, `[provider
   <name>]`, or `[extension <name>]`, by where they come from; what an
   extension prints is marked `[extension]` and starts with its name.

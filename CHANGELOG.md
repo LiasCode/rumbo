@@ -7,8 +7,16 @@ it. The commits hold the reasons.
 
 ### Features
 
+- Extensions are managed from any front end, as providers are:
+  `/extensions` lists them, `/extension-add` registers one, `/extension-show`
+  says what it gives the model and what that costs, `/extension-set` changes
+  its configuration or what it replaces, and `/extension-rm` removes it. A
+  change applies to the runs that start after it, and the terminal UI offers
+  the commands of an extension, such as `/docs-login`, as soon as it is
+  added.
 - In the terminal UI, a parameter that can be left out can be typed by
-  name, as `name=value`, such as `/prune 30d confirm=yes`.
+  name, as `name=value`: `/prune 30d confirm=yes`, or `/extension-add docs
+  config={"url":"https://example.com/mcp"} {self} extend mcp`.
 
 ## 0.9.0 (2026-11-24)
 

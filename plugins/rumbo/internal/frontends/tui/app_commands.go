@@ -168,14 +168,19 @@ func (a *app) invoke(source, name string, params json.RawMessage, conv *conversa
 	conn, send, label := a.conn, a.send, a.label(source)
 
 	if source == fromHost {
+		// What the extensions offer may change with a function on them,
+		// such as one registered, and is asked again before it is needed.
+		index := slices.IndexFunc(a.info.Functions, func(function protocol.Function) bool { return function.Name == name })
+		stale := index >= 0 && a.info.Functions[index].Group == protocol.GroupExtension
+
 		return func() tea.Msg {
 			result, err := conn.InvokeHost(name, params)
 
 			if err != nil {
-				return answeredMsg{conv: conv, label: label, err: err, quiet: quiet}
+				return answeredMsg{conv: conv, label: label, err: err, quiet: quiet, stale: stale}
 			}
 
-			return answeredMsg{conv: conv, label: label, text: strings.TrimSpace(result.Text + "\n" + list(result.Values)), state: &result.State, quiet: quiet}
+			return answeredMsg{conv: conv, label: label, text: strings.TrimSpace(result.Text + "\n" + list(result.Values)), state: &result.State, quiet: quiet, stale: stale}
 		}
 	}
 
@@ -315,7 +320,7 @@ func (a *app) help() string {
 	}
 
 	for _, extension := range a.extensions() {
-		fmt.Fprintf(&out, "\n%s  a program of yours; rumbo extension show %s says what it gives.\n", a.label(fromExtension(extension)), extension)
+		fmt.Fprintf(&out, "\n%s  a program of yours; /extension-show %s says what it gives.\n", a.label(fromExtension(extension)), extension)
 
 		for _, each := range extensionCommands(a.described) {
 			if each.source == fromExtension(extension) {

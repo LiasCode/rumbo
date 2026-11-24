@@ -123,9 +123,10 @@ func isCommand(line string) bool {
 
 // groupTitles say what each group of the host's functions acts on.
 var groupTitles = map[string]string{
-	protocol.GroupSystem:   "system: rumbo itself, the same for every session and provider",
-	protocol.GroupSession:  "session: the current session, and the others of this project",
-	protocol.GroupProvider: "providers: which there are, how each is started, and what is set for each",
+	protocol.GroupSystem:    "system: rumbo itself, the same for every session and provider",
+	protocol.GroupSession:   "session: the current session, and the others of this project",
+	protocol.GroupProvider:  "providers: which there are, how each is started, and what is set for each",
+	protocol.GroupExtension: "extensions: which there are, how each is started, what is set for each, and what each gives the model",
 }
 
 // groupTitle names a group of the host's functions, also one this front end

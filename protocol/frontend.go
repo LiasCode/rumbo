@@ -51,11 +51,13 @@ const (
 )
 
 // What a function of the host acts on: rumbo itself, the same for every
-// session and provider; one session; or the registered providers.
+// session and provider; one session; the registered providers; or the
+// registered extensions.
 const (
-	GroupSystem   = "system"
-	GroupSession  = "session"
-	GroupProvider = "provider"
+	GroupSystem    = "system"
+	GroupSession   = "session"
+	GroupProvider  = "provider"
+	GroupExtension = "extension"
 )
 
 // Run outcomes.

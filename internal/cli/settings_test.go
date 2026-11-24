@@ -514,7 +514,7 @@ func TestHostFunctionsSayWhatTheyActOn(t *testing.T) {
 
 	for _, function := range functions {
 		switch function.Group {
-		case protocol.GroupSystem, protocol.GroupSession, protocol.GroupProvider:
+		case protocol.GroupSystem, protocol.GroupSession, protocol.GroupProvider, protocol.GroupExtension:
 		default:
 			t.Errorf("%s has the group %q", function.Name, function.Group)
 		}

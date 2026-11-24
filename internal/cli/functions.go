@@ -52,6 +52,9 @@ var chosenProvider = protocol.Option{
 	Description: "without it, the current session's",
 }
 
+// chosenExtension names the extension a function acts on.
+var chosenExtension = protocol.Option{Name: "extension", Type: protocol.OptionString, Values: "extensions"}
+
 // changeParam is the name=value change the functions that set something
 // take; values names the function that lists the changes it takes.
 func changeParam(values string) protocol.Option {
@@ -59,7 +62,7 @@ func changeParam(values string) protocol.Option {
 }
 
 // hostFunctions are listed to the front end in this order, by what they act
-// on: the system, a session, and the providers.
+// on: the system, a session, the providers, and the extensions.
 var hostFunctions = []hostFunction{
 	{
 		Function: protocol.Function{
@@ -306,6 +309,72 @@ var hostFunctions = []hostFunction{
 		},
 		duringRun: true,
 		call:      (*host).unregisterProvider,
+	},
+	{
+		Function:  protocol.Function{Name: "extensions", Description: "List the extensions there are, those plugins bring and those registered", Group: protocol.GroupExtension},
+		duringRun: true,
+		call:      (*host).listExtensions,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "extension-show",
+			Description: "Start an extension with the others and show what is set for it and what it gives the model, with what its tools add to every request",
+			Params:      []protocol.Option{chosenExtension},
+			Group:       protocol.GroupExtension,
+		},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).extensionShow,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "extension-set",
+			Description: "Set a field of an extension's configuration, or the tools of rumbo's it replaces, which it is started to check",
+			Params:      []protocol.Option{chosenExtension, changeParam("extension-values")},
+			Group:       protocol.GroupExtension,
+		},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).extensionSet,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "extension-values",
+			Description: "List the changes extension-set takes",
+			Params:      []protocol.Option{chosenExtension},
+			Group:       protocol.GroupExtension,
+			Lists:       true,
+		},
+		duringRun: true,
+		call:      (*host).extensionValues,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "extension-add",
+			Description: "Register an extension: a name and the command that starts it, which is started with the others to see that it works",
+			Params: []protocol.Option{
+				{Name: "name", Type: protocol.OptionString},
+				{Name: "config", Type: protocol.OptionString, Optional: true, Description: `its configuration, as a JSON object, such as {"url":"https://example.com/mcp"}`},
+				{Name: settingReplaces, Type: protocol.OptionString, Optional: true, Description: "the tools of rumbo's it takes the place of, separated by commas"},
+				// Last, so a front end that reads typed words gives it the rest.
+				{Name: "command", Type: protocol.OptionString, Description: "The program and its arguments, separated by spaces"},
+			},
+			Group: protocol.GroupExtension,
+		},
+		duringRun: true,
+		slow:      true,
+		call:      (*host).registerExtension,
+	},
+	{
+		Function: protocol.Function{
+			Name:        "extension-rm",
+			Description: "Remove an extension you registered, or what you set for one a plugin brings",
+			Params:      []protocol.Option{chosenExtension},
+			Confirm:     "This removes the extension's registration and its configuration, and its tools are gone from the next run. The program itself is not touched, and an extension a plugin brings stays, as the plugin has it.",
+			Group:       protocol.GroupExtension,
+		},
+		duringRun: true,
+		call:      (*host).unregisterExtension,
 	},
 }
 
@@ -1198,6 +1267,87 @@ func (h *host) unregisterProvider(_ context.Context, params map[string]string) (
 	}
 
 	removed, err := removeProgram(h.database, store.KindProvider, params["provider"])
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: removed}, nil
+}
+
+func (h *host) listExtensions(context.Context, map[string]string) (protocol.HostResult, error) {
+	programs, err := listPrograms(h.database, store.KindExtension)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	if len(programs) == 0 {
+		return protocol.HostResult{Text: "there are no extensions; extension-add registers one"}, nil
+	}
+
+	var result protocol.HostResult
+
+	for _, program := range programs {
+		result.Values = append(result.Values, protocol.Value{Value: program.Name, Description: strings.Join(program.Command, " ")})
+	}
+
+	return result, nil
+}
+
+// extensionShow starts the extensions and says what one gives the model,
+// in processes of its own, so the host's are not touched.
+func (h *host) extensionShow(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	text, err := showExtension(h.database, params["extension"], h.conn.LogExtension("extensions"))
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: text}, nil
+}
+
+// extensionSet changes what is set for an extension, which is started with
+// the others to check it. The host's process of it is started again with
+// what is kept when a run next starts.
+func (h *host) extensionSet(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	// It is answered in the background, and reads what is kept to change
+	// it: one call at a time, so two do not lose each other's change.
+	h.setting.Lock()
+	defer h.setting.Unlock()
+
+	said, err := setProgram(h.database, store.KindExtension, params["extension"], []string{params["change"]}, h.conn.LogExtension("extensions"))
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: strings.Join(said, "\n") + "\nkept in " + configFile + "; it applies to the runs that start from now on"}, nil
+}
+
+func (h *host) registerExtension(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	h.setting.Lock()
+	defer h.setting.Unlock()
+
+	var config json.RawMessage
+
+	if params["config"] != "" {
+		config = json.RawMessage(params["config"])
+	}
+
+	added, err := registerExtension(h.database, params["name"], strings.Fields(params["command"]), config, replacing(params[settingReplaces]), h.conn.LogExtension("extensions"))
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	return protocol.HostResult{Text: added}, nil
+}
+
+// unregisterExtension takes out what the user registered of an extension.
+// The host's process of it stops when a run next starts.
+func (h *host) unregisterExtension(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	removed, err := removeProgram(h.database, store.KindExtension, params["extension"])
 
 	if err != nil {
 		return protocol.HostResult{}, err

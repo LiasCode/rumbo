@@ -38,7 +38,8 @@ is accepted in order and answered when it ends, and `describe`, the
 provider's functions, and the host's functions that ask a provider,
 `session-set`, `session-values`, `compact`, `provider-models`,
 `provider-show`, `provider-set`, `provider-values`, and `provider-add`, are
-answered when the provider has. A `history`, a `recall`, and the host's
+answered when the provider has, and those that start the extensions,
+`extension-show`, `extension-set`, and `extension-add`, when they have. A `history`, a `recall`, and the host's
 other functions are answered at once, before the request after it. A front
 end that needs one of those to take effect before another request waits
 for its answer.
@@ -406,6 +407,10 @@ Parameters are an object of text values. Every answer has the same shape:
 - `provider`: the providers, how each is started, and what is set for
   each: the model a new session starts with, and its configuration, which
   holds the option values it gets with every request.
+- `extension`: the extensions, how each is started, what is set for each,
+  and what each gives the model. A change to one applies to the runs that
+  start after it, and may change the functions the extensions offer, so a
+  front end asks `describe` again before it offers them.
 
 A front end should not take a group it does not know for an error; more may
 be added.
@@ -440,6 +445,12 @@ The functions of this version, by group:
 | `provider-values` | provider | `provider` | Lists the changes `provider-set` takes for a provider: its models, and the values of its fields and options. Marked `lists`. |
 | `provider-add` | provider | `name`, `command` | Registers a provider. The command is the program and its arguments, separated by spaces. The provider is started, which is the test that it works; one that does not start is not registered. |
 | `provider-rm` | provider | `provider` | Removes a provider the user registered, or what they chose for one a plugin brings, which stays. Asks to be confirmed. |
+| `extensions` | extension | | Lists the extensions there are: those plugins bring and those registered. |
+| `extension-show` | extension | `extension` | Starts the extensions and shows how one is started, what is set for it, the tools of rumbo's it replaces, its sections, its functions, and its tools, with what declaring them adds to every request. Also the test that it works. |
+| `extension-set` | extension | `extension`, `change` | Sets, as `name=value`, a field of an extension's configuration, or `replaces`, the tools of rumbo's it takes the place of, separated by commas; an empty value gives it back. The extensions are started to check it, and a configuration it does not start with, or a tool it replaces and does not declare, is refused, and nothing is kept. |
+| `extension-values` | extension | `extension` | Lists the changes `extension-set` takes for an extension: the fields set for it, with the value in force, and `replaces`, with the tools it can replace. An extension does not describe its fields, so one not set yet is typed by name. Marked `lists`. |
+| `extension-add` | extension | `name`, `config`?, `replaces`?, `command` | Registers an extension. The command is the program and its arguments, separated by spaces; `config` is its configuration, as a JSON object, and `replaces` the tools of rumbo's it takes the place of, separated by commas. It is started with the others, which is the test that it works; one that does not start, or whose tools the model cannot be given with theirs, is not registered. |
+| `extension-rm` | extension | `extension` | Removes an extension the user registered, or what they chose for one a plugin brings, which stays. Its tools are gone from the next run. Asks to be confirmed. |
 
 A front end should read the list from `initialize` and not from this table:
 the table is what the host offers today.
@@ -455,7 +466,7 @@ in progress instead, and answers with an error saying so: everything but
 `config`, `system-set`, `system-values`, `quit`, `status`, `skills`,
 `sessions`, `projects`, `branch-points`, `rename`, `session-values`,
 `providers`, `provider-models`, `provider-show`, `provider-values`,
-`provider-add`, and `provider-rm`.
+`provider-add`, `provider-rm`, and the functions of the `extension` group.
 
 ## What the host guarantees
 

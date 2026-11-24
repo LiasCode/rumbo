@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // extendWith is the command of the tests' extension with one tool called
@@ -225,5 +226,64 @@ func TestARunIsToldTheSectionsOfTheExtensions(t *testing.T) {
 
 	if shown, err := showExtension(h.database, "finder", io.Discard); err != nil || !strings.Contains(shown, "sections, told to the model when a run starts: where") {
 		t.Fatalf("shown = %q, err = %v", shown, err)
+	}
+}
+
+// A front end registers, shows, sets, and removes extensions through the
+// host's functions, which go through what the command line does.
+func TestTheHostsFunctionsManageTheExtensions(t *testing.T) {
+	h := testHost(t)
+
+	if listed := call(t, h, "extensions", ""); listed.Text != "there are no extensions; extension-add registers one" || len(listed.Values) != 0 {
+		t.Fatalf("extensions = %+v", listed)
+	}
+
+	added := call(t, h, "extension-add", `{"name":"finder","command":"{self} extend find","config":"{\"depth\":2}"}`)
+
+	if added.Text != "added the extension finder: the runs that start from now on have its tools: find" {
+		t.Fatalf("extension-add = %q", added.Text)
+	}
+
+	if listed := call(t, h, "extensions", ""); shownValues(listed.Values) != "finder:" || listed.Values[0].Description != "{self} extend find" {
+		t.Fatalf("extensions = %+v", listed.Values)
+	}
+
+	if shown := call(t, h, "extension-show", `{"extension":"finder"}`); !strings.Contains(shown.Text, `configuration: {"depth":2}`) || !strings.Contains(shown.Text, "find  Says where it was called.") {
+		t.Fatalf("extension-show = %q", shown.Text)
+	}
+
+	// A change it does not start with is refused, and nothing is kept.
+	if err := refused(t, h, "extension-set", `{"extension":"finder","change":"broken=true"}`); !strings.Contains(err, "nothing was changed") {
+		t.Fatalf("extension-set broken: %s", err)
+	}
+
+	if set := call(t, h, "extension-set", `{"extension":"finder","change":"depth=3"}`); set.Text != "depth = 3\nkept in config.yaml; it applies to the runs that start from now on" {
+		t.Fatalf("extension-set = %q", set.Text)
+	}
+
+	values := call(t, h, "extension-values", `{"extension":"finder"}`)
+
+	if shownValues(values.Values) != "depth=: | replaces=:" || !strings.HasPrefix(values.Values[0].Description, "in force: 3") || !strings.Contains(values.Values[1].Description, "bash") {
+		t.Fatalf("extension-values = %+v", values.Values)
+	}
+
+	if err := refused(t, h, "extension-values", `{"extension":"nowhere"}`); !strings.Contains(err, "nowhere") {
+		t.Fatalf("extension-values nowhere: %s", err)
+	}
+
+	if removed := call(t, h, "extension-rm", `{"extension":"finder"}`); removed.Text != "removed the extension finder" {
+		t.Fatalf("extension-rm = %q", removed.Text)
+	}
+
+	if _, err := h.database.Program(store.KindExtension, "finder"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("finder was kept: %v", err)
+	}
+
+	// What the extensions are changes nothing of a run in progress, so a
+	// host that works in one session at a time answers them all the same.
+	for _, function := range hostFunctions {
+		if function.Group == protocol.GroupExtension && !function.duringRun {
+			t.Errorf("%s waits for a run", function.Name)
+		}
 	}
 }

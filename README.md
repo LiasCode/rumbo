@@ -206,8 +206,10 @@ Every tool a server has is declared to the model with every request, so a
 large server costs tokens in every task. `rumbo extension show files` says
 how much, `rumbo extension set files tools=read_text_file,list_directory`
 keeps only those, and `prefix=files_` renames them when two servers call a
-tool the same. A sign-in is kept in `rumbo/credentials/` of your
-configuration directory, readable only by you, and renewed as it expires.
+tool the same. In the terminal UI, `/extension-add`, `/extension-show`,
+`/extension-set`, and `/extension-rm` do the same. A sign-in is kept in
+`rumbo/credentials/` of your configuration directory, readable only by you,
+and renewed as it expires.
 
 ## Add a plugin
 

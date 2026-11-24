@@ -150,7 +150,7 @@ func (a *app) paletteEntries() []paletteEntry {
 	}
 
 	for _, function := range commands(a.info.Functions) {
-		group := map[string]string{protocol.GroupSystem: "system", protocol.GroupSession: "session", protocol.GroupProvider: "providers"}[function.Group]
+		group := map[string]string{protocol.GroupSystem: "system", protocol.GroupSession: "session", protocol.GroupProvider: "providers", protocol.GroupExtension: "extensions"}[function.Group]
 
 		if group == "" {
 			group = groupTitle(function.Group)

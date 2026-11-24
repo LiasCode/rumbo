@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 
@@ -16,10 +17,11 @@ import (
 
 // What a setting can be set to is listed here, so a front end can offer it
 // as a choice: the models of a provider, which only it knows; and, as the
-// name=value changes system-set, session-set, and provider-set take, the
-// values of each setting at that level, with the one in force marked. A
-// mark goes in a value's description: its label is the name a person knows
-// it by, which a front end may show in place of the value.
+// name=value changes system-set, session-set, provider-set, and
+// extension-set take, the values of each setting at that level, with the
+// one in force marked. A mark goes in a value's description: its label is
+// the name a person knows it by, which a front end may show in place of
+// the value.
 
 // providerModels lists the models a provider offers: the one named, or the
 // current session's, with the one this session uses, and the one the
@@ -348,6 +350,40 @@ func settingValues(ctx context.Context, pool *provider.Pool, settings []protocol
 	}
 
 	return values, nil
+}
+
+// extensionValues lists the changes extension-set takes for an extension:
+// the fields set for it, each with what is in force and the empty value
+// that gives it back, and the tools of rumbo's it can replace. An
+// extension describes no fields, so one not set yet is typed by name.
+func (h *host) extensionValues(_ context.Context, params map[string]string) (protocol.HostResult, error) {
+	name := params["extension"]
+
+	if _, err := findProgram(h.database, store.KindExtension, name); err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	chosen, _, err := chosenProgram(h.database, store.KindExtension, name)
+
+	if err != nil {
+		return protocol.HostResult{}, err
+	}
+
+	var values []protocol.Value
+
+	fields := objectFields(chosen.Config)
+
+	for _, field := range slices.Sorted(maps.Keys(fields)) {
+		values = append(values, protocol.Value{Value: field + "=", Description: "in force: " + shownValue(fields[field]) + "; empty gives it back"})
+	}
+
+	replaces := protocol.Value{Value: settingReplaces + "=", Description: "the tools of rumbo's it takes the place of, separated by commas: " + strings.Join(reserved().Tools, ", ")}
+
+	if len(chosen.Replaces) > 0 {
+		replaces.Description = remark(replaces.Description, "in force: "+strings.Join(chosen.Replaces, ",")+"; empty gives rumbo's back")
+	}
+
+	return protocol.HostResult{Values: append(values, replaces)}, nil
 }
 
 // offers starts a provider, if it is not running, for what it says it offers.
