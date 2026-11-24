@@ -64,6 +64,12 @@ it. The commits hold the reasons.
 - What an extension prints is marked `[extension]`, and what its commands
   answer `[extension <name>]`.
 
+### Going back to an earlier rumbo
+
+- A `config.yaml` with `extensions:` or `plugins:` in it is refused by
+  rumbo 0.8.1 and earlier, which do not know them: take those sections out
+  first, or keep this version.
+
 ## 0.8.1 (2026-11-23)
 
 ### Fixes

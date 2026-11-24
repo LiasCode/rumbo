@@ -241,7 +241,15 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 		t.Fatalf("the authorization was asked with %v", asked)
 	}
 
-	kept := filepath.Join(home, "config", "rumbo", "credentials", "mcp.json")
+	// Where the system keeps configuration: XDG_CONFIG_HOME on Linux, and
+	// under HOME on macOS, both in the test's own directory.
+	config, err := os.UserConfigDir()
+
+	if err != nil || !strings.HasPrefix(config, home) {
+		t.Fatalf("the configuration directory is %q, outside the test's: %v", config, err)
+	}
+
+	kept := filepath.Join(config, "rumbo", "credentials", "mcp.json")
 
 	if info, err := os.Stat(kept); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("the sign-in is kept in %v, %v", info, err)
