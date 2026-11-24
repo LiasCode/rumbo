@@ -224,7 +224,8 @@ What it brings is there as what rumbo has built in is, and you set it the
 same way (`rumbo extension set`, `rumbo provider set`). A plugin runs with
 your rights, so add one whose code you trust; when one of its extensions
 takes the place of a tool of rumbo's own, adding it says so and asks you to
-agree (`-replaces bash`). To write one, start from
+agree (`-replaces bash`). To write one, read
+[docs/plugins.md](docs/plugins.md) and start from
 [examples/plugin](examples/plugin).
 
 ## Bring your own
@@ -279,6 +280,8 @@ agree (`-replaces bash`). To write one, start from
   [docs/frontend-protocol.md](docs/frontend-protocol.md), and
   [docs/extension-protocol.md](docs/extension-protocol.md): the three
   protocols.
+- [docs/plugins.md](docs/plugins.md): what a plugin is, and how to write
+  one.
 - [docs/architecture.md](docs/architecture.md) and
   [docs/glossary.md](docs/glossary.md): how the parts fit, and the terms.
 - [CHANGELOG.md](CHANGELOG.md): what each release changes. Until 1.0,

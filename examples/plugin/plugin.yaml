@@ -5,7 +5,8 @@
 #     rumbo plugin show notes
 #
 # A person adds a plugin from a directory, as here, or from the address of a
-# Git repository that has this file at its root.
+# Git repository that has this file at its root. docs/plugins.md says all a
+# plugin can have.
 
 # The plugin's name: lowercase letters, digits, _ and -.
 name: notes

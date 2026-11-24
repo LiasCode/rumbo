@@ -178,6 +178,7 @@ the user. They are where the user says how work should be done.
 extensions, and skills, all at once, named in its `plugin.yaml`. The user
 adds it from a directory or from the address of a Git repository. What it
 brings is there without being registered, as what rumbo has built in is.
+Described in [plugins.md](plugins.md).
 
 **Skill.** Instructions for one kind of task, kept by the user, a plugin of
 theirs, or the project in a directory with a `SKILL.md`, in the

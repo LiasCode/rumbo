@@ -111,6 +111,7 @@ its programs are the same programs, there without being registered as the
 built-in ones are, and its skills are told with the user's. The
 configuration file keeps only where a plugin comes from, and which tools of
 the host's own the user agreed its extensions replace.
+[plugins.md](plugins.md) says what is in one and how to write it.
 
 **Store** (`internal/store`). Settings, registered programs, sessions, and
 entries, all in files a person can read. What the user chose is one file,

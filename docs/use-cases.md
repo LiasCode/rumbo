@@ -8,7 +8,8 @@ by a user.
 [architecture.md](architecture.md) explains how the parts fit together,
 [protocol.md](protocol.md), [frontend-protocol.md](frontend-protocol.md),
 and [extension-protocol.md](extension-protocol.md) specify the messages
-between them, and the code holds the details.
+between them, [plugins.md](plugins.md) says how a plugin brings several of
+them at once, and the code holds the details.
 
 ## Host
 
