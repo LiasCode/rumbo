@@ -96,6 +96,13 @@ changes one of those updates it in the same change.
   function that sets something takes that grammar, and shows what it
   changed one line to a change; what is shown of the configuration goes
   through `view.go`, each value with where it comes from.
+- **What differs by operating system stays in files of its own.** Linux,
+  macOS, and Windows run the same code but where they cannot: a file per
+  system (`_unix.go`, `_windows.go`, or a build tag) in the packages that
+  hold the differences (`docs/architecture.md`, "The operating system").
+  Elsewhere, code that uses what a desktop offers (a browser, a clipboard,
+  a screen) says what it does on each system, and explains the limit where
+  it has nothing.
 - **Users read CHANGELOG.md.** A change they would notice adds a line to its
   `Unreleased` section, in their terms; the reason goes in the commit.
 
@@ -138,6 +145,8 @@ by every task, whether it helps that task or not.
 ```sh
 gofmt -l .          # must print nothing
 go vet ./...
+GOOS=darwin go vet ./...    # it builds for every system it runs on
+GOOS=windows go vet ./...
 go test ./...
 go build -o rumbo ./cmd/rumbo
 ```

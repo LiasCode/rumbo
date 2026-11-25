@@ -89,7 +89,7 @@ func wrong(format string, args ...any) error {
 func (Computer) Def() protocol.ToolDef {
 	return protocol.ToolDef{
 		Name:        "computer",
-		Description: "See and use the screen of the machine you run on, as a person at it would: take screenshots, move the pointer, click, drag, scroll, type, and press keys. Coordinates are pixels of the last screenshot. Every action but screenshot, zoom, and cursor_position answers with a screenshot taken after it. Start the programs to work with through bash.",
+		Description: "See and use the screen of the machine you run on, as a person at it would: take screenshots, move the pointer, click, drag, scroll, type, and press keys. Coordinates are pixels of the last screenshot. Every action but screenshot, zoom, and cursor_position answers with a screenshot taken after it. Start the programs to work with through " + shell.name + ".",
 		Schema: schema(`{
 			"action": {"type": "string", "enum": ["screenshot", "zoom", "cursor_position", "mouse_move", "left_click", "right_click", "middle_click", "double_click", "triple_click", "left_click_drag", "left_mouse_down", "left_mouse_up", "scroll", "type", "key", "hold_key", "wait"]},
 			"coordinate": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "[x, y] in the last screenshot: where to move, click, or scroll, and where left_click_drag ends. Without it, a click or scroll acts where the pointer is"},

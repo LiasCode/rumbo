@@ -91,8 +91,8 @@ knows no model API.
 **Give the model**
 
 - Four tools: read a file in windows, or look at an image, write a whole
-  file, edit one by exact match, and run a bash command, with a timeout or
-  in the background.
+  file, edit one by exact match, and run a command in the system's shell,
+  bash or, on Windows, PowerShell, with a timeout or in the background.
 - The computer tool, when the user turns it on: screenshots of the desktop
   rumbo runs in, and its pointer and keyboard, through what that desktop
   offers. It acts only on the screen its model saw last, and does nothing
@@ -825,7 +825,8 @@ speaks the Agent Frontend Protocol with the host.
   clipboard holds, read with `wl-paste` on Wayland, `xclip` on X11, or
   AppKit on macOS, since a terminal pastes text only: the files copied in
   a file manager, where they are, on Wayland and X11, or else an image,
-  saved as it is in the user's cache (`rumbo/pasted`), where it stays. A
+  saved as it is in the user's cache (`rumbo/pasted`), where it stays; on
+  Windows it says it does not read the clipboard yet, and to use `/attach`. A
   file dropped on the terminal, which pastes its path, is given too: a
   paste that is wholly the whole paths of files there are, quoted as a
   shell takes them or as `file://` addresses, is those files and no text.

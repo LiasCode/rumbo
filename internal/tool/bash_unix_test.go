@@ -1,0 +1,149 @@
+//go:build unix
+
+package tool
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+func TestBashBackgroundReturnsAtOnceAndIsStoppedOnClose(t *testing.T) {
+	dir := t.TempDir()
+	set := NewSet()
+	bash := set.Tools()[3]
+
+	defer set.Close()
+
+	started := time.Now()
+	output, err := call(t, bash, dir, map[string]any{"command": "echo serving; sleep 60", "background": true})
+
+	if err != nil || time.Since(started) > 5*time.Second {
+		t.Fatalf("err = %v after %s", err, time.Since(started))
+	}
+
+	var group int
+
+	if _, err := fmt.Sscanf(output, "started in the background as process group %d.", &group); err != nil {
+		t.Fatalf("output = %q", output)
+	}
+
+	_, after, _ := strings.Cut(output, "Its output is in ")
+	log, _, _ := strings.Cut(after, ". Stop it")
+
+	if content, _ := os.ReadFile(log); string(content) != "serving\n" {
+		t.Fatalf("log = %q", content)
+	}
+
+	if syscall.Kill(-group, 0) != nil {
+		t.Fatal("the background process is not running")
+	}
+
+	set.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	if syscall.Kill(-group, 0) == nil {
+		t.Fatal("the background process survived the close")
+	}
+
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Fatalf("the log of a stopped process is still there: %v", err)
+	}
+
+	// A command that fails at once is reported as a failure, not as started.
+	_, err = call(t, bash, dir, map[string]any{"command": "no-such-command-here", "background": true})
+
+	if err == nil || !strings.Contains(err.Error(), "ended at once") || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestBashReportsFailureAndKeepsTail(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := call(t, Bash{}, dir, map[string]any{"command": "echo before; exit 3"})
+
+	if err == nil || !strings.Contains(err.Error(), "before") || !strings.Contains(err.Error(), "exit status 3") {
+		t.Fatalf("err = %v", err)
+	}
+
+	output, err := call(t, Bash{}, dir, map[string]any{"command": "seq 1 5000"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Long output keeps its beginning and its end, and the rest is in a file.
+	if len(output) > outputBytes+300 || !strings.HasPrefix(output, "1\n2\n") || !strings.HasSuffix(output, "\n5000") {
+		t.Fatalf("unexpected shortening: %d bytes, %q ... %q", len(output), output[:20], output[len(output)-20:])
+	}
+
+	_, after, found := strings.Cut(output, "lines, is in ")
+	path, _, _ := strings.Cut(after, ";")
+
+	if !found {
+		t.Fatalf("no saved file named in %q", output[outputBytes/4-200:outputBytes/4+300])
+	}
+
+	defer os.Remove(path)
+
+	saved, err := os.ReadFile(path)
+
+	if err != nil || strings.Count(string(saved), "\n") != 4999 {
+		t.Fatalf("saved output: %d lines, err = %v, want all 5000", strings.Count(string(saved), "\n")+1, err)
+	}
+
+	// Every line break but the one after the marker ends a line of output.
+	shown := strings.Count(output, "\n")
+	var omitted int
+	fmt.Sscanf(output[strings.Index(output, "[... ")+5:], "%d", &omitted)
+
+	if shown+omitted != 5000 {
+		t.Fatalf("%d lines shown and %d reported omitted do not add up to 5000", shown, omitted)
+	}
+}
+
+func TestBashTimeoutKillsProcessGroup(t *testing.T) {
+	_, err := call(t, Bash{}, t.TempDir(), map[string]any{"command": "sleep 30 & sleep 30", "timeout": 1})
+
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// What the tools save for the model goes with the host: the whole of a long
+// output is kept in a directory of the set's own until the set is closed,
+// and then nothing is left.
+func TestSavedOutputIsRemovedWithTheSet(t *testing.T) {
+	set := NewSet()
+	bash := set.Tools()[3]
+
+	defer set.Close()
+
+	output, err := call(t, bash, t.TempDir(), map[string]any{"command": "seq 1 20000"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, after, found := strings.Cut(output, " lines, is in ")
+	path, _, _ := strings.Cut(after, ";")
+
+	if !found || !strings.HasPrefix(filepath.Base(filepath.Dir(path)), "rumbo-") {
+		t.Fatalf("the output does not say where the rest is: %q", path)
+	}
+
+	if content, err := os.ReadFile(path); err != nil || !strings.HasSuffix(string(content), "\n20000") {
+		t.Fatalf("the saved output: err = %v", err)
+	}
+
+	set.Close()
+
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("the saved output is still there after close: %v", err)
+	}
+}

@@ -14,9 +14,9 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
+	"github.com/LiasCode/rumbo/internal/procgroup"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -124,7 +124,7 @@ func Start(ctx context.Context, name string, argv []string, config json.RawMessa
 	cmd.Stderr = stderr
 	// Its own process group keeps the terminal's Ctrl-C away from the
 	// extension; the host cancels a call through the protocol instead.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.Own(cmd)
 
 	stdin, err := cmd.StdinPipe()
 

@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package wayland is the least of a Wayland client that the computer tool
 // needs: a connection to the compositor, its registry, and the messages of
 // a few protocols, written by hand from their XML. It draws nothing and

@@ -9,9 +9,9 @@ import (
 	"io"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/LiasCode/rumbo/internal/procgroup"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -49,7 +49,7 @@ func Start(ctx context.Context, argv []string, config json.RawMessage, stderr io
 	cmd.Stderr = stderr
 	// Its own process group keeps the terminal's Ctrl-C away from the
 	// provider; the host cancels it through the protocol instead.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.Own(cmd)
 
 	stdin, err := cmd.StdinPipe()
 

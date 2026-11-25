@@ -145,9 +145,9 @@ plugin brings while the plugin is added; the user registers others.
 Only what the user chose is kept of a configuration: what is not chosen is
 the program's own default, which the program says when it starts.
 
-**Tool.** An action the model can request: `read`, `write`, `edit`, `bash`,
-`computer` when the user turns it on, and those the user's extensions
-declare. A tool's result is text, and may show images too.
+**Tool.** An action the model can request: `read`, `write`, `edit`, `bash`
+(`powershell` on Windows), `computer` when the user turns it on, and those
+the user's extensions declare. A tool's result is text, and may show images too.
 
 **Extension.** A program the user registers that gives the model tools of
 its own, and sections of ambient context, by speaking the Agent Extension

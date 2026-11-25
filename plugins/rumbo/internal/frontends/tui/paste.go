@@ -223,6 +223,9 @@ func readClipboard(ctx context.Context) (held, error) {
 	case runtime.GOOS == "darwin":
 		return macClipboard(ctx)
 
+	case runtime.GOOS == "windows":
+		return held{}, errors.New("rumbo does not read the clipboard on Windows yet; give the file with /attach")
+
 	case os.Getenv("WAYLAND_DISPLAY") != "":
 		return listedClipboard(ctx, "wl-paste", "wl-clipboard",
 			[]string{"--list-types"},

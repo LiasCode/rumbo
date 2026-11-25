@@ -21,11 +21,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
 	"github.com/LiasCode/rumbo/internal/cli"
+	"github.com/LiasCode/rumbo/internal/procgroup"
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/internal/transcript"
 	"github.com/LiasCode/rumbo/protocol"
@@ -238,8 +238,8 @@ func evaluate(task, binary, scratch string, attempt int, opts options, provider 
 	agent.Env = env
 	// The interrupt goes to the whole group, because it is the front end,
 	// not the host, that turns it into a cancel.
-	agent.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	agent.Cancel = func() error { return syscall.Kill(-agent.Process.Pid, syscall.SIGINT) }
+	procgroup.Own(agent)
+	agent.Cancel = func() error { return procgroup.Interrupt(agent.Process.Pid) }
 	agent.WaitDelay = 30 * time.Second
 
 	if err := redirect(agent, workdir); err != nil {

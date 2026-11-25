@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/internal/tool"
 )
 
 // extendWith is the command of the tests' extension with one tool called
@@ -16,6 +17,10 @@ import (
 func extendWith(name string) []string {
 	return []string{selfPlaceholder, "extend", name}
 }
+
+// shellTool is the name of rumbo's shell tool: bash, or powershell on
+// Windows.
+var shellTool = tool.NewSet().Tools()[3].Def().Name
 
 func TestAnExtensionIsRegisteredOnceItWorks(t *testing.T) {
 	h := testHost(t)
@@ -27,7 +32,7 @@ func TestAnExtensionIsRegisteredOnceItWorks(t *testing.T) {
 	}
 
 	// One whose tool rumbo, or another extension, already has is not kept.
-	for name, tool := range map[string]string{"shell": "bash", "screen": "computer", "other": "find"} {
+	for name, tool := range map[string]string{"shell": shellTool, "screen": "computer", "other": "find"} {
 		_, err := registerExtension(h.database, name, extendWith(tool), nil, nil, io.Discard)
 
 		if err == nil || !strings.Contains(err.Error(), "was not registered") || !strings.Contains(err.Error(), "already has") {
@@ -100,7 +105,7 @@ func TestARunHasTheToolsOfTheExtensions(t *testing.T) {
 		return strings.Join(names, " ")
 	}
 
-	if got := names(); got != "read write edit bash" {
+	if got := names(); got != "read write edit "+shellTool {
 		t.Fatalf("without extensions: %q", got)
 	}
 
@@ -110,7 +115,7 @@ func TestARunHasTheToolsOfTheExtensions(t *testing.T) {
 		}
 	}
 
-	if got := names(); got != "read write edit bash zeta_tool alpha_tool" {
+	if got := names(); got != "read write edit "+shellTool+" zeta_tool alpha_tool" {
 		t.Fatalf("with extensions: %q", got)
 	}
 
@@ -136,7 +141,7 @@ func TestARunHasTheToolsOfTheExtensions(t *testing.T) {
 		t.Fatalf("removed = %q, err = %v", removed, err)
 	}
 
-	if got := names(); got != "read write edit bash zeta_tool" {
+	if got := names(); got != "read write edit "+shellTool+" zeta_tool" {
 		t.Fatalf("after removing one: %q", got)
 	}
 }
@@ -165,13 +170,13 @@ func TestAnExtensionReplacesAToolWhenTheUserSaysSo(t *testing.T) {
 		return strings.Join(names, " ")
 	}
 
-	added, err := registerExtension(h.database, "sandbox", extendWith("bash"), nil, []string{"bash"}, io.Discard)
+	added, err := registerExtension(h.database, "sandbox", extendWith(shellTool), nil, []string{shellTool}, io.Discard)
 
-	if err != nil || added != "added the extension sandbox: the runs that start from now on have its tools: bash; its bash is in place of rumbo's" {
+	if err != nil || added != "added the extension sandbox: the runs that start from now on have its tools: "+shellTool+"; its "+shellTool+" is in place of rumbo's" {
 		t.Fatalf("added = %q, err = %v", added, err)
 	}
 
-	if got := names(); got != "read write edit bash" {
+	if got := names(); got != "read write edit "+shellTool {
 		t.Fatalf("declared %q", got)
 	}
 
@@ -180,12 +185,12 @@ func TestAnExtensionReplacesAToolWhenTheUserSaysSo(t *testing.T) {
 	result, err := worker.Tools[3].Run(context.Background(), "/repo", json.RawMessage(`{}`))
 
 	if err != nil || result.Text != "called in /repo" {
-		t.Fatalf("bash = %q, err = %v", result.Text, err)
+		t.Fatalf("the shell tool = %q, err = %v", result.Text, err)
 	}
 
 	kept, _ := h.database.Program(store.KindExtension, "sandbox")
 
-	if strings.Join(kept.Replaces, " ") != "bash" {
+	if strings.Join(kept.Replaces, " ") != shellTool {
 		t.Fatalf("kept %q", kept.Replaces)
 	}
 
@@ -194,11 +199,11 @@ func TestAnExtensionReplacesAToolWhenTheUserSaysSo(t *testing.T) {
 	}
 
 	// Giving it back leaves a tool rumbo already has, so it is refused.
-	if _, err := setProgram(h.database, store.KindExtension, "sandbox", []string{"replaces="}, io.Discard); err == nil || !strings.Contains(err.Error(), "set replaces=bash for it") {
+	if _, err := setProgram(h.database, store.KindExtension, "sandbox", []string{"replaces="}, io.Discard); err == nil || !strings.Contains(err.Error(), "set replaces="+shellTool+" for it") {
 		t.Fatalf("err = %v", err)
 	}
 
-	if _, err := setProgram(h.database, store.KindExtension, "sandbox", []string{"replaces=bash,read"}, io.Discard); err == nil || !strings.Contains(err.Error(), `replaces "read", and declares no tool of that name`) {
+	if _, err := setProgram(h.database, store.KindExtension, "sandbox", []string{"replaces=" + shellTool + ",read"}, io.Discard); err == nil || !strings.Contains(err.Error(), `replaces "read", and declares no tool of that name`) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -262,7 +267,7 @@ func TestTheHostsFunctionsManageTheExtensions(t *testing.T) {
 
 	values := call(t, h, "extension-values", `{"extension":"finder"}`)
 
-	if shownValues(values.Values) != "depth=: | replaces=:" || !strings.HasPrefix(values.Values[0].Description, "in force: 3") || !strings.Contains(values.Values[1].Description, "bash") {
+	if shownValues(values.Values) != "depth=: | replaces=:" || !strings.HasPrefix(values.Values[0].Description, "in force: 3") || !strings.Contains(values.Values[1].Description, shellTool) {
 		t.Fatalf("extension-values = %+v", values.Values)
 	}
 

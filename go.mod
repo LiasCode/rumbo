@@ -6,6 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.1.2
 	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0
 	go.yaml.in/yaml/v4 v4.0.0
+	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
 )
 
@@ -39,5 +40,4 @@ require (
 	go.opentelemetry.io/otel/metric v1.33.0 // indirect
 	go.opentelemetry.io/otel/trace v1.33.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 )

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -121,8 +122,13 @@ func TestASessionIsFilesAPersonCanRead(t *testing.T) {
 		t.Fatalf("entries.jsonl = %q", entries)
 	}
 
-	// Only the person who started rumbo reads what a session holds.
+	// Only the person who started rumbo reads what a session holds. Windows
+	// has no modes; there the profile's own permissions keep it.
 	for _, name := range []string{".", "session.json", "entries.jsonl"} {
+		if runtime.GOOS == "windows" {
+			break
+		}
+
 		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.Mode().Perm()&0o077 != 0 {
 			t.Errorf("%s: mode %v, err %v", name, info.Mode(), err)
 		}

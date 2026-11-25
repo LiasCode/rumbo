@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
+
+	"github.com/LiasCode/rumbo/internal/filelock"
 )
 
 // Store is the file of one provider, or of the plugin's extension, which
@@ -185,11 +186,10 @@ func (s Store) Locked(do func() error) error {
 
 	defer lock.Close()
 
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	// Closing the file, deferred above, releases the lock.
+	if err := filelock.Lock(lock); err != nil {
 		return err
 	}
-
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 
 	return do()
 }

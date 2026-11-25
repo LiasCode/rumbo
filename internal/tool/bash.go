@@ -9,9 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/LiasCode/rumbo/internal/procgroup"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -20,7 +20,31 @@ const (
 	maxTimeout     = 30 * time.Minute
 )
 
-// Bash runs a shell command in the working directory.
+// shellProgram is the shell the system has, which differs by operating
+// system (shell_unix.go, shell_windows.go).
+type shellProgram struct {
+	// name is the tool's name, and the shell's.
+	name string
+
+	// argv runs a command given after it.
+	argv []string
+
+	// prefix goes before every command.
+	prefix string
+
+	// stopped says how to stop a background process, given its group.
+	stopped string
+}
+
+// command runs line with the shell.
+func (s shellProgram) command(ctx context.Context, line string) *exec.Cmd {
+	args := append(s.argv[1:len(s.argv):len(s.argv)], s.prefix+line)
+
+	return exec.CommandContext(ctx, s.argv[0], args...)
+}
+
+// Bash runs a command in the working directory with the system's shell:
+// bash on Unix, and PowerShell on Windows, where the tool is named after it.
 type Bash struct {
 	jobs  *jobs
 	saved *saved
@@ -29,8 +53,8 @@ type Bash struct {
 // Def implements Tool.
 func (Bash) Def() protocol.ToolDef {
 	return protocol.ToolDef{
-		Name:        "bash",
-		Description: "Run a bash command in the working directory and return its combined output and exit status. Long output is shortened to its beginning and end, and saved whole to a file you can search. Default timeout is 120 seconds. For a server or anything else that keeps running, set background.",
+		Name:        shell.name,
+		Description: "Run a " + shell.name + " command in the working directory and return its combined output and exit status. Long output is shortened to its beginning and end, and saved whole to a file you can search. Default timeout is 120 seconds. For a server or anything else that keeps running, set background.",
 		Schema: schema(`{
 			"command": {"type": "string", "description": "Command to run"},
 			"timeout": {"type": "integer", "description": "Timeout in seconds"},
@@ -101,11 +125,11 @@ func (b Bash) start(dir, command string) (string, error) {
 
 	defer log.Close()
 
-	cmd := exec.Command("bash", "-c", command)
+	cmd := shell.command(context.Background(), command)
 	cmd.Dir = dir
 	cmd.Stdout = log
 	cmd.Stderr = log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.Own(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return "", err
@@ -136,12 +160,12 @@ func (b Bash) start(dir, command string) (string, error) {
 	b.jobs.add(group)
 
 	return fmt.Sprintf(
-		"started in the background as process group %d. Its output is in %s. Stop it with: kill -- -%d",
+		"started in the background as process group %d. Its output is in %s. Stop it with: "+shell.stopped,
 		group, log.Name(), group,
 	), nil
 }
 
-// Shell runs command with bash in dir and returns its combined output. The
+// Shell runs command with the system's shell in dir and returns its combined output. The
 // command gets its own process group so a timeout or cancel also stops the
 // processes it started.
 func Shell(ctx context.Context, dir, command string, timeout time.Duration) (string, error) {
@@ -150,15 +174,15 @@ func Shell(ctx context.Context, dir, command string, timeout time.Duration) (str
 
 	var output bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd := shell.command(ctx, command)
 	cmd.Dir = dir
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.Own(cmd)
 	cmd.WaitDelay = 2 * time.Second
 
 	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return procgroup.Kill(cmd.Process.Pid)
 	}
 
 	err := cmd.Run()

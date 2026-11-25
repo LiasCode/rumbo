@@ -14,8 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/LiasCode/rumbo/internal/procgroup"
 )
 
 // How long a server gets to exit once it is told to, and a request that
@@ -110,7 +111,7 @@ func startStdio(command []string, stderr io.Writer) (*stdioConn, error) {
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Stderr = stderr
 	// A group of its own, so that what the server started goes with it.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.Own(cmd)
 
 	stdin, err := cmd.StdinPipe()
 
@@ -275,7 +276,7 @@ func (c *stdioConn) close() {
 	select {
 	case <-done:
 	case <-time.After(gracePeriod):
-		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+		_ = procgroup.Kill(c.cmd.Process.Pid)
 		<-done
 	}
 }

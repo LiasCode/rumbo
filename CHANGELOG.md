@@ -5,6 +5,15 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Windows
+
+- **rumbo runs on Windows.** The releases have a zip for it, with
+  `rumbo.exe`. There the model runs commands with PowerShell, through a
+  tool called `powershell` in place of `bash`, so an extension that takes
+  its place there says `replaces=powershell`. `/login` opens your
+  browser. The computer tool, and Ctrl-V for an image or files, are not
+  available on Windows yet, and say so; `/attach` gives a file.
+
 ### Files in what you ask
 
 - **You give the model files of any kind, not only images.** `/attach

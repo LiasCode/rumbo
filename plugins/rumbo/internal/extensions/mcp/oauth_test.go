@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -251,7 +252,8 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 
 	kept := filepath.Join(config, "rumbo", "credentials", "mcp.json")
 
-	if info, err := os.Stat(kept); err != nil || info.Mode().Perm() != 0o600 {
+	// Windows has no modes; there the profile's own permissions keep it.
+	if info, err := os.Stat(kept); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("the sign-in is kept in %v, %v", info, err)
 	}
 

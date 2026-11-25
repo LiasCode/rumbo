@@ -96,7 +96,16 @@ is typed on a key given it for the moment. The tool shows the model
 screenshots of at most 1280×800 and maps the model's coordinates to the
 screen, and it acts only on the screen the model saw last: when the monitor
 in use changes, or someone else moves the pointer, it does nothing until
-the model looks again.
+the model looks again. On Windows there is no screen to act on yet, and
+the tool says so.
+
+**The operating system.** What differs between Linux, macOS, and Windows
+is kept in a few places, each with a file per system, so the rest of the
+code is the same on all of them: starting a program in a group of its own
+and stopping that group (`internal/procgroup`), locks the system drops
+with the process that held them (`internal/filelock`), the shell the
+shell tool runs, bash on Unix and PowerShell on Windows
+(`internal/tool/shell_*.go`), and the desktops the screen drives.
 
 **Ambient context** (`internal/ambient`). The little the model is told
 without asking: the environment it runs in, the user's instruction files,

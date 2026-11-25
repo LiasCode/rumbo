@@ -94,13 +94,16 @@ func SameState(query url.Values, state string) bool {
 
 // OpenBrowser opens address in the person's browser, where there is one to
 // open: on Linux, only in a graphical session, so a browser that would run
-// in the terminal is never started.
+// in the terminal is never started. On Windows, url.dll opens it, since
+// cmd's start would cut the address at its first &.
 func OpenBrowser(address string) error {
 	var command *exec.Cmd
 
 	switch {
 	case runtime.GOOS == "darwin":
 		command = exec.Command("open", address)
+	case runtime.GOOS == "windows":
+		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", address)
 	case os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "":
 		command = exec.Command("xdg-open", address)
 	default:

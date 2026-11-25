@@ -68,6 +68,12 @@ func (r *running) working(t theme, now time.Time) string {
 // it returns.
 var exitStatus = regexp.MustCompile(`\n?\[([^\[\]\n]+)\]$`)
 
+// isShell reports whether name is rumbo's shell tool: bash, or powershell on
+// Windows.
+func isShell(name string) bool {
+	return name == "bash" || name == "powershell"
+}
+
 // finished shows a call once it is done, in rows of at most width columns.
 func (r *running) finished(t theme, result string, failed bool, now time.Time, width int) []string {
 	mark, status := t.success+markDone, ""
@@ -77,7 +83,7 @@ func (r *running) finished(t theme, result string, failed bool, now time.Time, w
 		mark = t.failure + markFailed
 
 		// What a command printed comes first, and why it failed last.
-		if found := exitStatus.FindStringSubmatchIndex(body); found != nil && r.name == "bash" {
+		if found := exitStatus.FindStringSubmatchIndex(body); found != nil && isShell(r.name) {
 			status, body = body[found[2]:found[3]], body[:found[0]]
 		}
 	}
@@ -95,13 +101,13 @@ func (r *running) finished(t theme, result string, failed bool, now time.Time, w
 	rows := []string{cut(head, width)}
 
 	switch {
-	case failed && r.name == "bash":
+	case failed && isShell(r.name):
 		rows = append(rows, excerpt(body, width, false, styleDim)...)
 	case failed:
 		rows = append(rows, excerpt(body, width, true, t.failure)...)
 	case r.name == "edit":
 		rows = append(rows, change(t, r.args, width)...)
-	case r.name == "bash" && body != "[no output]":
+	case isShell(r.name) && body != "[no output]":
 		rows = append(rows, excerpt(body, width, true, styleDim)...)
 	}
 

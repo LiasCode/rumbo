@@ -366,19 +366,19 @@ func TestAPluginIsBuiltWhereItIsAdded(t *testing.T) {
 // the user agreed, by name, as they added the plugin.
 func TestAPluginReplacesAToolOnlyWhenTheUserAgreed(t *testing.T) {
 	h := testHost(t)
-	dir := pluginIn(t, "name: sandbox\nextensions:\n  sandbox:\n    command: [\"{self}\", extend, bash]\n    replaces: [bash]\n")
+	dir := pluginIn(t, "name: sandbox\nextensions:\n  sandbox:\n    command: [\"{self}\", extend, "+shellTool+"]\n    replaces: ["+shellTool+"]\n")
 
-	if _, err := addPlugin(h.database, dir, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "add it with -replaces bash to agree") {
+	if _, err := addPlugin(h.database, dir, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "add it with -replaces "+shellTool+" to agree") {
 		t.Fatalf("without agreeing: %v", err)
 	}
 
-	if _, err := addPlugin(h.database, dir, []string{"bash", "read"}, io.Discard); err == nil || !strings.Contains(err.Error(), "-replaces names read, which nothing of it asks to replace") {
+	if _, err := addPlugin(h.database, dir, []string{shellTool, "read"}, io.Discard); err == nil || !strings.Contains(err.Error(), "-replaces names read, which nothing of it asks to replace") {
 		t.Fatalf("agreeing to more: %v", err)
 	}
 
-	added, err := addPlugin(h.database, dir, []string{"bash"}, io.Discard)
+	added, err := addPlugin(h.database, dir, []string{shellTool}, io.Discard)
 
-	if err != nil || !strings.Contains(added, "the extension sandbox, in place of rumbo's own bash") {
+	if err != nil || !strings.Contains(added, "the extension sandbox, in place of rumbo's own "+shellTool) {
 		t.Fatalf("added = %q, err = %v", added, err)
 	}
 
@@ -391,7 +391,7 @@ func TestAPluginReplacesAToolOnlyWhenTheUserAgreed(t *testing.T) {
 	result, err := worker.Tools[3].Run(context.Background(), "/repo", json.RawMessage(`{}`))
 
 	if err != nil || result.Text != "called in /repo" {
-		t.Fatalf("bash = %q, err = %v", result.Text, err)
+		t.Fatalf("the shell tool = %q, err = %v", result.Text, err)
 	}
 }
 

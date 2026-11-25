@@ -1,4 +1,5 @@
-# The checks every change runs, as AGENTS.md lists them, on Linux and macOS:
+# The checks every change runs, as AGENTS.md lists them, on Linux, macOS,
+# and Windows:
 # what is pushed to main, and pull requests into it. A release tag has its
 # own workflow, which runs them again.
 name: ci
@@ -14,14 +15,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git for Windows gives the Windows runner bash too.
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Windows checks the files out with CRLF line ends, which gofmt would
+      # report in every file.
       - name: Format
+        if: runner.os != 'Windows'
         run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
@@ -29,5 +37,7 @@ jobs:
         run: go test -race ./...
       - name: Build
         run: go build -o rumbo ./cmd/rumbo
+      # The tasks are bash scripts that use Unix tools.
       - name: Evaluation tasks are sound
+        if: runner.os != 'Windows'
         run: go run ./evals -selftest

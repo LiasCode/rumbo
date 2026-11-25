@@ -21,7 +21,7 @@ type Read struct {
 func (Read) Def() protocol.ToolDef {
 	return protocol.ToolDef{
 		Name:        "read",
-		Description: "Read a text file, or look at an image (PNG, JPEG, GIF, WebP). Returns 500 lines per call unless limit says otherwise; pass offset (1-based line) to read further. For a large file, search with bash first and read only the part you need.",
+		Description: "Read a text file, or look at an image (PNG, JPEG, GIF, WebP). Returns 500 lines per call unless limit says otherwise; pass offset (1-based line) to read further. For a large file, search with " + shell.name + " first and read only the part you need.",
 		Schema: schema(`{
 			"path": {"type": "string", "description": "File path, relative to the working directory or absolute"},
 			"offset": {"type": "integer", "description": "First line to read, starting at 1"},
@@ -67,7 +67,7 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (Result, 
 	}
 
 	if strings.ContainsRune(string(raw[:min(len(raw), 8000)]), 0) {
-		return Result{}, fmt.Errorf("%s is a binary file; inspect it with bash instead", input.Path)
+		return Result{}, fmt.Errorf("%s is a binary file; inspect it with %s instead", input.Path, shell.name)
 	}
 
 	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
@@ -93,7 +93,7 @@ func (r Read) Run(_ context.Context, dir string, args json.RawMessage) (Result, 
 	}
 
 	if end == start {
-		return Result{}, fmt.Errorf("line %d is longer than %d bytes; inspect it with bash instead", start+1, maxReadBytes)
+		return Result{}, fmt.Errorf("line %d is longer than %d bytes; inspect it with %s instead", start+1, maxReadBytes, shell.name)
 	}
 
 	r.seen.record(path)

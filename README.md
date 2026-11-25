@@ -35,14 +35,15 @@ specific market, or create an uncontrollable monster.
 
 ## Install
 
-Download the archive for Linux or macOS from the
+Download the archive for Linux, macOS, or Windows from the
 [releases](https://github.com/LiasCode/rumbo/releases), or:
 
 ```sh
 go install github.com/LiasCode/rumbo/cmd/rumbo@latest
 ```
 
-Windows is not supported yet.
+On Windows, the model runs commands with PowerShell, and the computer
+tool is not available.
 
 ## Start
 

@@ -12,8 +12,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/LiasCode/rumbo/internal/filelock"
 )
 
 // Files is the Store kept in files. What the user chose is one YAML file
@@ -136,19 +137,7 @@ func writeFile(path string, data []byte) error {
 // locked runs change while it holds the directory, so two processes that
 // read a file there to write it back do not lose each other's change.
 func locked(dir string, change func() error) error {
-	held, err := os.Open(dir)
-
-	if err != nil {
-		return err
-	}
-
-	defer held.Close()
-
-	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); err != nil {
-		return err
-	}
-
-	return change()
+	return filelock.Hold(dir, change)
 }
 
 // create makes a session with the entries given. It is made under another
@@ -502,10 +491,10 @@ func (f *Files) LockSession(id string) (func(), error) {
 		return nil, err
 	}
 
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := filelock.TryLock(file); err != nil {
 		_ = file.Close()
 
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if errors.Is(err, filelock.ErrHeld) {
 			return nil, ErrLocked
 		}
 

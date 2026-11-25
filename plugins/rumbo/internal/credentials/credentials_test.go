@@ -3,6 +3,7 @@ package credentials
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -28,7 +29,8 @@ func TestKeysAreKeptByServerAndOnlyForTheUser(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if info.Mode().Perm() != want {
+		// Windows has no modes; there the profile's own permissions keep it.
+		if runtime.GOOS != "windows" && info.Mode().Perm() != want {
 			t.Fatalf("%s: mode %v; want %v", path, info.Mode().Perm(), want)
 		}
 	}

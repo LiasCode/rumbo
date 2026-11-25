@@ -5,10 +5,10 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/LiasCode/rumbo/internal/computer"
+	"github.com/LiasCode/rumbo/internal/procgroup"
 )
 
 // Set is the built-in tools together with what they share for the life of a
@@ -159,7 +159,7 @@ func (j *jobs) stopAll() {
 
 	// A group that already ended is not there to signal, which is fine.
 	for _, group := range j.groups {
-		_ = syscall.Kill(-group, syscall.SIGKILL)
+		_ = procgroup.Kill(group)
 	}
 
 	j.groups = nil

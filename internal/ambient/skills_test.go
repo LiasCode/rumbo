@@ -121,7 +121,7 @@ func TestSkillsWithoutADescriptionAreLeftOut(t *testing.T) {
 
 	unnamed := writeSkill(t, place, "unnamed", "\ufeff---\r\ndescription: Named after its directory.\r\n---\r\n")
 
-	if got := skills(dir, nil); !strings.HasSuffix(got, "["+unnamed+"]\nunnamed: Named after its directory.") || strings.Count(got, "[/") != 1 {
+	if got := skills(dir, nil); !strings.HasSuffix(got, "["+unnamed+"]\nunnamed: Named after its directory.") || strings.Count(got, "]\n") != 1 {
 		t.Fatalf("a skill without a name takes its directory's, got %q", got)
 	}
 }
