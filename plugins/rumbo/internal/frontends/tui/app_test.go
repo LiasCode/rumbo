@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,9 @@ type stage struct {
 	// goroutine of its own.
 	sending sync.Mutex
 	sent    []tea.Msg
+	// desktop is what was put in the desktop's clipboard, and its primary
+	// selection, which a test never reaches.
+	desktop []string
 }
 
 func staged(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInitializeParams) *stage {
@@ -37,6 +41,11 @@ func staged(t *testing.T, handlers frontend.Handlers, info protocol.FrontendInit
 	conn := hosted(t, handlers, info)
 
 	shown.a = newApp(conn, info, defaultTheme)
+	shown.a.copier = func(_ context.Context, text string, primary bool) (string, error) {
+		shown.desktop = append(shown.desktop, map[bool]string{true: "primary: ", false: ""}[primary]+text)
+
+		return "the clipboard", nil
+	}
 	shown.a.clock = func() time.Time { return time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC) }
 	shown.a.send = func(msg tea.Msg) {
 		shown.sending.Lock()
@@ -173,9 +182,9 @@ func TestAFullRunIsShownInItsSession(t *testing.T) {
 	}
 
 	// What the host says the session is called is what it is called.
-	s.typing("/rename")
+	s.typing("/rename Listing")
 
-	if screen := s.screen(); !inOrder(screen, "Looking.", "› /rename", "rename done") || titleOf(s.a.host) != "Listing" {
+	if screen := s.screen(); !inOrder(screen, "Looking.", "› /rename Listing", "rename done") || titleOf(s.a.host) != "Listing" {
 		t.Fatalf("the screen once the host named the session:\n%s", screen)
 	}
 }
@@ -200,9 +209,10 @@ func TestAContinuedSessionShowsItsHistory(t *testing.T) {
 }
 
 // A command's answer shows under it, labeled with whose it is, and a slash
-// opens the menu of the commands.
+// opens the menu of the commands. A function of the host no command wraps,
+// as a newer host has, is a command under its name.
 func TestACommandIsAnsweredWhereItWasTyped(t *testing.T) {
-	functions := []protocol.Function{{Name: "status", Description: "Show the session", Group: protocol.GroupSession}}
+	functions := []protocol.Function{{Name: "doctor", Description: "Check what is set up", Group: protocol.GroupSystem}}
 
 	s := staged(t, frontend.Handlers{
 		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
@@ -213,17 +223,15 @@ func TestACommandIsAnsweredWhereItWasTyped(t *testing.T) {
 		},
 	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: functions})
 
-	s.apply(tea.KeyPressMsg{Code: '/', Text: "/"})
-	s.apply(tea.KeyPressMsg{Code: 's', Text: "s"})
-	s.apply(tea.KeyPressMsg{Code: 't', Text: "t"})
+	s.text("/doc")
 
-	if screen := s.screen(); !inOrder(screen, "/status", "Show the session", "/st") {
+	if screen := s.screen(); !inOrder(screen, "/doctor", "Check what is set up", "/doc") {
 		t.Fatalf("the menu:\n%s", screen)
 	}
 
 	s.press(tea.KeyEnter)
 
-	if screen := s.screen(); !inOrder(screen, "› /status", "[host]", "provider: toy") || s.a.menu != nil || s.a.asking {
+	if screen := s.screen(); !inOrder(screen, "› /doctor", "[host]", "provider: toy") || s.a.menu != nil || s.a.asking {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 }
@@ -285,42 +293,61 @@ func greeting(called chan<- json.RawMessage) frontend.Handlers {
 	}
 }
 
-// Ctrl-P opens the palette, which narrows as one types; a function chosen
-// there that takes parameters asks for them in a form, which is run as the
-// command it is, shown in the conversation with its answer.
-func TestAFunctionChosenInThePaletteAsksForItsParameters(t *testing.T) {
+// Ctrl-P starts a command on an empty line, as a slash does: the menu lists
+// the terminal UI's commands, which typing narrows. A function of the
+// provider is no command of its own, but is called after the provider's
+// name, offered there, and runs as the command it is, shown in the
+// conversation with its answer.
+func TestCommandsAreTypedInTheComposer(t *testing.T) {
 	called := make(chan json.RawMessage, 1)
 	s := staged(t, greeting(called), protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
 
 	s.text("a draft")
 	s.apply(ctrl('p'))
 
-	if s.a.palette == nil || !strings.Contains(s.screen(), "greet") {
-		t.Fatalf("the palette:\n%s", s.screen())
+	if s.a.input.String() != "a draft" || !strings.Contains(s.a.notice, "start with a slash") {
+		t.Fatalf("Ctrl-P over a draft: typed %q, notice %q", s.a.input.String(), s.a.notice)
 	}
 
-	s.text("gree")
-	s.press(tea.KeyEnter)
+	s.a.input.clear()
+	s.run(s.a.describe(s.a.host, ""))
+	s.apply(ctrl('p'))
 
-	if s.a.palette != nil || s.a.form == nil || len(s.a.form.fields) != 2 {
-		t.Fatalf("palette %v, form %+v", s.a.palette, s.a.form)
+	if s.a.input.String() != "/" || s.a.menu == nil || !inOrder(s.screen(), "/new", "/sessions", "/resume") {
+		t.Fatalf("the menu, typed %q:\n%s", s.a.input.String(), s.screen())
 	}
 
-	// What is needed and missing keeps the form open, saying why.
-	s.press(tea.KeyEnter)
+	s.text("prov")
 
-	if s.a.form == nil || !strings.Contains(s.screen(), "who is needed") {
-		t.Fatalf("the form:\n%s", s.screen())
+	if shown := s.a.menu.shown; len(shown) != 1 || shown[0].value != "/providers" {
+		t.Fatalf("the menu narrowed: %+v", shown)
 	}
 
-	s.text("Ana")
-	s.press(tea.KeyEnter)
+	s.a.input.clear()
+	s.a.menu = nil
+	s.text("/providers toy ")
+
+	if !slices.ContainsFunc(s.a.menu.shown, func(each choice) bool { return each.value == "greet" && each.description == "Say hello" }) {
+		t.Fatalf("what the provider offers: %+v", s.a.menu.shown)
+	}
+
+	s.a.input.clear()
+	s.a.menu = nil
+	s.typing("/greet Ana")
+
+	if len(called) != 0 || !strings.Contains(s.screen(), "there is no command /greet") {
+		t.Fatalf("/greet is a command:\n%s", s.screen())
+	}
+
+	// What the provider offers is asked first when it is not known.
+	s.a.described = nil
+	s.typing("/providers toy greet Ana")
 
 	if params := <-called; string(params) != `{"who":"Ana"}` {
 		t.Fatalf("called with %s", params)
 	}
 
-	if screen := s.screen(); s.a.form != nil || !inOrder(screen, "› /greet Ana", "[provider toy]", "Hello there", "a draft") {
+	if screen := s.screen(); !inOrder(screen, "› /providers toy greet Ana", "[provider toy]", "Hello there") {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 }
@@ -410,7 +437,7 @@ func TestThePickerChangesTheModelAndAnOption(t *testing.T) {
 		t.Fatalf("asked %q", asked)
 	}
 
-	if screen := s.screen(); !inOrder(screen, "› /use toy toy-2", "› /session-set effort=high", "done: use", "done: session-set", "toy · toy-2") {
+	if screen := s.screen(); !inOrder(screen, "› /model toy/toy-2", "› /model effort=high", "done: use", "done: session-set", "toy · toy-2") {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 }
@@ -475,16 +502,12 @@ func TestTheProviderAsksInADialog(t *testing.T) {
 		}
 	}
 
-	for _, r := range "my draft" {
+	for _, r := range "/login" {
 		key(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 
-	key(ctrl('p'))
-
-	for _, r := range "login" {
-		key(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
-
+	// Enter takes /login from the menu, and sends it.
+	key(tea.KeyPressMsg{Code: tea.KeyEnter})
 	key(tea.KeyPressMsg{Code: tea.KeyEnter})
 	await(func() bool { return s.a.question != nil })
 
@@ -492,14 +515,14 @@ func TestTheProviderAsksInADialog(t *testing.T) {
 		key(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 
-	if screen := s.screen(); !inOrder(screen, "the provider asks", "Paste the code", "› ••••", "my draft") || strings.Contains(screen, "4711") {
+	if screen := s.screen(); !inOrder(screen, "the provider asks", "Paste the code", "› ••••") || strings.Contains(screen, "4711") {
 		t.Fatalf("the question:\n%s", screen)
 	}
 
 	key(tea.KeyPressMsg{Code: tea.KeyEnter})
 	await(func() bool { return !s.a.asking })
 
-	if screen := s.screen(); !inOrder(screen, "› /login", "Paste the code", "› (not shown)", "signed in with 4711", "my draft") || s.a.question != nil {
+	if screen := s.screen(); !inOrder(screen, "› /login", "Paste the code", "› (not shown)", "signed in with 4711") || s.a.question != nil {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 
@@ -611,8 +634,8 @@ func TestACallIsShownWholeFromTheConversation(t *testing.T) {
 
 	s.press(tea.KeyEnter)
 
-	if s.a.palette != nil || !strings.Contains(s.a.notice, "copied 1 line(s)") {
-		t.Fatalf("Enter on the message: palette %v, notice %q", s.a.palette, s.a.notice)
+	if s.a.actions != nil || !strings.Contains(s.a.notice, "copied 1 line(s)") {
+		t.Fatalf("Enter on the message: actions %v, notice %q", s.a.actions, s.a.notice)
 	}
 }
 
@@ -668,10 +691,10 @@ func TestARunThatEndsAwayIsNotified(t *testing.T) {
 	}
 }
 
-// An extension's functions are commands named after it, said by the host
+// An extension's functions are called after its name, said by the host
 // with what the provider offers; one is called at the extension, and what
 // it answers is marked as the extension's.
-func TestAnExtensionsFunctionsAreCommands(t *testing.T) {
+func TestAnExtensionsFunctionsAreCalledAfterIt(t *testing.T) {
 	handlers := frontend.Handlers{
 		Describe: func(context.Context) (protocol.DescribeResult, error) {
 			return protocol.DescribeResult{Provider: "toy", Extensions: []protocol.ExtensionOffer{{Name: "notes", Functions: []protocol.Function{
@@ -682,29 +705,28 @@ func TestAnExtensionsFunctionsAreCommands(t *testing.T) {
 		Invoke: func(_ context.Context, params protocol.InvokeParams, _ protocol.Dialog) (json.RawMessage, error) {
 			return json.Marshal(params.Target + " " + params.Extension + " was asked to " + params.Name)
 		},
+		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
+			return protocol.HostResult{Text: "notes: forget and remember"}, nil
+		},
 	}
 
-	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any"})
+	functions := []protocol.Function{{Name: "extension-values", Lists: true, Params: []protocol.Option{{Name: "extension", Type: protocol.OptionString}}}}
+	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: functions})
 	s.run(s.a.describe(s.a.host, ""))
 
-	names := func(choices []choice) string {
-		var names []string
+	// An extension's functions are no commands of their own; one there to
+	// list values is not offered at all.
+	s.text("/extensions notes ")
 
-		for _, each := range choices {
-			names = append(names, each.value)
-		}
-
-		return strings.Join(names, " ")
+	if !slices.ContainsFunc(s.a.menu.shown, func(each choice) bool { return each.value == "forget" }) || slices.ContainsFunc(s.a.menu.shown, func(each choice) bool { return each.value == "tags" }) {
+		t.Fatalf("the choices: %+v", s.a.menu.shown)
 	}
 
-	// A function there to list values is no command.
-	if offered := names(commandChoicesOf(nil, s.a.described)); !strings.Contains(offered, "/notes-forget") || strings.Contains(offered, "/notes-tags") {
-		t.Fatalf("the commands offered: %s", offered)
-	}
+	s.a.input.clear()
+	s.a.menu = nil
+	s.typing("/extensions notes forget")
 
-	s.typing("/notes-forget")
-
-	if screen := s.screen(); !inOrder(screen, "› /notes-forget", "[extension notes]", "extension notes was asked to forget") {
+	if screen := s.screen(); !inOrder(screen, "› /extensions notes forget", "[extension notes]", "extension notes was asked to forget") {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 
@@ -712,18 +734,6 @@ func TestAnExtensionsFunctionsAreCommands(t *testing.T) {
 	// that is asked again before it is next needed.
 	if s.a.described != nil {
 		t.Fatal("what the extensions offer is still taken as it was before the function")
-	}
-
-	s.run(s.a.describe(s.a.host, ""))
-
-	if help := stripped(s.a.help()); !inOrder(help, "[extension notes]", "/notes-forget", "Forget every note", "the terminal UI's own") {
-		t.Fatalf("the help:\n%s", help)
-	}
-
-	s.apply(ctrl('p'))
-
-	if screen := s.screen(); !inOrder(screen, "extension notes", "notes-forget") {
-		t.Fatalf("the palette:\n%s", screen)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,11 +37,28 @@ func TestCopyTakesTheLastAnswer(t *testing.T) {
 		"":     "Here:\n```go\nfmt.Println(1)\n```\nDone.",
 		"code": "fmt.Println(1)",
 	} {
+		s.desktop = nil
 		copied := s.a.copyReply(strings.Fields(args))
 
-		// What goes to the clipboard is what the program sends the terminal.
-		if copied == nil || fmt.Sprint(copied()) != want || !strings.Contains(s.screen(), "line(s) to the clipboard") {
-			t.Fatalf("/copy %s sent %v", args, copied)
+		if copied == nil {
+			t.Fatalf("/copy %s copied nothing", args)
+		}
+
+		// What goes to the clipboard is what the program sends the
+		// terminal, and the desktop.
+		var terminal []string
+
+		for _, msg := range messagesOf(copied) {
+			if done, ok := msg.(copiedMsg); ok {
+				s.apply(done)
+				continue
+			}
+
+			terminal = append(terminal, fmt.Sprint(msg))
+		}
+
+		if !slices.Equal(terminal, []string{want}) || !slices.Equal(s.desktop, []string{want}) || !strings.Contains(s.screen(), "line(s) to the clipboard") {
+			t.Fatalf("/copy %s sent %q to the terminal and %q to the desktop:\n%s", args, terminal, s.desktop, s.screen())
 		}
 	}
 

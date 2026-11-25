@@ -69,7 +69,7 @@ func (p *panels) detailRows(t theme, shown details, width int) []string {
 	}
 
 	section("folder", wrapAll(shown.dir, width)...)
-	section("model", cut(shown.model, width), styleDim+"^P model and options changes it"+styleReset)
+	section("model", cut(shown.model, width), styleDim+"/model changes it"+styleReset)
 
 	if shown.meter != "" || shown.spent != "" {
 		section("context and tokens", cut(shown.meter, width), cut(shown.spent, width))

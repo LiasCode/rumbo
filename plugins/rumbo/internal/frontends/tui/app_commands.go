@@ -31,7 +31,7 @@ func (a *app) enter() tea.Cmd {
 
 			// A name= waits for its value, or for Enter again to send it
 			// empty.
-			if lacksParams(a.info.Functions, a.described, a.input.String()) || strings.HasSuffix(chosen.value, "=") {
+			if lacksParams(a.info.Functions, a.input.String()) || strings.HasSuffix(chosen.value, "=") || strings.HasSuffix(chosen.value, "/") {
 				return a.refreshMenu()
 			}
 		}
@@ -39,7 +39,7 @@ func (a *app) enter() tea.Cmd {
 
 	// A command that still needs something opens the menu of what it takes
 	// next, rather than failing for the want of it.
-	if typed := a.input.String(); isCommand(strings.TrimSpace(typed)) && lacksParams(a.info.Functions, a.described, typed) {
+	if typed := a.input.String(); isCommand(strings.TrimSpace(typed)) && lacksParams(a.info.Functions, typed) {
 		if !strings.HasSuffix(typed, " ") {
 			a.input.set(typed + " ")
 		}
@@ -84,7 +84,8 @@ func (a *app) take() {
 
 	head, _ := splitLast(a.input.String())
 
-	if strings.HasSuffix(chosen.value, "=") {
+	// A name= goes on with its value, and a provider/ with its models.
+	if strings.HasSuffix(chosen.value, "=") || strings.HasSuffix(chosen.value, "/") {
 		a.input.set(head + chosen.value)
 		return
 	}
@@ -112,41 +113,26 @@ func (a *app) execute(line string) tea.Cmd {
 	words := strings.Fields(line)
 	name, args := strings.TrimPrefix(words[0], "/"), words[1:]
 
-	switch words[0] {
-	case commandHelp:
-		a.shown.add(&entry{kind: entryAnswer, text: a.help()})
-		return nil
-	case commandCopy:
-		return a.copyReply(args)
-	case commandExport:
-		return a.export(args)
-	case commandRumbos:
-		return a.usage()
-	case commandDelete:
-		return a.delete()
-	}
-
-	// The host's functions come first: they need no provider to be running.
-	if index := slices.IndexFunc(a.info.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
-		return a.call(fromHost, a.info.Functions[index], args)
-	}
-
-	if a.described == nil {
-		a.asking = true
-		return a.describe(a.host, line)
-	}
-
-	if index := slices.IndexFunc(a.described.Offers.Functions, func(function protocol.Function) bool { return function.Name == name }); index >= 0 {
-		return a.call(fromProvider, a.described.Offers.Functions[index], args)
-	}
-
-	for _, each := range extensionCommands(a.described) {
-		if each.function.Name == name {
-			return a.call(each.source, each.function, args)
+	if each, found := verbNamed(name); found {
+		if each.needs() && len(args) == 0 {
+			a.shown.add(&entry{kind: entryAnswer, text: "usage: " + verbUsage(each), failed: true})
+			return nil
 		}
+
+		return each.run(a, args)
 	}
 
-	a.shown.add(&entry{kind: entryAnswer, text: fmt.Sprintf("there is no command %s; see %s", words[0], commandHelp), failed: true})
+	if function, _, found := lookup(words[0], a.info.Functions); found {
+		return a.call(fromHost, function, args)
+	}
+
+	said := fmt.Sprintf("there is no command %s; /help lists them", words[0])
+
+	if near := closest(words[0], commandChoicesOf(a.info.Functions)); near != "" {
+		said = fmt.Sprintf("there is no command %s; did you mean %s?", words[0], near)
+	}
+
+	a.shown.add(&entry{kind: entryAnswer, text: said, failed: true})
 
 	return nil
 }
@@ -285,77 +271,84 @@ func (a *app) answered(msg answeredMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// help lists every command there is, grouped by what it acts on, and the
-// keys.
-func (a *app) help() string {
+// help lists the commands and the keys, or says what one command does.
+func (a *app) help(args []string) string {
+	if len(args) > 0 {
+		return a.helpOf(strings.TrimPrefix(args[0], "/"))
+	}
+
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "%s  rumbo itself, the same with any provider. Its commands, by what they act on:\n", a.label(fromHost))
-
-	// The groups come in the order the host lists its functions.
-	var groups []string
-
-	members := map[string][]protocol.Function{}
-
-	for _, function := range commands(a.info.Functions) {
-		if _, seen := members[function.Group]; !seen {
-			groups = append(groups, function.Group)
+	for index, group := range []string{groupSessions, groupModel, groupSetUp, groupHere} {
+		if index > 0 {
+			out.WriteString("\n")
 		}
 
-		members[function.Group] = append(members[function.Group], function)
-	}
+		out.WriteString(group + "\n")
 
-	for _, group := range groups {
-		fmt.Fprintf(&out, "\n%s\n", groupTitle(group))
-
-		for _, function := range members[group] {
-			fmt.Fprintf(&out, "%s\n", usage(function))
-		}
-	}
-
-	fmt.Fprintf(&out, "\n%s  what reaches the model. What it offers changes with the provider; /provider-show shows its settings.\n", a.label(fromProvider))
-
-	if a.described == nil {
-		out.WriteString("It has not said yet what it offers.\n")
-	} else {
-		for _, function := range commands(a.described.Offers.Functions) {
-			fmt.Fprintf(&out, "%s\n", usage(function))
-		}
-	}
-
-	for _, extension := range a.extensions() {
-		fmt.Fprintf(&out, "\n%s  a program of yours; /extension-show %s says what it gives.\n", a.label(fromExtension(extension)), extension)
-
-		for _, each := range extensionCommands(a.described) {
-			if each.source == fromExtension(extension) {
-				fmt.Fprintf(&out, "%s\n", usage(each.function))
+		for _, each := range verbs() {
+			if each.group == group {
+				fmt.Fprintf(&out, "  %s\n", verbUsage(each))
 			}
 		}
 	}
 
-	out.WriteString("\nthe terminal UI's own\n")
+	// What no command wraps yet is a command under its own name.
+	var more []string
 
-	for _, function := range ownCommands {
-		fmt.Fprintf(&out, "%s\n", usage(function))
+	for _, function := range commands(a.info.Functions) {
+		if !isWrapped(function.Name) {
+			more = append(more, usage(function))
+		}
 	}
 
-	out.WriteString("\nEnter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Ctrl-P opens the commands, which typing narrows; one that takes something asks for it in a form, and one that cannot be undone asks you to agree first.\n")
-	out.WriteString("A slash in the composer opens the menu of the commands too: Up and Down choose, Tab or Enter take, Escape closes it.\n")
-	out.WriteString("Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the image in the clipboard to what you send next.\n")
+	if len(more) > 0 {
+		out.WriteString("\nmore, of this rumbo's host\n")
+
+		for _, each := range more {
+			out.WriteString("  " + each + "\n")
+		}
+	}
+
+	out.WriteString("\n/help <command> says more of one, with examples. A slash on an empty line opens the menu of the commands, as Ctrl-P does: Up and Down choose, Tab or Enter take, Escape closes it; it goes on with what the command takes next, and what is still to type shows after the cursor.\n")
+	out.WriteString("Enter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the image in the clipboard to what you send next.\n")
 	out.WriteString("Escape cancels the run; Ctrl-C does too, else clears what is typed, else quits.\n")
 	out.WriteString("Shift-Tab goes up into the conversation, where j and k, or Up and Down, choose, K and J go to your messages, and gg and G to either end. Enter on a tool call shows all of it, on what you asked offers to change it or ask it again in a branch, and on anything else copies it; c copies what is chosen, and b branches from the message of yours its task started with, once you agree.\n")
-	out.WriteString("Each session is a rumbo of its own. With the sessions shown (Ctrl-B), Tab on an empty line goes to them, where j, k, gg, and G choose, Enter shows one, starting its rumbo, and d deletes one, once you agree; Ctrl-N starts a new one, and Ctrl-B shows or puts away the list. The runs of the sessions you leave go on, and /rumbos says what each rumbo uses.\n")
-	out.WriteString("Ctrl-Alt-B shows the session's details beside the conversation, and Ctrl-G what changed in the project's folder, as Git sees it.\n")
-	out.WriteString("A click on the model under the composer chooses the model and the options. PgUp and PgDn, or the mouse's wheel, scroll the conversation.\n")
+	out.WriteString("Each session is a rumbo of its own. With the sessions shown (Ctrl-B), Tab on an empty line goes to them, where j, k, gg, and G choose, Enter shows one, starting its rumbo, and d deletes one, once you agree; Ctrl-N starts a new one. The runs of the sessions you leave go on.\n")
+	out.WriteString("Ctrl-Alt-B shows the session beside the conversation, as /status does, and Ctrl-G what changed in the folder, as /changes does.\n")
+	out.WriteString("A click on the model under the composer chooses the model and the options, as /model does. PgUp and PgDn, or the mouse's wheel, scroll the conversation.\n")
 	out.WriteString("Dragging the mouse over the conversation or the panel selects its text, which is copied as you let go; with Shift, the terminal selects as it does elsewhere.\n")
 	out.WriteString("Anything that is not a command is a task.")
 
 	return out.String()
 }
 
+// helpOf says what one command does, how it is written, and examples.
+func (a *app) helpOf(name string) string {
+	if each, found := verbNamed(name); found {
+		text := verbUsage(each)
+
+		if len(each.examples) > 0 {
+			text += "\n\nfor example:\n  " + strings.Join(each.examples, "\n  ")
+		}
+
+		return text
+	}
+
+	if function, _, found := lookup("/"+name, a.info.Functions); found {
+		return usage(function)
+	}
+
+	return "there is no command /" + name + "; /help lists them"
+}
+
+// verbUsage is how a command is written, and what it does.
+func verbUsage(each verb) string {
+	return fmt.Sprintf("%-40s %s", strings.TrimSpace("/"+each.name+" "+each.args), each.description)
+}
+
 // copyReply puts the model's last answer in the session shown, or only its
-// last code block, in the clipboard, through the terminal (OSC 52), so it
-// works over ssh as well.
+// last code block, in the clipboard.
 func (a *app) copyReply(args []string) tea.Cmd {
 	text := a.shown.reply
 
@@ -382,11 +375,7 @@ func (a *app) copyReply(args []string) tea.Cmd {
 		return fail("usage: /copy [code]")
 	}
 
-	text = strings.TrimRight(text, "\n")
-	lines := strings.Count(text, "\n") + 1
-	a.shown.add(&entry{kind: entryAnswer, text: fmt.Sprintf("sent %d line(s) to the clipboard, in a terminal that takes OSC 52; in tmux, with set-clipboard on", lines)})
-
-	return tea.SetClipboard(text)
+	return a.copy(text)
 }
 
 // export writes what the session shown holds as Markdown: to the path
@@ -441,6 +430,12 @@ func (a *app) refreshMenu() tea.Cmd {
 
 	head, token := splitLast(line)
 
+	// What comes after the first slash in the word is asked for again, as
+	// the models of the provider before it; a model's name may hold more.
+	if slash := strings.IndexByte(token, '/'); slash > 0 {
+		head += token[:slash+1]
+	}
+
 	// The selection stays where Up and Down took it until the word changes.
 	if a.menu != nil && a.menu.head == head {
 		if !a.menu.loading && a.menu.token != token {
@@ -454,7 +449,7 @@ func (a *app) refreshMenu() tea.Cmd {
 	a.menu = asked
 
 	if head == "" {
-		asked.choices = commandChoicesOf(a.info.Functions, a.described)
+		asked.choices = commandChoicesOf(a.info.Functions)
 		asked.filter(token)
 
 		return nil
@@ -465,39 +460,44 @@ func (a *app) refreshMenu() tea.Cmd {
 	return a.offer(asked)
 }
 
-// extensions are the names of the extensions that offer commands, as the
-// host listed them.
-func (a *app) extensions() []string {
-	var names []string
-
-	for _, each := range extensionCommands(a.described) {
-		if name, _ := extensionOf(each.source); !slices.Contains(names, name) {
-			names = append(names, name)
-		}
-	}
-
-	return names
-}
-
 // offer asks what the word after a menu's head can be, with what describes
 // each, or a hint saying what it is or why there is nothing to offer.
 func (a *app) offer(asked *menu) tea.Cmd {
-	conn, host, described := a.conn, a.info.Functions, a.described
+	conn, host := a.conn, a.info.Functions
 	words := strings.Fields(asked.head)
 
-	return func() tea.Msg {
-		function, target, found := lookup(words[0], host, described)
+	// The terminal UI's own commands work out their choices themselves.
+	if each, found := verbNamed(words[0]); found {
+		args, stem := words[1:], ""
 
-		if !found && described == nil {
-			if told, err := conn.Describe(); err == nil {
-				described = &told
-				function, target, found = lookup(words[0], host, described)
+		if !strings.HasSuffix(asked.head, " ") && len(args) > 0 {
+			args, stem = args[:len(args)-1], args[len(args)-1]
+		}
+
+		var work func() ([]choice, string)
+
+		if each.complete != nil {
+			work = each.complete(a, args, stem)
+		}
+
+		return func() tea.Msg {
+			if work == nil {
+				return choicesMsg{menu: asked}
 			}
-		}
 
-		if !found {
-			return choicesMsg{menu: asked}
+			choices, hint := work()
+
+			return choicesMsg{asked, choices, hint}
 		}
+	}
+
+	function, target, found := lookup(words[0], host)
+
+	if !found {
+		return func() tea.Msg { return choicesMsg{menu: asked} }
+	}
+
+	return func() tea.Msg {
 
 		given, pending := typedParams(function, words[1:])
 
@@ -506,12 +506,10 @@ func (a *app) offer(asked *menu) tea.Cmd {
 		}
 
 		param := pending[0]
-		functions := functionsOf(target, host, described)
-
 		var params json.RawMessage
 
 		if param.Values != "" && param.Type != protocol.OptionBoolean {
-			params = passedTo(functions, param.Values, given)
+			params = passedTo(host, param.Values, given)
 		}
 
 		choices, hint := listValues(conn, param, target, params)
@@ -525,31 +523,13 @@ func (a *app) offer(asked *menu) tea.Cmd {
 	}
 }
 
-// lookup finds what a command names: one of the terminal UI's own, a
-// function of the host, or one the provider or an extension described, and
-// whose it is.
-func lookup(command string, host []protocol.Function, described *protocol.DescribeResult) (protocol.Function, string, bool) {
+// lookup finds the function of the host a command names, among those no
+// command of the terminal UI's wraps.
+func lookup(command string, host []protocol.Function) (protocol.Function, string, bool) {
 	name := strings.TrimPrefix(command, "/")
-	named := func(function protocol.Function) bool { return function.Name == name }
 
-	if index := slices.IndexFunc(ownCommands, named); index >= 0 {
-		return ownCommands[index], fromHere, true
-	}
-
-	if index := slices.IndexFunc(host, named); index >= 0 {
+	if index := slices.IndexFunc(host, func(function protocol.Function) bool { return function.Name == name }); index >= 0 && !isWrapped(name) {
 		return host[index], protocol.TargetHost, true
-	}
-
-	if described != nil {
-		if index := slices.IndexFunc(described.Offers.Functions, named); index >= 0 {
-			return described.Offers.Functions[index], protocol.TargetProvider, true
-		}
-	}
-
-	for _, each := range extensionCommands(described) {
-		if named(each.function) {
-			return each.function, each.source, true
-		}
 	}
 
 	return protocol.Function{}, "", false

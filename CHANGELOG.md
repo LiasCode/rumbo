@@ -29,8 +29,39 @@ it. The commits hold the reasons.
   chosen, once you agree. The sessions are a row apart, each with how
   long ago it was used, as `5m`, `3h`, or `2d`.
 
+- Copying works in a tmux that does not pass on what programs copy, as
+  with `set-clipboard external`, and in terminals that do not take OSC
+  52: it also goes through the desktop's clipboard (`wl-copy`, `xclip`
+  or `xsel`, `pbcopy`), or else through tmux's buffer. What is copied
+  says where it went.
+
+- **The command palette is gone**: everything is a command typed in the
+  composer, and Ctrl-P starts one, as a slash on an empty line does.
+- **Fewer commands, in your words**, each with its arguments completed:
+  `/new`, `/sessions` to list them and `/resume <session>` to go to one,
+  `/rename`, `/branch [message]`, `/compact`, `/delete [session]`,
+  `/copy [code|id]`, `/export`, `/status` and `/changes` for the panels,
+  `/model [provider/model] [option=value…]`, `/login` and `/logout`
+  for the provider or an extension, `/providers` and `/extensions` to
+  list, show, set up, add, and remove them, `/settings` to see what
+  applies and change rumbo's settings, `/rumbos [close]`, `/help
+  [command]`, and `/quit`. They take the place of `/use`, `/session-set`,
+  `/config`, `/system-set`, `/skills`, `/processes`, every `/provider-…`
+  and `/extension-…`, and the functions of the provider and of the
+  extensions, which are called after their name: `/providers <name>
+  <function>`, `/extensions <name> <function>`.
+
+- While a command is typed, what it still takes shows after the cursor,
+  dimmed, as `/resume <session>`; the menu shows an example of the
+  command chosen; a command typed wrong says which one you meant; `/help`
+  lists the commands by what they are about; and an empty conversation
+  shows the few commands to start with.
+
 ### Front ends
 
+- What rumbo answers no longer names functions a front end may not
+  offer as commands, such as `provider-show` or `extension-add`: it says
+  what to do instead.
 - A session's history says how long each run took: `ended` has `took`,
   in milliseconds, which is absent when the session does not know.
 

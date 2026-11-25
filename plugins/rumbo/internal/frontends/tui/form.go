@@ -3,7 +3,6 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/LiasCode/rumbo/protocol"
@@ -165,31 +164,8 @@ type form struct {
 	// not the host's, the provider or an extension.
 	host     []protocol.Function
 	provider []protocol.Function
-	// function is the function a form of its parameters calls, and source
-	// whose it is; picking holds what the picker opened with instead.
-	function protocol.Function
-	source   string
-	picking  *picking
-}
-
-// functionForm is a form for the parameters of a function.
-func functionForm(function protocol.Function, source string, host, provider []protocol.Function) *form {
-	shown := &form{title: function.Name, description: function.Description, host: host, provider: provider, function: function, source: source}
-
-	// A source is the target its functions are called with.
-	target := source
-
-	for _, param := range function.Params {
-		empty := ""
-
-		if param.Optional {
-			empty = "leave it out"
-		}
-
-		shown.fields = append(shown.fields, newField(param, target, "", empty))
-	}
-
-	return shown
+	// picking holds what the picker opened with.
+	picking *picking
 }
 
 // values are what each field holds, in order.
@@ -257,62 +233,6 @@ func (f *form) take(index, generation int, values []protocol.Value, said string,
 	}
 
 	each.listed(values, said)
-}
-
-// arguments are the parameters of the function's call, from what each
-// field holds. A field left empty is left out when its parameter is
-// optional.
-func (f *form) arguments() (json.RawMessage, error) {
-	params := map[string]json.RawMessage{}
-
-	for index, text := range f.values() {
-		param := f.fields[index].param
-
-		if text == "" {
-			if param.Optional {
-				continue
-			}
-
-			return nil, fmt.Errorf("%s is needed", param.Name)
-		}
-
-		encoded, err := encode(param, text)
-
-		if err != nil {
-			return nil, err
-		}
-
-		params[param.Name] = encoded
-	}
-
-	if len(params) == 0 {
-		return nil, nil
-	}
-
-	return json.Marshal(params)
-}
-
-// line is the command a call of the form's function is, as it would be
-// typed: a parameter typed by name as name=value.
-func (f *form) line() string {
-	words := []string{"/" + f.function.Name}
-	order := ordered(f.function)
-
-	for index, value := range f.values() {
-		name := f.fields[index].param.Name
-
-		if value == "" {
-			continue
-		}
-
-		if !slices.ContainsFunc(order, func(param protocol.Option) bool { return param.Name == name }) {
-			value = name + "=" + value
-		}
-
-		words = append(words, value)
-	}
-
-	return strings.Join(words, " ")
 }
 
 // rows draws the form in rows of width columns, at most height of them,

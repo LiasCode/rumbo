@@ -299,7 +299,17 @@ func (a *app) conversationRows(width, height int) ([]string, []bool) {
 
 // welcome is what an empty conversation shows: what it is waiting for.
 func (a *app) welcome(width, height int) []string {
-	lines := []string{styleBold + "rumbo" + styleReset, "", styleDim + "Give it a task below. Ctrl-P opens the commands." + styleReset}
+	lines := []string{styleBold + "rumbo" + styleReset, "", styleDim + "Give it a task below, or a command after a slash." + styleReset, ""}
+
+	// The few commands a person needs first, lined up.
+	for _, each := range [][2]string{
+		{"/model", "choose the model"},
+		{"/resume", "go on in another session"},
+		{"/providers", "set up what reaches the model"},
+		{"/help", "every command and key"},
+	} {
+		lines = append(lines, pad(each[0], 12)+styleDim+pad(each[1], 30)+styleReset)
+	}
 
 	if !a.shown.loaded {
 		lines = []string{styleDim + "reading the session…" + styleReset}
@@ -332,6 +342,12 @@ func (a *app) composer(width, height int) ([]string, int, int) {
 		typed = []string{styleDim + a.placeholder() + styleReset}
 	}
 
+	// What a command still takes shows after the cursor, dimmed, while it
+	// fits.
+	if ghost := a.ghost(); ghost != "" && row == len(typed)-1 && visibleWidth(typed[row])+visibleWidth(ghost) <= inner {
+		typed[row] += styleDim + ghost + styleReset
+	}
+
 	line := func(text string) string {
 		return border + "│" + styleReset + " " + fit(text, inner) + " " + border + "│" + styleReset
 	}
@@ -359,6 +375,48 @@ func (a *app) composer(width, height int) ([]string, int, int) {
 	return rows, row + 1, column
 }
 
+// ghost is what the command being typed still takes, to show after the
+// cursor: nothing unless the cursor is at the end of a one-line command,
+// after its name or a space.
+func (a *app) ghost() string {
+	line := a.input.String()
+
+	if a.searching || !a.input.atEnd() || !isCommandStart(line) || line == "/" {
+		return ""
+	}
+
+	words := strings.Fields(line)
+	spaced := strings.HasSuffix(line, " ")
+
+	if !spaced && len(words) > 1 {
+		return ""
+	}
+
+	still := ""
+
+	if each, found := verbNamed(words[0]); found {
+		still = each.still(words[1:])
+	} else if function, _, found := lookup(words[0], a.info.Functions); found {
+		_, pending := typedParams(function, words[1:])
+
+		var parts []string
+
+		for _, param := range pending {
+			parts = append(parts, signature(param))
+		}
+
+		still = strings.Join(parts, " ")
+	} else {
+		return ""
+	}
+
+	if still == "" || spaced {
+		return still
+	}
+
+	return " " + still
+}
+
 // placeholder says what the composer takes while it is empty.
 func (a *app) placeholder() string {
 	if a.here() != nil {
@@ -374,7 +432,7 @@ func (a *app) chip() string {
 	// A session can start before its model is chosen, which the picker
 	// does.
 	if a.info.Model == "" {
-		return styleBold + a.info.Provider + styleWeightOff + " " + a.theme.warning + "no model; click here or ^P to choose one" + styleColorOff
+		return styleBold + a.info.Provider + styleWeightOff + " " + a.theme.warning + "no model; click here or type /model to choose one" + styleColorOff
 	}
 
 	return styleBold + a.info.Provider + styleWeightOff + styleDim + " · " + styleWeightOff + a.info.Model
@@ -452,14 +510,14 @@ func (a *app) footer(width int) string {
 // keys do now, and on the right whether there is more of the conversation
 // below what shows.
 func (a *app) hint(width int, below bool) string {
-	keys := styleDim + "Enter sends · ^P commands · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+	keys := styleDim + "Enter sends · / commands · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
 
 	// Tab goes to the sessions while the sidebar shows them.
 	switch {
 	case a.reaches() && a.layout().side > 0:
-		keys = styleDim + "Enter sends · ^P commands · Tab sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+		keys = styleDim + "Enter sends · / commands · Tab sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
 	case a.reaches():
-		keys = styleDim + "Enter sends · ^P commands · ^B sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+		keys = styleDim + "Enter sends · / commands · ^B sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
 	}
 
 	switch {

@@ -327,9 +327,7 @@ func TestRumbosLeftUnusedAreClosed(t *testing.T) {
 		t.Fatalf("stopped %v, holds %q", folder.stopped, s.held())
 	}
 
-	s.apply(ctrl('p'))
-	s.text("close the rumbos")
-	s.press(tea.KeyEnter)
+	s.typing("/rumbos close")
 
 	if !slices.Equal(folder.stopped, []string{"s2", "s4", "s5", "s6"}) || s.held() != "s1 s3 s2" {
 		t.Fatalf("stopped %v, holds %q", folder.stopped, s.held())
@@ -338,9 +336,7 @@ func TestRumbosLeftUnusedAreClosed(t *testing.T) {
 	// One whose run ended unseen is kept until it is shown, so what it did
 	// and its mark are not lost.
 	closeAll := func() {
-		s.apply(ctrl('p'))
-		s.text("close the rumbos")
-		s.press(tea.KeyEnter)
+		s.typing("/rumbos close")
 	}
 
 	s.apply(endedMsg{working, protocol.RunResult{Status: protocol.RunDone, Session: "s3"}, nil})

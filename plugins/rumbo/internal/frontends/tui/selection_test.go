@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,14 +48,22 @@ func TestTextDraggedOverIsChosenAndCopied(t *testing.T) {
 
 	_, cmd := s.a.Update(tea.MouseReleaseMsg{X: to.x, Y: to.y, Button: tea.MouseLeft})
 
+	// It goes to the clipboard and to the primary selection, through the
+	// terminal and through the desktop.
 	var copied []string
 
 	for _, msg := range messagesOf(cmd) {
+		if done, ok := msg.(copiedMsg); ok {
+			s.apply(done)
+			continue
+		}
+
 		copied = append(copied, fmt.Sprint(msg))
 	}
 
-	if want := "first line\nthe second"; len(copied) != 2 || copied[0] != want || copied[1] != want || !strings.Contains(s.screen(), "copied 2 line(s)") || strings.Contains(s.screen(), "more below") {
-		t.Fatalf("copied %q:\n%s", copied, s.screen())
+	if want := "first line\nthe second"; len(copied) != 2 || copied[0] != want || copied[1] != want || !slices.Equal(s.desktop, []string{want, "primary: " + want}) ||
+		!strings.Contains(s.screen(), "copied 2 line(s) to the clipboard") || strings.Contains(s.screen(), "more below") {
+		t.Fatalf("copied %q, to the desktop %q:\n%s", copied, s.desktop, s.screen())
 	}
 
 	// A drag past the conversation stops at its edge, and takes

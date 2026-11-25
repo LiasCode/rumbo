@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -311,7 +314,7 @@ func (a *app) act(index int) tea.Cmd {
 		return nil
 
 	case chosen.kind == entryTask && a.branches() && a.shown.point(index) > 0:
-		a.palette = a.messageMenu(index)
+		a.actions = a.messageMenu(index)
 
 		return nil
 	}
@@ -359,20 +362,17 @@ func (a *app) confirmBranch(index int) {
 }
 
 // messageMenu offers what can be done with what the person asked.
-func (a *app) messageMenu(index int) *palette {
+func (a *app) messageMenu(index int) *actions {
 	chosen, point := a.shown.entries[index], a.shown.point(index)
 
-	menu := newPalette([]paletteEntry{
+	return &actions{title: "your message", entries: []action{
 		{group: "in a branch that starts before it", name: "Change it", description: "Put it in the composer, to change it and send it", action: actionEdit, point: point, text: chosen.text, images: chosen.images},
 		{group: "in a branch that starts before it", name: "Ask it again", description: "Send it as it is", action: actionAskAgain, point: point, text: chosen.text, images: chosen.images},
 		{group: "this message", name: "Copy it", description: "Put its words in the clipboard", action: actionCopyText, text: chosen.text},
-	})
-	menu.title, menu.fixed = "your message", true
-
-	return menu
+	}}
 }
 
-// copy puts text in the clipboard, through the terminal (OSC 52).
+// copy puts text in the clipboard, and says where once it is there.
 func (a *app) copy(text string) tea.Cmd {
 	text = strings.TrimRight(text, "\n")
 
@@ -381,9 +381,42 @@ func (a *app) copy(text string) tea.Cmd {
 		return nil
 	}
 
-	a.notice = fmt.Sprintf("copied %d line(s), in a terminal that takes OSC 52; in tmux, with set-clipboard on", strings.Count(text, "\n")+1)
+	return a.toClipboard(text, false)
+}
 
-	return tea.SetClipboard(text)
+// toClipboard sends text to the clipboard, or to the primary selection,
+// both through the terminal (OSC 52) and through the desktop.
+func (a *app) toClipboard(text string, primary bool) tea.Cmd {
+	through, write := tea.SetClipboard(text), a.copier
+
+	if primary {
+		through = tea.SetPrimaryClipboard(text)
+	}
+
+	lines := strings.Count(text, "\n") + 1
+
+	return tea.Batch(through, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		where, err := write(ctx, text, primary)
+
+		return copiedMsg{lines: lines, where: where, err: err, primary: primary}
+	})
+}
+
+// copied says where what was copied went: the primary selection goes with
+// the clipboard, so only the clipboard says.
+func (a *app) copied(msg copiedMsg) {
+	switch {
+	case msg.primary:
+	case errors.Is(msg.err, errNoDesktop):
+		a.notice = fmt.Sprintf("sent %d line(s) to the terminal's clipboard (OSC 52); if it does not paste, the terminal does not take it, or tmux needs set-clipboard on", msg.lines)
+	case msg.err != nil:
+		a.notice = "could not copy: " + msg.err.Error()
+	default:
+		a.notice = fmt.Sprintf("copied %d line(s) to %s", msg.lines, msg.where)
+	}
 }
 
 // branchAt goes on in a branch of the session shown that starts before the
@@ -445,73 +478,4 @@ func (a *app) branchAt(point int, text string, images []protocol.Image, again bo
 
 		return answered
 	}
-}
-
-// sessionEntries are what the palette offers to do with the session shown,
-// as rumbo-gui's session menu does, those the host offers; a new session
-// has nothing to act on until its first run makes it.
-func (a *app) sessionEntries() []paletteEntry {
-	var entries []paletteEntry
-
-	add := func(name, description string, action int, needs string) {
-		if needs == "" || a.offers(needs) {
-			entries = append(entries, paletteEntry{group: "general", name: name, description: description, action: action})
-		}
-	}
-
-	add("Details", "How the session stands, its context, tokens, and skills (Ctrl-Alt-B)", actionDetails, "")
-	add("Changes", "What changed in the project's folder, as Git sees it (Ctrl-G)", actionChanges, "")
-
-	if a.session == "" {
-		return entries
-	}
-
-	add("Rename this session", "Give it a title of your own", actionRename, "rename")
-	add("Branch this session", "Go on in a copy of it, a session of its own; this one stays as it is", actionBranch, "branch")
-	add("Compact this session", "Replace its conversation with a summary now", actionCompact, "compact")
-	add("Copy the session's id", a.session, actionCopyID, "")
-
-	if a.rumbos.remove != nil {
-		add("Delete this session", "Delete it and its history, for good, once you agree", actionDelete, "")
-	}
-
-	return entries
-}
-
-// sessionAction does what the palette's entry for the session shown asks.
-func (a *app) sessionAction(action int) tea.Cmd {
-	function := func(name string) protocol.Function {
-		for _, each := range a.info.Functions {
-			if each.Name == name {
-				return each
-			}
-		}
-
-		return protocol.Function{Name: name}
-	}
-
-	switch action {
-	case actionDetails:
-		return a.togglePanel(panelDetails)
-	case actionChanges:
-		return a.togglePanel(panelChanges)
-	case actionRename:
-		opened := functionForm(function("rename"), fromHost, a.info.Functions, nil)
-
-		if len(opened.fields) > 0 {
-			opened.fields[0].value.set(titleOf(a.host))
-		}
-
-		return a.openForm(opened)
-	case actionBranch:
-		return a.run(fromHost, function("branch"), nil, "/branch")
-	case actionCompact:
-		return a.run(fromHost, function("compact"), nil, "/compact")
-	case actionCopyID:
-		return a.copy(a.session)
-	case actionDelete:
-		return a.command(commandDelete)
-	}
-
-	return nil
 }

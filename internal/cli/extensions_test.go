@@ -233,7 +233,7 @@ func TestARunIsToldTheSectionsOfTheExtensions(t *testing.T) {
 func TestTheHostsFunctionsManageTheExtensions(t *testing.T) {
 	h := testHost(t)
 
-	if listed := call(t, h, "extensions", ""); listed.Text != "there are no extensions; extension-add registers one" || len(listed.Values) != 0 {
+	if listed := call(t, h, "extensions", ""); listed.Text != "there are no extensions yet; register one to give the model tools" || len(listed.Values) != 0 {
 		t.Fatalf("extensions = %+v", listed)
 	}
 

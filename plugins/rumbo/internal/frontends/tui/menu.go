@@ -14,6 +14,8 @@ type choice struct {
 	value       string
 	label       string
 	description string
+	// example shows a command in use, under the menu while it is chosen.
+	example string
 }
 
 // menu offers what the word being typed can become: a command, or a value
@@ -125,8 +127,18 @@ func (m *menu) rows(width int) []string {
 		rows = append(rows, row)
 	}
 
+	var footer []string
+
 	if len(m.shown) > maxChoices {
-		rows = append(rows, styleDim+fmt.Sprintf("  %d of %d; ↑ ↓ to move, Tab to take", m.selected+1, len(m.shown)))
+		footer = append(footer, fmt.Sprintf("%d of %d; ↑ ↓ to move, Tab to take", m.selected+1, len(m.shown)))
+	}
+
+	if chosen, ok := m.current(); ok && chosen.example != "" {
+		footer = append(footer, "e.g. "+chosen.example)
+	}
+
+	if len(footer) > 0 {
+		rows = append(rows, styleDim+cut("  "+strings.Join(footer, " · "), width-1)+styleReset)
 	}
 
 	return rows

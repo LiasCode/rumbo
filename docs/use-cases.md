@@ -662,8 +662,8 @@ speaks the Agent Frontend Protocol with the host.
 - It holds a rumbo for each session it has open, and shows one at a time:
   the one that started it, and those it starts itself, with `rumbo serve`,
   when the person first shows another session of the folder, from the
-  sidebar, with Tab and Enter or a click, or from the palette, or starts
-  a new one with Ctrl-N. A session shows what it holds first, told as its
+  sidebar, with Tab and Enter or a click, or with `/resume`, or starts
+  a new one with Ctrl-N or `/new`. A session shows what it holds first, told as its
   runs were shown. It lists the sessions with `rumbo sessions -json`.
 - A run goes on in a session that is left: the composer counts the runs
   working elsewhere, the sidebar marks the sessions that work, those whose
@@ -672,8 +672,7 @@ speaks the Agent Frontend Protocol with the host.
   opens where the person is too, saying which session asks.
 - It closes the rumbos of the sessions left with nothing to do past the
   two shown last, never the one that started it, one that works, or one
-  that waits for an answer; "Close the rumbos not in use", in the palette,
-  closes them all. A session closed that way is as it was, and showing it
+  that waits for an answer; `/rumbos close` closes them all. A session closed that way is as it was, and showing it
   starts a rumbo for it again. When it quits it ends every rumbo it
   started, whose runs are cancelled and recorded, and it ends with the
   one that started it. `/quit` ends that one, whichever session shows.
@@ -694,17 +693,13 @@ speaks the Agent Frontend Protocol with the host.
 - Enter sends a task. During a run it tells the run what was typed, which
   shows once the model has it, and goes back to the composer if the run
   ended first.
-- Ctrl-P opens a palette of its own actions and every command, which
-  typing narrows. A command that takes something
-  asks for it in a form, where each field offers the values its
-  parameter's function lists, asked with what was given for the fields
-  before it, and takes any value typed instead. One that cannot be undone
+- Everything is done with a command typed in the composer; Ctrl-P starts
+  one on an empty line, as a slash does. A command that cannot be undone
   asks to be agreed to in a dialog, which starts on the button that leaves
-  things as they are. The palette also renames, branches, compacts,
-  and copies the id of the session.
-- The picker, from the palette or a click on the model under the composer,
+  things as they are.
+- The picker, from `/model` or a click on the model under the composer,
   changes the provider, the model, and the options of the session, with
-  `use` and `session-set`, each change shown as the command it is.
+  `use` and `session-set`, each change shown as the `/model` it is.
 - Beside the conversation, Ctrl-Alt-B shows the session's details: its id
   and what it is called, its folder, its model, how full its context is and
   what it spent, and what the host's `skills` and `status` say, laid out by
@@ -725,16 +720,49 @@ speaks the Agent Frontend Protocol with the host.
   shown in reverse, within the part the drag started in, and letting go
   copies it, to the clipboard and to the primary selection; the
   conversation holds still while text is selected. Text is copied with
-  OSC 52, so it also works over ssh, in the terminals that take it; in
-  tmux, with `set-clipboard on`. With Shift, the terminal selects as it
-  does elsewhere.
-- Its commands are the functions the host, the provider, and the
-  extensions describe, but for those there to list a parameter's values,
-  and its own, which come before one of theirs of the same name: `/help`,
-  `/copy`, `/export`, `/rumbos`, and `/delete`. `/help` lists the host's
-  by what they act on: the system, the session, and the providers.
-- `/copy` puts the model's last answer in the clipboard, and `/copy code`
-  only its last code block.
+  OSC 52, which also works over ssh, in the terminals that take it, and
+  through the desktop rumbo runs on, since a terminal or a tmux that does
+  not take OSC 52 drops it without a word: with `wl-copy`, `xclip` or
+  `xsel`, or `pbcopy`, and else, in tmux, through tmux's buffer, which
+  tmux sends on to the terminal's clipboard. With Shift, the terminal
+  selects as it does elsewhere.
+- Its commands are few, each in the person's words, and made of the
+  functions the host, the provider, and the extensions describe, which a
+  person need not know (`verbs.go`, `verbs_config.go`): `/new`,
+  `/sessions`, `/resume`, `/rename`, `/branch`, `/compact`, `/delete`,
+  `/copy`, `/export`, `/status`, `/changes`, `/model`, `/login`,
+  `/logout`, `/providers`, `/extensions`, `/settings`, `/rumbos`,
+  `/help`, and `/quit`. Those functions are not commands of their own,
+  nor are the provider's and the extensions'; a function of the host no
+  command wraps, as a newer host has, is one, under its name, but for
+  those there to list a parameter's values. `/help` lists the commands by
+  what they are about, those others after them, and the keys, and `/help
+  <command>` says what one does, with examples. The menu shows an example
+  of the command chosen, what a command still takes shows after the
+  cursor, dimmed, and a command typed wrong is answered with the one
+  meant. An empty conversation shows the few commands a person needs
+  first.
+- `/sessions` lists the sessions of the folder, marked as the sidebar
+  marks them, with when each was last used; `/resume <session>` goes to
+  one, named by its id, the start of it, or the start of its title.
+- `/model` opens the picker, and `/model <provider>/<model>
+  <option>=<value>` changes the model and the options at once; what comes
+  before the slash is a provider only when there is one of that name, so a
+  model's own name may hold slashes. `/login` and `/logout` sign in to the
+  provider, or to the extension named.
+- `/providers` lists the providers, `/providers <name>` shows one,
+  `/providers <name> <name>=<value>…` sets it, `/providers add <name>
+  <command…>` registers one, and `/providers remove <name>` removes one,
+  once the person agrees; what the session's provider offers is called as
+  `/providers <name> <function>`. `/extensions` is the same for the
+  extensions, whose `add` also takes `config=` and `replaces=` by name,
+  and whose functions are called as `/extensions <name> <function>`.
+  `/settings` shows what applies and where each value comes from, and
+  `/settings <name>=<value>…` changes rumbo's own settings. Each word is
+  completed: the programs, `add` and `remove`, the changes each takes, and
+  what each offers.
+- `/copy` puts the model's last answer in the clipboard, `/copy code`
+  only its last code block, and `/copy id` the session's id.
 - `/export` writes the session as Markdown, from its history: what
   was asked, what the model wrote, each tool call with the change it made
   or the start of what it returned, and how each run ended. It writes to
@@ -747,15 +775,16 @@ speaks the Agent Frontend Protocol with the host.
   what describes it; Up and Down choose, Tab or Enter take, and Escape
   closes it. Enter on a command that needs nothing more sends it, and on
   one that still needs something opens the menu of what it takes next, or
-  says what that is: `/open` lists the sessions, and `/use openai` the
-  models of `openai`. After `/session-set `, `/provider-set <provider> `,
-  `/extension-set <extension> `, and `/system-set `, the menu offers the
-  changes each takes as `name=value`, with those in force marked.
-- The words after a command go to its parameters in turn, and the last
+  says what that is: `/resume` lists the sessions, `/model ` the providers
+  and the options, and `/model openai/` the models of `openai`. After
+  `/providers <name> `, `/extensions <name> `, and `/settings `, the menu
+  offers the changes each takes as `name=value`, with those in force
+  marked.
+- The words after a function go to its parameters in turn, and the last
   takes the rest of the line. One that can be left out is also typed by
-  name, as `name=value`, such as `/prune 30d confirm=yes`, and one that
-  comes before one that cannot only so: `/extension-add docs
-  config={"url":"https://example.com/mcp"} {self} extend mcp`.
+  name, as `name=value`, and one that comes before one that cannot only
+  so: `/extensions add docs config={"url":"https://example.com/mcp"}
+  {self} extend mcp`.
 - Answers, errors, and diagnostics are marked `[host]`, `[provider
   <name>]`, or `[extension <name>]`, by where they come from; what an
   extension prints is marked `[extension]` and starts with its name.
@@ -763,8 +792,8 @@ speaks the Agent Frontend Protocol with the host.
   question opens in a dialog with a line of its own for the answer, so
   what was typed in the composer stays; a secret answer shows as dots and
   is kept nowhere, not even in the history.
-- An extension's functions are commands named after it, such as
-  `/notes-forget`, in the menu, the palette, and `/help`, and talk with the
+- An extension's functions are called after its name, such as
+  `/extensions notes forget`, offered by the menu there, and talk with the
   person as the provider's do.
 - What a tool asks during a run opens in the same dialog, naming the tool,
   in the conversation that shows the run. Escape declines to answer, which

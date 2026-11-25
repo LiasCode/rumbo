@@ -104,13 +104,13 @@ type pickChange struct {
 // line is the command a change is, as it would be typed.
 func (c pickChange) line() string {
 	if c.option != "" {
-		return "/session-set " + c.option
+		return "/model " + c.option
 	}
 
 	var params map[string]string
 	_ = json.Unmarshal(c.use, &params)
 
-	return strings.TrimSpace("/use " + params["provider"] + " " + params["model"])
+	return "/model " + params["provider"] + "/" + params["model"]
 }
 
 // changes are what the picker's fields ask for. A new provider takes the

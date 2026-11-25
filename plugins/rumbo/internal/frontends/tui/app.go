@@ -65,7 +65,10 @@ type app struct {
 	input     inputLine
 	pasted    []protocol.Image
 	clipboard func(context.Context) ([]byte, error)
-	history   *history
+	// copier puts text in the desktop's clipboard, when a test does not
+	// want the desktop's.
+	copier  func(ctx context.Context, text string, primary bool) (string, error)
+	history *history
 	// searching is true while Ctrl-R looks back through the history for
 	// query; found is the entry shown, and before what the input held when
 	// the search began.
@@ -90,9 +93,9 @@ type app struct {
 	questionText  string
 	questionFrom  string
 	reply         inputLine
-	// palette, form, and confirming are what floats over the screen while
+	// actions, form, and confirming are what floats over the screen while
 	// they are open, after a question.
-	palette    *palette
+	actions    *actions
 	form       *form
 	confirming *confirmation
 	// pendingG is true after a g in the conversation or the sidebar, which
@@ -219,6 +222,13 @@ type (
 		err   error
 	}
 	recalledMsg struct{ asked []string }
+	// copiedMsg is where what was copied went, lines of it.
+	copiedMsg struct {
+		lines   int
+		where   string
+		err     error
+		primary bool
+	}
 )
 
 func newApp(conn *protocol.FrontendConn, info protocol.FrontendInitializeParams, colors theme) *app {
@@ -226,6 +236,7 @@ func newApp(conn *protocol.FrontendConn, info protocol.FrontendInitializeParams,
 		theme:   colors,
 		clock:   time.Now,
 		history: &history{},
+		copier:  copyToDesktop,
 	}
 
 	a.now = a.clock()
@@ -448,6 +459,9 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case recalledMsg:
 		a.history.earlier(msg.asked)
+
+	case copiedMsg:
+		a.copied(msg)
 	}
 
 	return a, tea.Batch(cmd, a.tick())
@@ -762,32 +776,13 @@ func (a *app) learned(msg describedMsg) tea.Cmd {
 			a.shown.add(&entry{kind: entryAnswer, label: a.label(fromProvider), text: msg.err.Error(), failed: true})
 		}
 
-		// The palette says why the provider's functions are not there.
-		if a.palette != nil {
-			for index, each := range a.palette.entries {
-				if each.action == actionNone {
-					a.palette.entries[index].name = "not available: " + msg.err.Error()
-				}
-			}
-		}
-
 		return nil
 	}
 
 	a.described = &msg.described
 
-	if a.menu != nil && a.menu.head == "" {
-		a.menu = nil
-	}
-
-	// A palette opened before the provider said what it offers takes its
-	// functions in, keeping what was typed in it.
-	if a.palette != nil {
-		query := a.palette.query
-		a.palette = newPalette(a.paletteEntries())
-		a.palette.query = query
-		a.palette.narrow()
-	}
+	// A menu opened before is worked out again with what it offers.
+	a.menu = nil
 
 	if msg.then != "" {
 		return a.execute(msg.then)
@@ -802,7 +797,7 @@ func (a *app) learned(msg describedMsg) tea.Cmd {
 func (a *app) asked(msg askedMsg) tea.Cmd {
 	a.question, a.questionIn, a.questionLabel, a.questionText, a.questionFrom = msg.question, msg.conv, msg.label, msg.text, msg.who
 	a.reply.clear()
-	a.palette, a.form, a.confirming = nil, nil, nil
+	a.actions, a.form, a.confirming = nil, nil, nil
 	msg.conv.add(&entry{kind: entrySaid, label: msg.label, text: msg.text})
 
 	return a.notify("rumbo: " + msg.who + " asks: " + msg.text)

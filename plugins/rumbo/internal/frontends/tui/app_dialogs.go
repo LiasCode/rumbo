@@ -50,7 +50,7 @@ type (
 
 // floating reports whether something floats over the screen.
 func (a *app) floating() bool {
-	return a.question != nil || a.confirming != nil || a.form != nil || a.palette != nil
+	return a.question != nil || a.confirming != nil || a.form != nil || a.actions != nil
 }
 
 // floatingKey applies a key to what floats, and reports whether something
@@ -63,8 +63,8 @@ func (a *app) floatingKey(key tea.KeyPressMsg, stroke string) (tea.Cmd, bool) {
 		return a.confirmKey(stroke), true
 	case a.form != nil:
 		return a.formKey(key, stroke), true
-	case a.palette != nil:
-		return a.paletteKey(key, stroke), true
+	case a.actions != nil:
+		return a.actionsKey(stroke), true
 	}
 
 	return nil, false
@@ -87,207 +87,42 @@ func (a *app) pasteFloating(text string) {
 		}
 
 		focused.edited()
-	case a.palette != nil:
-		for _, r := range line {
-			a.palette.query.insert(r)
-		}
-
-		a.palette.narrow()
 	}
 }
 
-// openPalette opens the command palette, asking the provider what it
-// offers when that is not known yet.
-func (a *app) openPalette() tea.Cmd {
-	a.palette = newPalette(a.paletteEntries())
-
-	if a.described == nil {
-		return a.describe(a.host, "")
-	}
-
-	return nil
-}
-
-// paletteEntries are what the palette offers: the terminal UI's own
-// actions, the other sessions of the directory, the host's functions by
-// what they act on, and the provider's.
-func (a *app) paletteEntries() []paletteEntry {
-	var entries []paletteEntry
-
-	general := func(name, description string, action int) {
-		entries = append(entries, paletteEntry{group: "general", name: name, description: description, action: action})
-	}
-
-	if a.offers("use") {
-		general("Model and options", "Choose the model and the options this session keeps", actionPicker)
-	}
-
-	if a.rumbos.start != nil {
-		general("New session", "Start the next task in a new session, a rumbo of its own (Ctrl-N)", actionNewSession)
-	}
-
-	if a.reaches() {
-		general("Go to the sessions", "Choose one in the sidebar (Tab)", actionSessions)
-		general("Sidebar", "Show or put away the sidebar (Ctrl-B)", actionSidebar)
-	}
-
-	general("Copy the last answer", "Put the model's last answer in the clipboard", actionCopy)
-	general("Export as Markdown", "Write this session to rumbo-<session>.md in its directory", actionExport)
-	general("Rumbos", "What the rumbo of each session open uses: processes, memory, and processor time", actionRumbos)
-
-	if len(a.hosts) > 1 {
-		general("Close the rumbos not in use", "End those neither shown nor working; their sessions stay", actionCloseIdle)
-	}
-
-	general("Help", "Every command and key", actionHelp)
-
-	entries = append(entries, a.sessionEntries()...)
-
-	if a.rumbos.start != nil {
-		for _, listed := range a.sessions.listed {
-			if listed.session == a.session {
-				continue
-			}
-
-			title := listed.title
-
-			if title == "" {
-				title = listed.session
-			}
-
-			entries = append(entries, paletteEntry{group: "sessions", name: title, description: listed.state, action: actionOpen, session: listed.session})
-		}
-	}
-
-	for _, function := range commands(a.info.Functions) {
-		group := map[string]string{protocol.GroupSystem: "system", protocol.GroupSession: "session", protocol.GroupProvider: "providers", protocol.GroupExtension: "extensions"}[function.Group]
-
-		if group == "" {
-			group = groupTitle(function.Group)
-		}
-
-		entries = append(entries, paletteEntry{group: group, name: function.Name, description: function.Description, action: actionFunction, function: function, source: fromHost})
-	}
-
-	provider := "provider " + a.info.Provider
-
-	if a.described == nil {
-		return append(entries, paletteEntry{group: provider, name: "asking what it offers…", action: actionNone})
-	}
-
-	for _, function := range commands(a.described.Offers.Functions) {
-		entries = append(entries, paletteEntry{group: provider, name: function.Name, description: function.Description, action: actionFunction, function: function, source: fromProvider})
-	}
-
-	for _, each := range extensionCommands(a.described) {
-		entries = append(entries, paletteEntry{group: each.source, name: each.function.Name, description: each.function.Description, action: actionFunction, function: each.function, source: each.source})
-	}
-
-	return entries
-}
-
-// paletteKey applies a key to the palette: what is typed narrows it, Up and
-// Down choose, Enter goes on with the choice, and Escape closes it.
-func (a *app) paletteKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
-	shown := a.palette
+// actionsKey applies a key to the menu of what can be done with a message:
+// Up and Down choose, Enter does it, and Escape closes it.
+func (a *app) actionsKey(stroke string) tea.Cmd {
+	shown := a.actions
 
 	switch stroke {
-	case "esc", "ctrl+c", "ctrl+p":
-		a.palette = nil
+	case "esc", "ctrl+c":
+		a.actions = nil
 
-	case "up", "shift+tab":
+	case "up", "shift+tab", "k":
 		shown.move(-1)
 
-	case "down", "tab":
+	case "down", "tab", "j":
 		shown.move(1)
 
 	case "enter":
 		chosen, ok := shown.chosen()
 
-		if !ok || chosen.action == actionNone {
+		if !ok {
 			return nil
 		}
 
-		a.palette = nil
+		a.actions = nil
 
-		return a.choose(chosen)
-
-	default:
-		if !shown.fixed && edit(&shown.query, key, stroke) {
-			shown.narrow()
+		switch chosen.action {
+		case actionEdit, actionAskAgain:
+			return a.branchAt(chosen.point, chosen.text, chosen.images, chosen.action == actionAskAgain)
+		case actionCopyText:
+			return a.copy(chosen.text)
 		}
 	}
 
 	return nil
-}
-
-// choose goes on with what was chosen in the palette.
-func (a *app) choose(chosen paletteEntry) tea.Cmd {
-	switch chosen.action {
-	case actionFunction:
-		if len(chosen.function.Params) > 0 {
-			return a.openForm(functionForm(chosen.function, chosen.source, a.info.Functions, functionsOf(chosen.source, nil, a.described)))
-		}
-
-		return a.run(chosen.source, chosen.function, nil, "/"+chosen.function.Name)
-
-	case actionPicker:
-		return a.openPicker()
-
-	case actionHelp:
-		return a.command(commandHelp)
-
-	case actionCopy:
-		return a.command(commandCopy)
-
-	case actionExport:
-		return a.command(commandExport)
-
-	case actionRumbos:
-		return a.command(commandRumbos)
-
-	case actionNewSession:
-		return a.reach("", nil)
-
-	case actionSessions:
-		a.sidebar = true
-		a.focus = focusSidebar
-		a.sessions.choose(a.session)
-
-		return nil
-
-	case actionSidebar:
-		a.sidebar = !a.sidebar
-
-		return nil
-
-	case actionOpen:
-		return a.reach(chosen.session, nil)
-
-	case actionCloseIdle:
-		return a.tidy(0)
-
-	case actionEdit, actionAskAgain:
-		return a.branchAt(chosen.point, chosen.text, chosen.images, chosen.action == actionAskAgain)
-
-	case actionCopyText:
-		return a.copy(chosen.text)
-	}
-
-	return a.sessionAction(chosen.action)
-}
-
-// run shows a call of a function as the command it is, and calls it.
-func (a *app) run(source string, function protocol.Function, params json.RawMessage, line string) tea.Cmd {
-	if a.asking {
-		a.notice = "a command is waiting for its answer"
-		return nil
-	}
-
-	a.shown.add(&entry{kind: entryTyped, text: line})
-	a.shown.follow = true
-
-	return a.request(source, function, params)
 }
 
 // request calls a function of the host or of the provider, once the person
@@ -348,7 +183,7 @@ func (a *app) confirmKey(stroke string) tea.Cmd {
 
 // openForm opens a form, and asks for the lists its fields offer.
 func (a *app) openForm(opened *form) tea.Cmd {
-	a.palette, a.form = nil, opened
+	a.actions, a.form = nil, opened
 
 	return a.lists(opened)
 }
@@ -436,30 +271,11 @@ func (a *app) focusField(index int) tea.Cmd {
 	return a.lists(shown)
 }
 
-// runForm runs the form: the function with its parameters, or the changes
-// the picker asks for. What is wrong in it keeps it open, saying why.
+// runForm asks for the changes the picker asks for. What is wrong in it
+// keeps it open, saying why.
 func (a *app) runForm() tea.Cmd {
 	shown := a.form
-
-	if shown.picking != nil {
-		changes, err := shown.changes()
-
-		if err != nil {
-			shown.problem = err.Error()
-			return nil
-		}
-
-		a.form = nil
-
-		if len(changes) == 0 {
-			a.notice = "nothing changed"
-			return nil
-		}
-
-		return a.change(changes)
-	}
-
-	params, err := shown.arguments()
+	changes, err := shown.changes()
 
 	if err != nil {
 		shown.problem = err.Error()
@@ -468,7 +284,12 @@ func (a *app) runForm() tea.Cmd {
 
 	a.form = nil
 
-	return a.run(shown.source, shown.function, params, shown.line())
+	if len(changes) == 0 {
+		a.notice = "nothing changed"
+		return nil
+	}
+
+	return a.change(changes)
 }
 
 // openPicker asks the provider what can be chosen, to open the picker with
@@ -479,7 +300,6 @@ func (a *app) openPicker() tea.Cmd {
 		return nil
 	}
 
-	a.palette = nil
 	held := a.host
 
 	return func() tea.Msg {
@@ -640,23 +460,9 @@ func (a *app) float(rows []string) ([]string, *tea.Cursor) {
 		cursorRow, cursorColumn = row, column
 		body = append(body, "", styleDim+"Tab next field · ↑ ↓ a value of the list · Enter runs · Esc closes"+styleReset)
 
-	case a.palette != nil && a.palette.fixed:
-		border, title = a.theme.progress, a.palette.title
-		body = append(a.palette.rows(inner, room-2), "", styleDim+"↑ ↓ choose · Enter does it · Esc closes"+styleReset)
-
-	case a.palette != nil:
-		border, title = a.theme.progress, "commands"
-
-		typed, _, column := a.palette.query.view(inner-2, 1, false)
-		query := typed[0]
-
-		if a.palette.query.empty() {
-			query = styleDim + "type to narrow them" + styleReset
-		}
-
-		cursorRow, cursorColumn = 0, 2+column
-		body = append([]string{a.theme.progress + "› " + styleColorOff + query, ""}, a.palette.rows(inner, room-4)...)
-		body = append(body, "", styleDim+"↑ ↓ choose · Enter runs · Esc closes"+styleReset)
+	case a.actions != nil:
+		border, title = a.theme.progress, a.actions.title
+		body = append(a.actions.rows(inner, room-2), "", styleDim+"↑ ↓ choose · Enter does it · Esc closes"+styleReset)
 
 	default:
 		return rows, nil
@@ -669,10 +475,6 @@ func (a *app) float(rows []string) ([]string, *tea.Cursor) {
 	framed := box(title, body, width, border)
 	x := max((a.width-width)/2, 0)
 	y := max((a.height-len(framed))/2, 1)
-
-	if a.palette != nil && !a.palette.fixed && a.form == nil && a.confirming == nil && a.question == nil {
-		y = max(min(a.height/8, a.height-len(framed)), 1)
-	}
 
 	rows = lay(rows, framed, x, y)
 

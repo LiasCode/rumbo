@@ -9,54 +9,6 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// The palette keeps what holds what is typed, by name or by what it does,
-// and selects the first whose name starts with it.
-func TestThePaletteNarrowsToWhatIsTyped(t *testing.T) {
-	p := newPalette([]paletteEntry{
-		{group: "general", name: "New session", description: "Start the next task in a new session"},
-		{group: "session", name: "delete", description: "Delete a session"},
-		{group: "session", name: "rename", description: "Give this session a title"},
-		{group: "provider toy", name: "asking what it offers…", action: actionNone},
-	})
-
-	for _, r := range "sess" {
-		p.query.insert(r)
-	}
-
-	p.narrow()
-
-	if len(p.shown) != 3 {
-		t.Fatalf("shown %v", p.shown)
-	}
-
-	p.query.set("ren")
-	p.narrow()
-
-	if chosen, ok := p.chosen(); !ok || chosen.name != "rename" {
-		t.Fatalf("chosen %+v, %v", chosen, ok)
-	}
-
-	p.query.set("a")
-	p.narrow()
-
-	if chosen, _ := p.chosen(); chosen.name != "New session" {
-		t.Fatalf("with a, chosen %q", chosen.name)
-	}
-
-	rows := p.rows(40, 3)
-
-	if len(rows) != 3 || !strings.Contains(stripped(rows[1]), "▸ New session") {
-		t.Fatalf("rows:\n%s", strings.Join(rows, "\n"))
-	}
-
-	p.query.set("nothing like it")
-	p.narrow()
-
-	if _, ok := p.chosen(); ok || !strings.Contains(stripped(p.rows(40, 3)[0]), "nothing matches") {
-		t.Fatal("chose with nothing shown")
-	}
-}
-
 // A form asks for the list of a field with what was given for the fields
 // before it, again only when that changes, and leaves aside an answer to an
 // earlier request.
@@ -71,7 +23,7 @@ func TestAFormAsksForItsListsWithWhatCameBefore(t *testing.T) {
 		{Name: "effort", Type: protocol.OptionString, Enum: []string{"low", "high"}, Optional: true},
 	}}
 
-	f := functionForm(use, fromHost, host, nil)
+	f := pickerForm(use, false, protocol.DescribeResult{}, host)
 	asked := f.wanted()
 
 	if len(asked) != 2 || asked[0].function != "providers" || asked[0].params != nil || asked[1].function != "provider-models" || asked[1].params != nil {
@@ -115,15 +67,15 @@ func TestAFormAsksForItsListsWithWhatCameBefore(t *testing.T) {
 		t.Fatalf("narrowed to %+v", f.fields[1].shown())
 	}
 
-	params, err := f.arguments()
+	changes, err := f.changes()
 
-	if err != nil || string(params) != `{"model":"toy-9","provider":"toy"}` || f.line() != "/use toy toy-9" {
-		t.Fatalf("arguments %s, %v; line %q", params, err, f.line())
+	if err != nil || len(changes) != 1 || string(changes[0].use) != `{"model":"toy-9","provider":"toy"}` || changes[0].line() != "/model toy/toy-9" {
+		t.Fatalf("changes %+v, %v", changes, err)
 	}
 
 	f.fields[0].value.clear()
 
-	if _, err := f.arguments(); err == nil || err.Error() != "provider is needed" {
+	if _, err := f.changes(); err == nil || err.Error() != "provider is needed" {
 		t.Fatalf("without a provider: %v", err)
 	}
 
@@ -170,7 +122,7 @@ func TestThePickerAsksForWhatChanged(t *testing.T) {
 
 	changes, err := f.changes()
 
-	if err != nil || len(changes) != 3 || changes[0].line() != "/use toy toy-2" || changes[1].line() != "/session-set effort=" || changes[2].line() != "/session-set depth=3" {
+	if err != nil || len(changes) != 3 || changes[0].line() != "/model toy/toy-2" || changes[1].line() != "/model effort=" || changes[2].line() != "/model depth=3" {
 		t.Fatalf("changes %+v, %v", changes, err)
 	}
 
@@ -182,7 +134,7 @@ func TestThePickerAsksForWhatChanged(t *testing.T) {
 
 	f.fields[0].value.set("openai")
 
-	if changes, err := f.changes(); err != nil || len(changes) != 1 || changes[0].line() != "/use openai toy-2" {
+	if changes, err := f.changes(); err != nil || len(changes) != 1 || changes[0].line() != "/model openai/toy-2" {
 		t.Fatalf("a new provider: %+v, %v", changes, err)
 	}
 }
@@ -210,34 +162,5 @@ func TestABoxIsLaidOverTheScreen(t *testing.T) {
 
 	if got := stripped(columns("日本語", 1, 5)); got != " 本 " {
 		t.Fatalf("a wide rune cut in two: %q", got)
-	}
-}
-
-// A form's line types by name a parameter that the words typed would not
-// reach in turn, so the line does what the form does.
-func TestAFormsLineTypesByNameWhatIsNotInTurn(t *testing.T) {
-	add := protocol.Function{Name: "extension-add", Params: []protocol.Option{
-		{Name: "name", Type: protocol.OptionString},
-		{Name: "config", Type: protocol.OptionString, Optional: true},
-		{Name: "replaces", Type: protocol.OptionString, Optional: true},
-		{Name: "command", Type: protocol.OptionString},
-	}}
-
-	f := functionForm(add, fromHost, []protocol.Function{add}, nil)
-	f.fields[0].value.set("docs")
-	f.fields[1].value.set(`{"url":"https://example.com/mcp"}`)
-	f.fields[3].value.set("{self} extend mcp")
-
-	line := f.line()
-
-	if line != `/extension-add docs config={"url":"https://example.com/mcp"} {self} extend mcp` {
-		t.Fatalf("line = %q", line)
-	}
-
-	typed, err := arguments(add, strings.Fields(line)[1:])
-	formed, _ := f.arguments()
-
-	if err != nil || string(typed) != string(formed) {
-		t.Fatalf("typed %s, %v; the form %s", typed, err, formed)
 	}
 }

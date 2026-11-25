@@ -550,7 +550,7 @@ func TestContinuingASessionUsesItsProvider(t *testing.T) {
 		t.Fatalf("a provider without a model: %+v, err = %v", modelless, err)
 	}
 
-	if _, err := modelless.accept(protocol.RunParams{Objective: "go"}, nil); err == nil || !strings.Contains(err.Error(), "no model chosen for second: choose one with use") {
+	if _, err := modelless.accept(protocol.RunParams{Objective: "go"}, nil); err == nil || !strings.Contains(err.Error(), "no model chosen for second: choose one for this session") {
 		t.Fatalf("a run without a model: err = %v", err)
 	}
 
@@ -690,8 +690,12 @@ func TestBranchesStartFromAPointOfASession(t *testing.T) {
 		t.Fatalf("branching from now during a run: %v", err)
 	}
 
+	// What is refused says how many messages there are, naming no
+	// function.
 	for _, point := range []string{"0", "3", "two"} {
-		refused(t, h, "branch", `{"point":"`+point+`"}`)
+		if err := refused(t, h, "branch", `{"point":"`+point+`"}`); err != "there is no message "+point+" of yours in this session, which has 2" {
+			t.Fatalf("branching before message %s: %v", point, err)
+		}
 	}
 
 	branched := call(t, h, "branch", `{"point":"2"}`)

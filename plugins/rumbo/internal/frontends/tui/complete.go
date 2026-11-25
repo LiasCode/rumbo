@@ -9,11 +9,11 @@ import (
 )
 
 // Completion works from the same descriptions the commands do. A command's
-// name is completed from the functions the host and the provider described,
-// and an argument from what its parameter says it accepts: fixed values, or
-// the function that lists them, given the arguments before it that it
-// takes, so /use offers the providers and the models of the one named
-// before, without this file knowing either.
+// name is completed from the terminal UI's commands, which complete their
+// own arguments (verbs.go), and from the host's functions no command wraps,
+// whose arguments are completed from what each parameter says it accepts:
+// fixed values, or the function that lists them, given the arguments
+// before it that it takes.
 
 // isCommandStart reports whether line is a command being typed: a slash, a
 // word, and maybe its arguments, all on one line.
@@ -111,74 +111,58 @@ func passedTo(functions []protocol.Function, name string, given map[string]strin
 }
 
 // commandChoicesOf returns the commands there are with what each does: the
-// front end's own, the host's functions, and the provider's when described
-// is known, by name.
-func commandChoicesOf(host []protocol.Function, described *protocol.DescribeResult) []choice {
+// terminal UI's own first, then the functions of the host no command
+// wraps.
+func commandChoicesOf(host []protocol.Function) []choice {
 	var choices []choice
 
-	for _, function := range ownCommands {
-		choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
+	for _, each := range verbs() {
+		choices = append(choices, choice{value: "/" + each.name, label: each.args, description: each.description, example: each.example()})
+	}
+
+	var more []choice
+
+	add := func(function protocol.Function) {
+		name := "/" + function.Name
+
+		if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == name }) && !slices.ContainsFunc(more, func(known choice) bool { return known.value == name }) {
+			more = append(more, choice{value: name, description: function.Description})
+		}
 	}
 
 	for _, function := range commands(host) {
-		if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == "/"+function.Name }) {
-			choices = append(choices, choice{value: "/" + function.Name, description: function.Description})
+		if !isWrapped(function.Name) {
+			add(function)
 		}
 	}
 
-	if described != nil {
-		for _, function := range commands(described.Offers.Functions) {
-			name := "/" + function.Name
+	slices.SortFunc(more, func(a, b choice) int { return strings.Compare(a.value, b.value) })
 
-			if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == name }) {
-				choices = append(choices, choice{value: name, description: function.Description})
-			}
-		}
-	}
-
-	for _, each := range extensionCommands(described) {
-		name := "/" + each.function.Name
-
-		if !slices.ContainsFunc(choices, func(known choice) bool { return known.value == name }) {
-			choices = append(choices, choice{value: name, description: each.function.Description})
-		}
-	}
-
-	slices.SortFunc(choices, func(a, b choice) int { return strings.Compare(a.value, b.value) })
-
-	return choices
+	return append(choices, more...)
 }
 
 // lacksParams reports whether a command line gives fewer words than its
-// function, among the front end's own, the host's, and the provider's
-// described, has parameters it needs.
-func lacksParams(host []protocol.Function, described *protocol.DescribeResult, line string) bool {
+// command needs: one of the terminal UI's own, or a function of the host.
+func lacksParams(host []protocol.Function, line string) bool {
 	words := strings.Fields(line)
 
 	if len(words) == 0 {
 		return false
 	}
 
-	name := strings.TrimPrefix(words[0], "/")
-	functions := append(slices.Clone(ownCommands), host...)
-
-	if described != nil {
-		functions = append(slices.Clone(functions), described.Offers.Functions...)
+	if each, found := verbNamed(words[0]); found {
+		return each.needs() && len(words) == 1
 	}
 
-	for _, each := range extensionCommands(described) {
-		functions = append(functions, each.function)
-	}
+	function, _, found := lookup(words[0], host)
 
-	index := slices.IndexFunc(functions, func(function protocol.Function) bool { return function.Name == name })
-
-	if index < 0 {
+	if !found {
 		return false
 	}
 
 	required := 0
 
-	for _, param := range functions[index].Params {
+	for _, param := range function.Params {
 		if !param.Optional {
 			required++
 		}
@@ -192,4 +176,60 @@ func splitLast(line string) (head, token string) {
 	index := strings.LastIndexByte(line, ' ')
 
 	return line[:index+1], line[index+1:]
+}
+
+// closest is the command meant by a name that is none: the one it starts,
+// when only one does, or else the one a typo or two away from it.
+func closest(name string, commands []choice) string {
+	var started []string
+
+	for _, each := range commands {
+		if strings.HasPrefix(each.value, name) {
+			started = append(started, each.value)
+		}
+	}
+
+	if len(started) == 1 {
+		return started[0]
+	}
+
+	best, nearest := "", 3
+
+	for _, each := range commands {
+		if apart := distance(name, each.value); apart < nearest {
+			best, nearest = each.value, apart
+		}
+	}
+
+	return best
+}
+
+// distance is how many runes must be added, taken away, or changed to make
+// one word the other.
+func distance(one, other string) int {
+	a, b := []rune(one), []rune(other)
+	previous := make([]int, len(b)+1)
+
+	for index := range previous {
+		previous[index] = index
+	}
+
+	for i := 1; i <= len(a); i++ {
+		current := make([]int, len(b)+1)
+		current[0] = i
+
+		for j := 1; j <= len(b); j++ {
+			changed := 1
+
+			if a[i-1] == b[j-1] {
+				changed = 0
+			}
+
+			current[j] = min(previous[j]+1, current[j-1]+1, previous[j-1]+changed)
+		}
+
+		previous = current
+	}
+
+	return previous[len(b)]
 }

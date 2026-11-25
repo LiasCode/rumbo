@@ -392,7 +392,7 @@ func TestTheConfigurationSaysWhereEachValueComesFrom(t *testing.T) {
 	setProgram(database, store.KindFrontend, "tui", []string{"theme=plain"}, io.Discard)
 
 	session := sessionLayer{title: "this session, 4cf0261c", choice: choice{provider: "openai", model: "gpt-y", options: json.RawMessage(`{"effort":"low"}`)}}
-	shown, err := describeConfig(database, &session, "provider-show")
+	shown, err := describeConfig(database, &session, "showing the program")
 
 	if err != nil {
 		t.Fatal(err)
@@ -427,7 +427,7 @@ func TestTheConfigurationSaysWhereEachValueComesFrom(t *testing.T) {
 		}
 	}
 
-	if !strings.HasSuffix(shown, "What is not listed is the program's own default; provider-show says those.") {
+	if !strings.HasSuffix(shown, "What is not listed is the program's own default; showing the program says those.") {
 		t.Fatalf("the configuration ends:\n%s", shown)
 	}
 }

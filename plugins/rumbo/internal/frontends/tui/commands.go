@@ -11,36 +11,10 @@ import (
 	"github.com/LiasCode/rumbo/protocol"
 )
 
-// A line that starts with a slash and a word is a command, not a task. A
-// few commands are the front end's own. Every other one is a function the
-// host or the provider described: the front end knows none of them
-// beforehand, and gains a command whenever either of them gains a function.
-const (
-	commandHelp   = "/help"
-	commandCopy   = "/copy"
-	commandExport = "/export"
-	commandRumbos = "/rumbos"
-	commandDelete = "/delete"
-)
-
-// ownCommands are the front end's own, described as functions are, so they
-// are completed and listed the same way. They come before a function of the
-// host or the provider of the same name.
-var ownCommands = []protocol.Function{
-	{Name: "help", Description: "Show every command"},
-	{
-		Name:        "copy",
-		Description: "Put the model's last answer in the clipboard, or only its last code block",
-		Params:      []protocol.Option{{Name: "what", Type: protocol.OptionString, Enum: []string{"code"}, Optional: true, Description: "code: only its last code block"}},
-	},
-	{
-		Name:        "export",
-		Description: "Write this session as Markdown to a file, which it does not overwrite",
-		Params:      []protocol.Option{{Name: "path", Type: protocol.OptionString, Optional: true, Description: "without it, rumbo-<session>.md in the session's directory"}},
-	},
-	{Name: "rumbos", Description: "List the rumbos this terminal UI holds, one for each session open, and what each uses"},
-	{Name: "delete", Description: "Delete the session shown and its history, for good, once you agree"},
-}
+// A line that starts with a slash and a word is a command, not a task: one
+// of the terminal UI's own (verbs.go), or a function the host, the
+// provider, or an extension described that none of those wraps, under its
+// name.
 
 // Where a command acts and where an answer comes from. The host is rumbo
 // itself and is the same with any provider; the provider is whatever reaches
@@ -51,7 +25,6 @@ const (
 	fromHost       = "host"
 	fromProvider   = "provider"
 	fromExtensions = protocol.TargetExtension
-	fromHere       = ""
 )
 
 // fromExtension is the source that names one extension.
@@ -64,57 +37,6 @@ func extensionOf(source string) (string, bool) {
 	return strings.CutPrefix(source, fromExtensions+" ")
 }
 
-// offered is a function of an extension as a command: whose it is, and the
-// function, named after its extension as "<extension>-<function>", so that
-// two extensions can each have one called the same.
-type offered struct {
-	source   string
-	function protocol.Function
-}
-
-// extensionCommands are the functions the extensions described, as
-// commands.
-func extensionCommands(described *protocol.DescribeResult) []offered {
-	if described == nil {
-		return nil
-	}
-
-	var all []offered
-
-	for _, extension := range described.Extensions {
-		for _, function := range commands(extension.Functions) {
-			function.Name = extension.Name + "-" + function.Name
-			all = append(all, offered{source: fromExtension(extension.Name), function: function})
-		}
-	}
-
-	return all
-}
-
-// functionsOf returns the functions of a source as the source names them,
-// which are the ones a parameter names to list its values.
-func functionsOf(source string, host []protocol.Function, described *protocol.DescribeResult) []protocol.Function {
-	if source == fromHost {
-		return host
-	}
-
-	if described == nil {
-		return nil
-	}
-
-	if name, named := extensionOf(source); named {
-		for _, extension := range described.Extensions {
-			if extension.Name == name {
-				return extension.Functions
-			}
-		}
-
-		return nil
-	}
-
-	return described.Offers.Functions
-}
-
 var commandName = regexp.MustCompile(`^/[a-z][a-z0-9_-]*$`)
 
 // isCommand reports whether line is a command rather than a task. A path
@@ -123,28 +45,6 @@ func isCommand(line string) bool {
 	name, _, _ := strings.Cut(line, " ")
 
 	return commandName.MatchString(name)
-}
-
-// groupTitles say what each group of the host's functions acts on.
-var groupTitles = map[string]string{
-	protocol.GroupSystem:    "system: rumbo itself, the same for every session and provider",
-	protocol.GroupSession:   "session: this session",
-	protocol.GroupProvider:  "providers: which there are, how each is started, and what is set for each",
-	protocol.GroupExtension: "extensions: which there are, how each is started, what is set for each, and what each gives the model",
-}
-
-// groupTitle names a group of the host's functions, also one this front end
-// does not know.
-func groupTitle(group string) string {
-	if title, known := groupTitles[group]; known {
-		return title
-	}
-
-	if group == "" {
-		return "other"
-	}
-
-	return group
 }
 
 // commands are the functions offered as commands: all but those there to

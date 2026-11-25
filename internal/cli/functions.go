@@ -540,7 +540,7 @@ func (h *host) branchSession(_ context.Context, params map[string]string) (proto
 		number, err := strconv.Atoi(point)
 
 		if err != nil || number < 1 || number > len(points) {
-			return protocol.HostResult{}, fmt.Errorf("there is no message %s in this session; branch-points lists them", point)
+			return protocol.HostResult{}, fmt.Errorf("there is no message %s of yours in this session, which has %d", point, len(points))
 		}
 
 		upTo, before = points[number-1].Seq-1, points[number-1].Text
@@ -730,7 +730,7 @@ func (h *host) showConfig(context.Context, map[string]string) (protocol.HostResu
 
 	h.mu.Unlock()
 
-	text, err := describeConfig(h.database, &layer, "provider-show")
+	text, err := describeConfig(h.database, &layer, "showing the program")
 
 	if err != nil {
 		return protocol.HostResult{}, err
@@ -757,7 +757,7 @@ func (h *host) registerProvider(_ context.Context, params map[string]string) (pr
 		return protocol.HostResult{}, err
 	}
 
-	text := fmt.Sprintf("registered the provider %s, which started; provider-show says its settings and what it offers", params["name"])
+	text := fmt.Sprintf("registered the provider %s, which started; showing it says its settings and what it offers", params["name"])
 
 	return protocol.HostResult{Text: text}, nil
 }
@@ -839,7 +839,7 @@ func (h *host) listExtensions(context.Context, map[string]string) (protocol.Host
 	}
 
 	if len(programs) == 0 {
-		return protocol.HostResult{Text: "there are no extensions; extension-add registers one"}, nil
+		return protocol.HostResult{Text: "there are no extensions yet; register one to give the model tools"}, nil
 	}
 
 	var result protocol.HostResult

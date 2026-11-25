@@ -88,7 +88,7 @@ func TestACommandNeedsWhatItsFunctionRequires(t *testing.T) {
 	}
 
 	for line, want := range map[string]bool{"/status ": false, "/open ": true, "/open 4c ": false, "/unknown ": false} {
-		if got := lacksParams(functions, nil, line); got != want {
+		if got := lacksParams(functions, line); got != want {
 			t.Errorf("lacksParams(%q) = %v, want %v", line, got, want)
 		}
 	}
@@ -204,15 +204,15 @@ func TestTheArrowsChooseInTheMenu(t *testing.T) {
 	}
 }
 
-// A menu of commands opened before the provider said what it offers has the
-// provider's commands once it has.
-func TestTheMenuLearnsTheProvidersCommands(t *testing.T) {
+// A menu of what the provider offers, opened before the provider said what
+// it offers, has its functions once it has.
+func TestTheMenuLearnsTheProvidersFunctions(t *testing.T) {
 	s := composing(t)
 
-	s.text("/")
+	s.text("/providers toy ")
 	s.apply(describedMsg{host: s.a.host, described: protocol.DescribeResult{Offers: protocol.Description{Functions: []protocol.Function{{Name: "greet", Description: "Say hello"}}}}})
 
-	if !slices.ContainsFunc(s.a.menu.shown, func(offered choice) bool { return offered.value == "/greet" }) {
+	if !slices.ContainsFunc(s.a.menu.shown, func(offered choice) bool { return offered.value == "greet" }) {
 		t.Fatalf("the menu holds %+v", s.a.menu.shown)
 	}
 }
@@ -221,18 +221,18 @@ func TestTheMenuLearnsTheProvidersCommands(t *testing.T) {
 // menu offers its values instead, and help leaves it out.
 func TestAFunctionThatListsValuesIsNoCommand(t *testing.T) {
 	functions := []protocol.Function{
-		{Name: "session-set", Description: "Choose a value", Params: []protocol.Option{{Name: "change", Values: "session-values"}}},
-		{Name: "session-values", Description: "List the changes session-set takes", Lists: true},
+		{Name: "doctor-set", Description: "Choose a value", Params: []protocol.Option{{Name: "change", Values: "doctor-values"}}},
+		{Name: "doctor-values", Description: "List the changes doctor-set takes", Lists: true},
 	}
 
 	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Provider: "toy", Functions: functions})
-	s.text("/session-")
+	s.text("/doctor-")
 
-	if shown := s.a.menu.shown; len(shown) != 1 || shown[0].value != "/session-set" {
+	if shown := s.a.menu.shown; len(shown) != 1 || shown[0].value != "/doctor-set" {
 		t.Fatalf("the menu holds %+v", shown)
 	}
 
-	if listed := commands(functions); len(listed) != 1 || listed[0].Name != "session-set" {
+	if listed := commands(functions); len(listed) != 1 || listed[0].Name != "doctor-set" {
 		t.Fatalf("the commands are %+v", listed)
 	}
 }
@@ -269,19 +269,19 @@ func TestARecalledCommandLeavesTheArrowsToTheHistory(t *testing.T) {
 // which says what that is when it takes any value.
 func TestEnterOnACommandThatNeedsMoreOpensItsMenu(t *testing.T) {
 	functions := []protocol.Function{
-		{Name: "system-set", Params: []protocol.Option{{Name: "key"}, {Name: "value", Description: "what to store"}}},
+		{Name: "doctor-set", Params: []protocol.Option{{Name: "key"}, {Name: "value", Description: "what to store"}}},
 	}
 
 	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Provider: "toy", Functions: functions})
-	s.typing("/system-set")
+	s.typing("/doctor-set")
 
-	if got := s.a.input.String(); got != "/system-set " || s.a.menu == nil || s.a.menu.hint != "<key>" {
+	if got := s.a.input.String(); got != "/doctor-set " || s.a.menu == nil || s.a.menu.hint != "<key>" {
 		t.Fatalf("after Enter: %q, menu %+v", got, s.a.menu)
 	}
 
 	s.typing("max_turns")
 
-	if got := s.a.input.String(); got != "/system-set max_turns " || s.a.menu == nil || s.a.menu.hint != "<value>  what to store" {
+	if got := s.a.input.String(); got != "/doctor-set max_turns " || s.a.menu == nil || s.a.menu.hint != "<value>  what to store" {
 		t.Fatalf("after the key: %q, menu %+v", got, s.a.menu)
 	}
 }

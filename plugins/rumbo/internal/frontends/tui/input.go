@@ -268,6 +268,11 @@ func (l *inputLine) vertical(step int) bool {
 	return true
 }
 
+// atEnd reports whether the cursor is after the last rune.
+func (l *inputLine) atEnd() bool {
+	return l.cursor == len(l.text)
+}
+
 // view lays the text out in rows of width columns and returns the rows the
 // input shows, at most height of them, with the row and column of the
 // cursor among them. A masked text shows a dot for each rune.

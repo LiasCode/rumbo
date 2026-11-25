@@ -29,8 +29,18 @@ func (a *app) press(key tea.KeyPressMsg) tea.Cmd {
 	}
 
 	switch stroke {
+	// Ctrl-P starts a command, as a slash on an empty line does.
 	case "ctrl+p":
-		return a.openPalette()
+		if !a.input.empty() {
+			a.notice = "the commands start with a slash on an empty line"
+			return nil
+		}
+
+		a.focus = focusComposer
+		a.input.set("/")
+		a.dismissed = false
+
+		return a.refreshMenu()
 
 	case "ctrl+b":
 		a.sidebar = !a.sidebar
@@ -412,10 +422,7 @@ func (a *app) wheel(mouse tea.Mouse) {
 	}
 
 	switch shown := a.layout(); {
-	// Over the palette, the wheel goes through its rows; over anything else
-	// that floats, it does nothing.
-	case a.palette != nil && !a.floatingOver():
-		a.palette.move(step / 3)
+	// Over anything that floats, the wheel does nothing.
 	case a.floating():
 	case mouse.X < shown.side:
 		a.sessions.scroll(step/3, a.height-bodyTop)
@@ -424,11 +431,6 @@ func (a *app) wheel(mouse tea.Mouse) {
 	default:
 		a.scroll(step)
 	}
-}
-
-// floatingOver reports whether something floats over the palette.
-func (a *app) floatingOver() bool {
-	return a.question != nil || a.confirming != nil || a.form != nil
 }
 
 // click shows the session clicked in the sidebar, gives the panel the keys
@@ -587,7 +589,7 @@ func (a *app) pointerUp() tea.Cmd {
 			return nil
 		}
 
-		return tea.Batch(a.copy(text), tea.SetPrimaryClipboard(text))
+		return tea.Batch(a.copy(text), a.toClipboard(text, true))
 	}
 
 	return a.click(tea.Mouse{X: pressed.x, Y: pressed.y, Button: tea.MouseLeft})
