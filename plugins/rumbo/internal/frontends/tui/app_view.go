@@ -340,7 +340,7 @@ func (a *app) welcome(width, height int) []string {
 }
 
 // composer draws the composer width columns wide on a screen height rows
-// high: what is typed in a box, the images pasted over it, and under it
+// high: what is typed in a box, the files given with it over it, and under it
 // the model, how full its context is, what the session spent, and how the
 // run here stands. It returns where the cursor is in it.
 func (a *app) composer(width, height int) ([]string, int, int) {
@@ -369,8 +369,8 @@ func (a *app) composer(width, height int) ([]string, int, int) {
 
 	rows := []string{border + "╭" + strings.Repeat("─", inner+2) + "╮" + styleReset}
 
-	if len(a.pasted) > 0 {
-		rows = append(rows, line(styleDim+imageLabels(a.pasted)+"  Backspace on an empty line takes the last away"+styleReset))
+	if len(a.files) > 0 {
+		rows = append(rows, line(styleDim+fileLabels(a.files)+"  Backspace on an empty line takes the last away"+styleReset))
 		row++
 	}
 

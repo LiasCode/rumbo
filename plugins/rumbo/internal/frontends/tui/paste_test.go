@@ -39,38 +39,62 @@ func holding(data []byte, err error) func(context.Context) ([]byte, error) {
 	}
 }
 
-// Ctrl-V puts the clipboard's image in the composer, which shows it above
-// what is typed; Backspace on an empty composer takes the last away, and
-// Ctrl-C all of them.
+// cached keeps what a test pastes in a directory of its own, and returns
+// it.
+func cached(t *testing.T) string {
+	t.Helper()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+
+	dir, err := os.UserCacheDir()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
+// Ctrl-V saves the clipboard's image as a file and puts it in the composer,
+// which shows it above what is typed; Backspace on an empty composer takes
+// the last away, and Ctrl-C all of them.
 func TestCtrlVPastesTheClipboardsImage(t *testing.T) {
+	cache := cached(t)
 	s := composing(t)
 	s.a.clipboard = holding(pngOf(t, 40, 20), nil)
 
 	s.apply(ctrl('v'))
+	s.a.clipboard = holding(pngOf(t, 8, 6), nil)
 	s.apply(ctrl('v'))
 
-	if len(s.a.pasted) != 2 || !strings.Contains(s.screen(), "[image 1: png, 40×20]  [image 2: png, 40×20]") {
-		t.Fatalf("pasted %d image(s):\n%s", len(s.a.pasted), s.screen())
+	if len(s.a.files) != 2 || s.a.files[0] == s.a.files[1] || strings.Count(s.screen(), "[pasted-") != 2 {
+		t.Fatalf("pasted the files %q:\n%s", s.a.files, s.screen())
+	}
+
+	if kept, err := os.ReadFile(s.a.files[0]); err != nil || !bytes.Equal(kept, pngOf(t, 40, 20)) || filepath.Dir(s.a.files[0]) != filepath.Join(cache, "rumbo", "pasted") || filepath.Ext(s.a.files[0]) != ".png" {
+		t.Fatalf("the first image was kept in %s: %d bytes, %v", s.a.files[0], len(kept), err)
 	}
 
 	s.text("ab")
 	s.press(tea.KeyBackspace)
 
-	if len(s.a.pasted) != 2 || s.a.input.String() != "a" {
-		t.Fatalf("Backspace on a line took %d image(s) and left %q", 2-len(s.a.pasted), s.a.input.String())
+	if len(s.a.files) != 2 || s.a.input.String() != "a" {
+		t.Fatalf("Backspace on a line took %d file(s) and left %q", 2-len(s.a.files), s.a.input.String())
 	}
 
 	s.press(tea.KeyBackspace)
 	s.press(tea.KeyBackspace)
 
-	if len(s.a.pasted) != 1 || !s.a.input.empty() {
-		t.Fatalf("Backspace on an empty composer left %d image(s)", len(s.a.pasted))
+	if len(s.a.files) != 1 || !s.a.input.empty() {
+		t.Fatalf("Backspace on an empty composer left %d file(s)", len(s.a.files))
 	}
 
 	s.apply(ctrl('c'))
 
-	if len(s.a.pasted) != 0 {
-		t.Fatal("Ctrl-C left the images")
+	if len(s.a.files) != 0 {
+		t.Fatal("Ctrl-C left the files")
 	}
 }
 
@@ -91,8 +115,8 @@ func TestAClipboardWithoutAnImageIsSaid(t *testing.T) {
 
 		s.apply(ctrl('v'))
 
-		if len(s.a.pasted) != 0 || !strings.Contains(s.a.notice, held.said) {
-			t.Errorf("pasted %d, notice %q; want it to say %q", len(s.a.pasted), s.a.notice, held.said)
+		if len(s.a.files) != 0 || !strings.Contains(s.a.notice, held.said) {
+			t.Errorf("pasted %d, notice %q; want it to say %q", len(s.a.files), s.a.notice, held.said)
 		}
 	}
 }
@@ -126,12 +150,11 @@ func TestTheClipboardIsReadForAnImage(t *testing.T) {
 	}
 }
 
-// Enter sends the images with what is typed, or alone, as a task, and the
-// conversation shows them under it; the history shows them where they were
-// Enter sends the images with what is typed, or alone, as a task, and the
-// conversation shows them under it; the history shows them where they were
-// given.
-func TestPastedImagesGoWithTheTask(t *testing.T) {
+// Enter sends the files with what is typed, or alone, as a task, by their
+// paths, and the conversation shows them under it; the history shows them
+// where they were given.
+func TestFilesGoWithTheTask(t *testing.T) {
+	cached(t)
 	given := make(chan protocol.RunParams, 2)
 
 	s := staged(t, frontend.Handlers{Run: func(params protocol.RunParams, run *frontend.Run) (frontend.Work, error) {
@@ -147,25 +170,45 @@ func TestPastedImagesGoWithTheTask(t *testing.T) {
 
 	sent := <-given
 
-	if sent.Objective != "what is this?" || len(sent.Images) != 1 || len(s.a.pasted) != 0 {
-		t.Fatalf("sent %q with %d image(s); %d left in the composer", sent.Objective, len(sent.Images), len(s.a.pasted))
+	if sent.Objective != "what is this?" || len(sent.Files) != 1 || !filepath.IsAbs(sent.Files[0]) || len(s.a.files) != 0 {
+		t.Fatalf("sent %q with the files %q; %d left in the composer", sent.Objective, sent.Files, len(s.a.files))
 	}
 
-	if screen := s.screen(); !inOrder(screen, "what is this?", "[image 1: png, 40×20]") {
+	if screen := s.screen(); !inOrder(screen, "what is this?", "["+filepath.Base(sent.Files[0])+"]") {
 		t.Fatalf("the conversation shows:\n%s", screen)
 	}
 
 	s.apply(ctrl('v'))
 	s.press(tea.KeyEnter)
 
-	if alone := <-given; alone.Objective != "" || len(alone.Images) != 1 {
-		t.Fatalf("an image alone was sent as %q with %d image(s)", alone.Objective, len(alone.Images))
+	if alone := <-given; alone.Objective != "" || len(alone.Files) != 1 {
+		t.Fatalf("a file alone was sent as %q with the files %q", alone.Objective, alone.Files)
 	}
 
-	s.a.shown.apply(protocol.Event{Type: protocol.EventObjective, Text: "and this?", Images: []protocol.Image{{MediaType: "image/png", Data: pngOf(t, 8, 6)}}}, true, time.Now())
+	s.a.shown.apply(protocol.Event{Type: protocol.EventObjective, Text: "and this?", Files: []string{"/srv/reports/sales.pdf"}}, true, time.Now())
 
-	if screen := s.screen(); !inOrder(screen, "and this?", "[image 1: png, 8×6]") {
+	if screen := s.screen(); !inOrder(screen, "and this?", "[sales.pdf]") {
 		t.Fatalf("the history shows:\n%s", screen)
+	}
+}
+
+// /attach puts a file in the composer by its path, from the session's
+// folder, as it was typed, and says so when there is none there.
+func TestAttachGivesAFileByItsPath(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "plan one.pdf"), []byte("%PDF"), 0o644)
+
+	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Dir: dir, Provider: "toy", Model: "any"})
+
+	s.typing("/attach plan one.pdf")
+	s.typing("/attach missing.csv")
+
+	if len(s.a.files) != 1 || s.a.files[0] != "plan one.pdf" {
+		t.Fatalf("attached the files %q", s.a.files)
+	}
+
+	if screen := s.screen(); !strings.Contains(screen, "[plan one.pdf]") || !strings.Contains(screen, "there is no file at "+filepath.Join(dir, "missing.csv")) {
+		t.Fatalf("the screen shows:\n%s", screen)
 	}
 }
 
@@ -210,13 +253,13 @@ func hostedUntil(t *testing.T, handlers frontend.Handlers, info protocol.Fronten
 	return <-dialed, func() { frontendWrites.Close() }
 }
 
-// An export names the images a person gave, under their words.
-func TestAnExportNamesTheImagesGiven(t *testing.T) {
+// An export names the files a person gave, under their words.
+func TestAnExportNamesTheFilesGiven(t *testing.T) {
 	told := protocol.HistoryResult{Session: "s", Events: []protocol.Event{
-		{Type: protocol.EventObjective, Text: "what is this?", Images: []protocol.Image{{MediaType: "image/png", Data: pngOf(t, 40, 20)}}},
+		{Type: protocol.EventObjective, Text: "what is this?", Files: []string{"shots/login.png"}},
 	}}
 
-	if document := markdownOf(told, time.Now()); !strings.Contains(document, "**You**\n\nwhat is this?\n\n*[image 1: png, 40×20]*\n") {
+	if document := markdownOf(told, time.Now()); !strings.Contains(document, "**You**\n\nwhat is this?\n\n*[login.png]*\n") {
 		t.Fatalf("the export:\n%s", document)
 	}
 }

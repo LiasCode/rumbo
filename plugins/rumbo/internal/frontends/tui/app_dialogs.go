@@ -116,7 +116,7 @@ func (a *app) actionsKey(stroke string) tea.Cmd {
 
 		switch chosen.action {
 		case actionEdit, actionAskAgain:
-			return a.branchAt(chosen.point, chosen.text, chosen.images, chosen.action == actionAskAgain)
+			return a.branchAt(chosen.point, chosen.text, chosen.files, chosen.action == actionAskAgain)
 		case actionCopyText:
 			return a.copy(chosen.text)
 		}

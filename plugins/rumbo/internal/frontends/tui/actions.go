@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/LiasCode/rumbo/protocol"
-)
+import "strings"
 
 // The menu of actions floats over the screen with what can be done with
 // one of the person's messages: change it, ask it again, or copy it.
@@ -22,11 +18,11 @@ type action struct {
 	name        string
 	description string
 	action      int
-	// point, text, and images are the message a row acts on: its number
-	// among the person's tasks, its words, and the images given with it.
-	point  int
-	text   string
-	images []protocol.Image
+	// point, text, and files are the message a row acts on: its number
+	// among the person's tasks, its words, and the files given with it.
+	point int
+	text  string
+	files []string
 }
 
 // actions are the menu's rows, under a title, and the one selected.

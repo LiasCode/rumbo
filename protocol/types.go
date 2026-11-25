@@ -59,7 +59,8 @@ const (
 
 // Block is one piece of message content.
 //
-//   - text: Text, and in a user message the Images the person gave with it.
+//   - text: Text, and in a user message the Images a session kept with it
+//     when a person could give images, before they gave files.
 //   - tool_call: ID, Name, Args (assistant only).
 //   - tool_result: ID of the call it answers, Text, IsError, and the Images
 //     it shows, if any (user only).
@@ -76,9 +77,8 @@ type Block struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-// Image is a picture shown to the model: one a tool's result shows, such as
-// a screenshot, or one the person gave with what they said, in a run or a
-// steer. Data is the encoded file, base64 in JSON, and MediaType says its
+// Image is a picture shown to the model, as a tool's result shows one, such
+// as a screenshot. Data is the encoded file, base64 in JSON, and MediaType says its
 // format: image/png, image/jpeg, image/gif, or image/webp.
 type Image struct {
 	MediaType string `json:"media_type"`

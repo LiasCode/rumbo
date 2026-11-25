@@ -59,11 +59,12 @@ type app struct {
 	// it was last read, which the composer shows; empty outside Git.
 	branch string
 
-	// input is what is typed in the composer, and pasted the images Ctrl-V
-	// put with it, which go with the next task or steer; clipboard reads
+	// input is what is typed in the composer, and files those given with
+	// it, by /attach or pasted with Ctrl-V, which go with the next task or
+	// steer; clipboard reads
 	// the image to paste, when a test does not want the desktop's.
 	input     inputLine
-	pasted    []protocol.Image
+	files     []string
 	clipboard func(context.Context) ([]byte, error)
 	// copier puts text in the desktop's clipboard, when a test does not
 	// want the desktop's.
@@ -157,10 +158,10 @@ type (
 		err    error
 	}
 	steeredMsg struct {
-		run    *flight
-		text   string
-		images []protocol.Image
-		err    error
+		run   *flight
+		text  string
+		files []string
+		err   error
 	}
 	historyMsg struct {
 		host *host
@@ -218,8 +219,8 @@ type (
 	}
 	askGoneMsg struct{ question *question }
 	pastedMsg  struct {
-		image protocol.Image
-		err   error
+		file string
+		err  error
 	}
 	recalledMsg struct{ asked []string }
 	// copiedMsg is where what was copied went, lines of it.
@@ -454,7 +455,7 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			a.notice = msg.err.Error()
 		} else {
-			a.pasted = append(a.pasted, msg.image)
+			a.files = append(a.files, msg.file)
 		}
 
 	case recalledMsg:
@@ -538,10 +539,10 @@ func (a *app) offers(name string) bool {
 	return slices.ContainsFunc(a.info.Functions, func(function protocol.Function) bool { return function.Name == name })
 }
 
-// submit starts a run on what the person asked, and the images given with
+// submit starts a run on what the person asked, and the files given with
 // it.
-func (a *app) submit(objective string, images []protocol.Image) tea.Cmd {
-	return a.start(objective, protocol.RunParams{Objective: objective, Images: images})
+func (a *app) submit(objective string, files []string) tea.Cmd {
+	return a.start(objective, protocol.RunParams{Objective: objective, Files: files})
 }
 
 // start sends a run to the rumbo shown, and shows label as what it was
@@ -561,10 +562,10 @@ func (a *app) start(label string, params protocol.RunParams) tea.Cmd {
 
 	run := &flight{host: a.host, label: label, conv: a.shown}
 	a.runs = append(a.runs, run)
-	a.shown.ask(label, params.Images, params.Resume, a.now)
+	a.shown.ask(label, params.Files, params.Resume, a.now)
 	a.shown.follow = true
 	a.input.clear()
-	a.pasted = nil
+	a.files = nil
 
 	conn, send := a.conn, a.send
 
@@ -651,20 +652,20 @@ func (a *app) ended(msg endedMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// steer tells the run in the session shown what was typed, and the images
+// steer tells the run in the session shown what was typed, and the files
 // given with it. It shows once the model has it, which is where the model
 // reads it.
-func (a *app) steer(run *flight, text string, images []protocol.Image) tea.Cmd {
+func (a *app) steer(run *flight, text string, files []string) tea.Cmd {
 	a.input.clear()
-	a.pasted = nil
+	a.files = nil
 	run.host.telling++
 
 	conn, id := run.host.conn, run.id
 
 	return func() tea.Msg {
-		err := conn.SteerRun(id, text, images...)
+		err := conn.SteerRun(id, text, files...)
 
-		return steeredMsg{run, text, images, err}
+		return steeredMsg{run, text, files, err}
 	}
 }
 
@@ -676,11 +677,11 @@ func (a *app) steered(msg steeredMsg) {
 
 	switch {
 	case msg.err == nil:
-		msg.run.conv.add(&entry{kind: entrySteer, text: msg.text, images: msg.images})
-	case a.input.empty() && len(a.pasted) == 0:
+		msg.run.conv.add(&entry{kind: entrySteer, text: msg.text, files: msg.files})
+	case a.input.empty() && len(a.files) == 0:
 		a.notice = msg.err.Error() + "; Enter sends it as a new task"
 		a.input.set(msg.text)
-		a.pasted = msg.images
+		a.files = msg.files
 	default:
 		a.notice = msg.err.Error() + ": " + msg.text
 	}

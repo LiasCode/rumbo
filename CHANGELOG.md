@@ -5,6 +5,23 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Files in what you ask
+
+- **You give the model files of any kind, not only images.** `/attach
+  <path>` in the terminal UI puts a file with what you send next, a task
+  or what you tell a run. The model is told the file's path and reads it
+  with its tools when it needs to, so nothing of the file is kept in the
+  session or sent again with every request.
+- Ctrl-V still pastes the clipboard's image, now as a file: it is saved
+  as it is in your cache directory (`rumbo/pasted`), and the model looks
+  at it with `read`, in a turn of its own.
+- A session from before still shows the model the images it holds; the
+  terminal UI no longer names them when it shows that session.
+- **Front ends: the protocol is version 3.** `images` is gone from `run`,
+  `steer`, and the `objective` and `steer` events; `files`, a list of
+  paths where the host runs, takes its place. A front end saves what has
+  no path, such as a pasted image, where it chooses, and gives the path.
+
 ## 0.11.0 (2026-11-25)
 
 ### Terminal UI

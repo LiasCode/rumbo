@@ -18,8 +18,10 @@ type Run struct {
 	// asked for, such as a compaction.
 	id     int64
 	cancel context.CancelFunc
-	// objective is what the run was asked, for the tap.
+	// objective is what the run was asked, and files those given with it,
+	// for the tap.
 	objective string
+	files     []string
 
 	// mu guards session, steers, and listening. steers are what the front
 	// end told the run and the loop has not taken yet; listening is true
@@ -30,12 +32,12 @@ type Run struct {
 	listening bool
 }
 
-// steer is something the front end told a run, with the images given with
+// steer is something the front end told a run, with the files given with
 // it, and the request to answer once it is recorded.
 type steer struct {
-	id     *int64
-	text   string
-	images []protocol.Image
+	id    *int64
+	text  string
+	files []string
 }
 
 // Report returns a Run for work on session that no run request asked for,
@@ -54,20 +56,20 @@ func (r *Run) Attach(session string) {
 
 	// Work that no run request asked for has no objective to tell.
 	if r.conn.tap != nil && r.id != 0 {
-		r.conn.tap(protocol.Event{Type: protocol.EventObjective, Run: r.id, Session: session, Text: r.objective})
+		r.conn.tap(protocol.Event{Type: protocol.EventObjective, Run: r.id, Session: session, Text: r.objective, Files: r.files})
 	}
 }
 
 // Take implements agent.Inbox. Each steer is answered once it is recorded,
 // so the front end knows it reached the model.
-func (r *Run) Take(record func(text string, images []protocol.Image) error) error {
+func (r *Run) Take(record func(text string, files []string) error) error {
 	r.mu.Lock()
 	taken := r.steers
 	r.steers = nil
 	r.mu.Unlock()
 
 	for index, steer := range taken {
-		if err := record(steer.text, steer.images); err != nil {
+		if err := record(steer.text, steer.files); err != nil {
 			// The run fails on this error, so the rest will not be recorded.
 			for _, left := range taken[index:] {
 				r.conn.fail(left.id, protocol.CodeInternal, err.Error())
@@ -83,12 +85,12 @@ func (r *Run) Take(record func(text string, images []protocol.Image) error) erro
 }
 
 // hold keeps what the front end told the run until the loop takes it.
-func (r *Run) hold(id *int64, text string, images []protocol.Image) {
+func (r *Run) hold(id *int64, text string, files []string) {
 	r.mu.Lock()
 	listening := r.listening
 
 	if listening {
-		r.steers = append(r.steers, steer{id: id, text: text, images: images})
+		r.steers = append(r.steers, steer{id: id, text: text, files: files})
 	}
 
 	r.mu.Unlock()

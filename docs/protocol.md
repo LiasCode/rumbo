@@ -265,8 +265,10 @@ A message's `content` is a list of blocks.
 | `opaque` | `data` (any JSON) | assistant |
 
 **`text`.** In a user message, `images` are pictures the person gave with
-what they said, such as a pasted screenshot, in the form a tool's result
-uses below; the text may then be empty. They go to the model with the text.
+what they said, in the form a tool's result uses below; the text may then
+be empty. They go to the model with the text. Only a session kept when a
+person could give images has them: a person now gives files, which the
+text names by their paths.
 
 **`tool_call`.** `args` should be the JSON object the model produced. If the
 model produced something that is not valid JSON, send it as a JSON string: the

@@ -3,6 +3,7 @@ package transcript
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -193,21 +194,19 @@ func TestHistoryTellsCacheMissesAfterANewSystemPrompt(t *testing.T) {
 	}
 }
 
-// The history tells what a person asked with the images they gave, so a
+// The history tells what a person asked with the files they gave, so a
 // front end shows them where they were given.
-func TestHistoryTellsTheImagesAPersonGave(t *testing.T) {
-	image := protocol.Image{MediaType: "image/png", Data: []byte("png")}
-
+func TestHistoryTellsTheFilesAPersonGave(t *testing.T) {
 	events, err := History([]store.Entry{
-		entry(1, KindUser, Text{Text: "what is this?", Images: []protocol.Image{image}}),
-		entry(2, KindSteer, Text{Images: []protocol.Image{image, image}}),
+		entry(1, KindUser, Text{Text: "what is this?", Files: []string{"a.png"}}),
+		entry(2, KindSteer, Text{Files: []string{"b.pdf", "c.csv"}}),
 	})
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(events) < 2 || events[0].Type != protocol.EventObjective || len(events[0].Images) != 1 || events[1].Type != protocol.EventSteer || len(events[1].Images) != 2 {
+	if len(events) < 2 || events[0].Type != protocol.EventObjective || !slices.Equal(events[0].Files, []string{"a.png"}) || events[1].Type != protocol.EventSteer || !slices.Equal(events[1].Files, []string{"b.pdf", "c.csv"}) {
 		t.Fatalf("events = %+v", events)
 	}
 }

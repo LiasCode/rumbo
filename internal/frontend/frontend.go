@@ -17,7 +17,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/LiasCode/rumbo/internal/picture"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -242,19 +241,11 @@ func (c *Conn) Serve(handlers Handlers) error {
 func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitGroup) {
 	var params protocol.RunParams
 
-	if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (params.Objective == "" && len(params.Images) == 0) != params.Resume {
-		c.fail(frame.ID, protocol.CodeInvalidParams, "run needs an id and either an objective, images, or resume")
+	if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (params.Objective == "" && len(params.Files) == 0) != params.Resume {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "run needs an id and either an objective, files, or resume")
 		return
 	}
 
-	images, err := prepare(params.Images)
-
-	if err != nil {
-		c.fail(frame.ID, protocol.CodeInvalidParams, err.Error())
-		return
-	}
-
-	params.Images = images
 	id := *frame.ID
 
 	c.running.Lock()
@@ -267,7 +258,7 @@ func (c *Conn) start(frame protocol.Frame, handlers Handlers, active *sync.WaitG
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	run := &Run{conn: c, id: id, cancel: cancel, listening: true, objective: params.Objective}
+	run := &Run{conn: c, id: id, cancel: cancel, listening: true, objective: params.Objective, files: params.Files}
 	work, err := handlers.Run(params, run)
 
 	if err != nil {
@@ -363,15 +354,8 @@ func (c *Conn) track(ctx context.Context, id *int64) (context.Context, context.C
 func (c *Conn) steer(frame protocol.Frame) {
 	var params protocol.SteerParams
 
-	if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (strings.TrimSpace(params.Text) == "" && len(params.Images) == 0) {
-		c.fail(frame.ID, protocol.CodeInvalidParams, "steer needs an id and a text or images")
-		return
-	}
-
-	images, err := prepare(params.Images)
-
-	if err != nil {
-		c.fail(frame.ID, protocol.CodeInvalidParams, err.Error())
+	if frame.ID == nil || json.Unmarshal(frame.Params, &params) != nil || (strings.TrimSpace(params.Text) == "" && len(params.Files) == 0) {
+		c.fail(frame.ID, protocol.CodeInvalidParams, "steer needs an id and a text or files")
 		return
 	}
 
@@ -382,36 +366,7 @@ func (c *Conn) steer(frame protocol.Frame) {
 		return
 	}
 
-	run.hold(frame.ID, params.Text, images)
-}
-
-// prepare checks the images a person gave with what they said and prepares
-// them for the model, as a tool's are: one that is no image, or one too
-// large for any model, is refused here, before it is kept.
-func prepare(images []protocol.Image) ([]protocol.Image, error) {
-	prepared := make([]protocol.Image, 0, len(images))
-
-	for index, given := range images {
-		kind := picture.Kind(given.Data)
-
-		if kind == "" {
-			return nil, fmt.Errorf("image %d is not a PNG, JPEG, GIF, or WebP image", index+1)
-		}
-
-		shown, _, err := picture.Prepare(given.Data, kind)
-
-		if err != nil {
-			return nil, fmt.Errorf("image %d: %w", index+1, err)
-		}
-
-		prepared = append(prepared, shown)
-	}
-
-	if len(prepared) == 0 {
-		return nil, nil
-	}
-
-	return prepared, nil
+	run.hold(frame.ID, params.Text, params.Files)
 }
 
 // find returns the run in progress whose request has id, or for zero the

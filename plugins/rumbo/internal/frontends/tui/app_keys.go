@@ -163,14 +163,14 @@ func (a *app) composerKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 
 		// Tab on an empty composer goes to the sessions, or to the panel
 		// without them.
-		case a.input.empty() && len(a.pasted) == 0 && a.layout().side > 0:
+		case a.input.empty() && len(a.files) == 0 && a.layout().side > 0:
 			a.focus = focusSidebar
 			a.sessions.choose(a.session)
 			a.sessions.reveal(a.height - bodyTop)
 
 			return nil
 
-		case a.input.empty() && len(a.pasted) == 0 && a.panels.shown != panelNone:
+		case a.input.empty() && len(a.files) == 0 && a.panels.shown != panelNone:
 			a.focus = focusPanel
 
 			return nil
@@ -223,9 +223,9 @@ func (a *app) composerKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 		switch {
 		case a.invoking != 0 || a.here() != nil:
 			a.cancel()
-		case !a.input.empty() || len(a.pasted) > 0:
+		case !a.input.empty() || len(a.files) > 0:
 			a.input.clear()
-			a.pasted = nil
+			a.files = nil
 		default:
 			return tea.Quit
 		}
@@ -243,10 +243,10 @@ func (a *app) composerKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 
 		a.input.remove()
 
-	// Backspace on an empty composer takes the last image away.
+	// Backspace on an empty composer takes the last file away.
 	case "backspace", "ctrl+h":
-		if a.input.empty() && len(a.pasted) > 0 {
-			a.pasted = a.pasted[:len(a.pasted)-1]
+		if a.input.empty() && len(a.files) > 0 {
+			a.files = a.files[:len(a.files)-1]
 		} else {
 			a.input.backspace()
 		}

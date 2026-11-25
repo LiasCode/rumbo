@@ -356,7 +356,7 @@ func (a *app) confirmBranch(index int) {
 			Confirm: "Branch from your message “" + quoted + "”: a new session holds the conversation as it was before it, and the message goes in the composer there, to change it or send it again. " +
 				"This session stays as it is, and so do the files: a branch does not undo what the runs changed on disk.",
 		},
-		act:  func() tea.Cmd { return a.branchAt(point, chosen.text, chosen.images, false) },
+		act:  func() tea.Cmd { return a.branchAt(point, chosen.text, chosen.files, false) },
 		conv: a.shown,
 	}
 }
@@ -366,8 +366,8 @@ func (a *app) messageMenu(index int) *actions {
 	chosen, point := a.shown.entries[index], a.shown.point(index)
 
 	return &actions{title: "your message", entries: []action{
-		{group: "in a branch that starts before it", name: "Change it", description: "Put it in the composer, to change it and send it", action: actionEdit, point: point, text: chosen.text, images: chosen.images},
-		{group: "in a branch that starts before it", name: "Ask it again", description: "Send it as it is", action: actionAskAgain, point: point, text: chosen.text, images: chosen.images},
+		{group: "in a branch that starts before it", name: "Change it", description: "Put it in the composer, to change it and send it", action: actionEdit, point: point, text: chosen.text, files: chosen.files},
+		{group: "in a branch that starts before it", name: "Ask it again", description: "Send it as it is", action: actionAskAgain, point: point, text: chosen.text, files: chosen.files},
 		{group: "this message", name: "Copy it", description: "Put its words in the clipboard", action: actionCopyText, text: chosen.text},
 	}}
 }
@@ -424,7 +424,7 @@ func (a *app) copied(msg copiedMsg) {
 // the branch, a rumbo is
 // started for it, and there what the message said is put in the composer
 // to change, or, again, sent as it is once the branch shows what it holds.
-func (a *app) branchAt(point int, text string, images []protocol.Image, again bool) tea.Cmd {
+func (a *app) branchAt(point int, text string, files []string, again bool) tea.Cmd {
 	if a.asking {
 		a.notice = "a command is waiting for its answer"
 		return nil
@@ -449,13 +449,13 @@ func (a *app) branchAt(point int, text string, images []protocol.Image, again bo
 
 		if !again {
 			a.input.set(text)
-			a.pasted = images
+			a.files = files
 
 			return nil
 		}
 
 		// The branch shows what it holds before what is asked in it.
-		send := func() tea.Cmd { return a.submit(text, images) }
+		send := func() tea.Cmd { return a.submit(text, files) }
 
 		if a.shown.loaded {
 			return send()

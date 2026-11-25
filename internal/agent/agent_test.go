@@ -695,7 +695,7 @@ type told struct {
 	said  map[int][]string
 }
 
-func (t *told) Take(record func(string, []protocol.Image) error) error {
+func (t *told) Take(record func(string, []string) error) error {
 	asked := len(t.model.requests)
 	texts := t.said[asked]
 	delete(t.said, asked)
@@ -811,7 +811,7 @@ type script struct {
 	at    map[int]func(record func(string) error) error
 }
 
-func (s *script) Take(record func(string, []protocol.Image) error) error {
+func (s *script) Take(record func(string, []string) error) error {
 	asked := len(s.model.requests)
 	act := s.at[asked]
 	delete(s.at, asked)
@@ -1027,31 +1027,29 @@ func TestACacheMissIsTold(t *testing.T) {
 	}
 }
 
-// gives is an Inbox that tells the run images once the model has received
+// gives is an Inbox that tells the run files once the model has received
 // a given number of requests.
 type gives struct {
-	model  *scripted
-	at     int
-	images []protocol.Image
+	model *scripted
+	at    int
+	files []string
 }
 
-func (g *gives) Take(record func(string, []protocol.Image) error) error {
-	if len(g.model.requests) != g.at || g.images == nil {
+func (g *gives) Take(record func(string, []string) error) error {
+	if len(g.model.requests) != g.at || g.files == nil {
 		return nil
 	}
 
-	images := g.images
-	g.images = nil
+	files := g.files
+	g.files = nil
 
-	return record("", images)
+	return record("", files)
 }
 
-// What a person gives with an objective, or tells a run, reaches the model
-// with it, and the objective's images come back after a compaction, which
-// has only words for them.
-func TestImagesReachTheModelAndOutliveACompaction(t *testing.T) {
-	mockup := protocol.Image{MediaType: "image/png", Data: []byte("mockup")}
-	crop := protocol.Image{MediaType: "image/png", Data: []byte("crop")}
+// The files a person gives with an objective, or tells a run, are named to
+// the model with it, and the objective's are named again after a
+// compaction.
+func TestFilesAreNamedToTheModelAndOutliveACompaction(t *testing.T) {
 	model := &scripted{
 		usage: protocol.Usage{Input: 120, Output: 10},
 		answers: []protocol.Message{
@@ -1063,16 +1061,16 @@ func TestImagesReachTheModelAndOutliveACompaction(t *testing.T) {
 
 	worker, _, session, _ := setup(t, model)
 	worker.Compaction = Compaction{Tokens: 100}
-	worker.Inbox = &gives{model: model, at: 1, images: []protocol.Image{crop}}
+	worker.Inbox = &gives{model: model, at: 1, files: []string{"shots/crop.png"}}
 
-	if err := worker.Run(context.Background(), session, "build this", mockup); err != nil {
+	if err := worker.Run(context.Background(), session, "build this", "/tmp/mockup.pdf"); err != nil {
 		t.Fatal(err)
 	}
 
 	first := model.requests[0].Messages[0].Content
 	given := first[len(first)-1]
 
-	if given.Text != "build this" || len(given.Images) != 1 || string(given.Images[0].Data) != "mockup" {
+	if given.Text != "build this\n\n[file given: /tmp/mockup.pdf]" {
 		t.Fatalf("the first request ends with %+v", given)
 	}
 
@@ -1082,15 +1080,15 @@ func TestImagesReachTheModelAndOutliveACompaction(t *testing.T) {
 	steered := asked[len(asked)-1].Content
 
 	if !slices.ContainsFunc(steered, func(block protocol.Block) bool {
-		return len(block.Images) == 1 && string(block.Images[0].Data) == "crop"
+		return block.Text == "[file given: shots/crop.png]"
 	}) {
-		t.Fatalf("the summary request does not show the steer's image: %+v", steered)
+		t.Fatalf("the summary request does not name the steer's file: %+v", steered)
 	}
 
 	after := model.requests[2].Messages[0].Content
 	summary := after[len(after)-1]
 
-	if !strings.Contains(summary.Text, "build this") || len(summary.Images) != 1 || string(summary.Images[0].Data) != "mockup" {
+	if !strings.Contains(summary.Text, "build this\n\n[file given: /tmp/mockup.pdf]") {
 		t.Fatalf("after the compaction the model saw %+v", summary)
 	}
 }

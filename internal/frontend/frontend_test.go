@@ -1,13 +1,10 @@
 package frontend
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	"image/png"
 	"io"
 	"slices"
 	"strings"
@@ -121,7 +118,7 @@ func hear(ctx context.Context, run *Run) string {
 	var heard []string
 
 	for len(heard) == 0 && ctx.Err() == nil {
-		run.Take(func(text string, _ []protocol.Image) error {
+		run.Take(func(text string, _ []string) error {
 			heard = append(heard, text)
 			return nil
 		})
@@ -649,45 +646,38 @@ func TestAFrontEndSaysTheConfigurationInForce(t *testing.T) {
 	}
 }
 
-// The images a person gives are checked and prepared where they arrive, as
-// a tool's are, and a task or a steer of images alone is taken.
-func TestImagesArePreparedWhereTheyArrive(t *testing.T) {
+// The files a person gives reach the run as the front end named them, and
+// a task or a steer of files alone is taken.
+func TestFilesReachTheRunAsTheyWereGiven(t *testing.T) {
 	host, front, _ := connect(t, "")
 	given := make(chan protocol.RunParams, 1)
-	steered := make(chan []protocol.Image, 1)
+	steered := make(chan []string, 1)
 
 	go host.Serve(Handlers{Run: func(params protocol.RunParams, run *Run) (Work, error) {
 		given <- params
 
 		return func(ctx context.Context) (string, error) {
-			run.Attach("s-images")
+			run.Attach("s-files")
 			run.Notice("waiting to be told")
 
 			for ctx.Err() == nil {
-				run.Take(func(_ string, images []protocol.Image) error {
-					steered <- images
+				run.Take(func(_ string, files []string) error {
+					steered <- files
 					return nil
 				})
 
 				time.Sleep(time.Millisecond)
 			}
 
-			return "s-images", ctx.Err()
+			return "s-files", ctx.Err()
 		}, nil
 	}})
 
-	if _, err := front.Start(protocol.RunParams{Images: []protocol.Image{{MediaType: "image/png", Data: []byte("not a picture")}}}, nil); err == nil || !strings.Contains(err.Error(), "image 1 is not a PNG") {
-		t.Fatalf("a run with no image in its images: err = %v", err)
-	}
-
-	// A 16-bit gray PNG, which some model APIs take for a blank one.
-	var gray bytes.Buffer
-	png.Encode(&gray, image.NewGray16(image.Rect(0, 0, 4, 2)))
 	runs := make(chan int64, 1)
 	ended := make(chan protocol.RunResult, 1)
 
 	go func() {
-		result, _ := front.Start(protocol.RunParams{Images: []protocol.Image{{MediaType: "image/png", Data: gray.Bytes()}}}, func(event protocol.Event) {
+		result, _ := front.Start(protocol.RunParams{Files: []string{"notes/plan.pdf"}}, func(event protocol.Event) {
 			select {
 			case runs <- event.Run:
 			default:
@@ -699,16 +689,16 @@ func TestImagesArePreparedWhereTheyArrive(t *testing.T) {
 
 	params := <-given
 
-	if params.Objective != "" || len(params.Images) != 1 || params.Images[0].Data[24] != 8 {
-		t.Fatalf("the run was given %q and %d image(s)", params.Objective, len(params.Images))
+	if params.Objective != "" || !slices.Equal(params.Files, []string{"notes/plan.pdf"}) {
+		t.Fatalf("the run was given %q and the files %q", params.Objective, params.Files)
 	}
 
-	if err := front.SteerRun(<-runs, "", protocol.Image{MediaType: "image/png", Data: gray.Bytes()}); err != nil {
+	if err := front.SteerRun(<-runs, "", "/tmp/shot.png"); err != nil {
 		t.Fatal(err)
 	}
 
-	if images := <-steered; len(images) != 1 || images[0].Data[24] != 8 {
-		t.Fatalf("the steer brought %d image(s)", len(images))
+	if files := <-steered; !slices.Equal(files, []string{"/tmp/shot.png"}) {
+		t.Fatalf("the steer brought the files %q", files)
 	}
 
 	front.Cancel()

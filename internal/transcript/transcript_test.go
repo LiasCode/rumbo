@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/LiasCode/rumbo/internal/store"
@@ -178,10 +179,36 @@ func TestBuildKeepsTheImagesOfAResult(t *testing.T) {
 	}
 }
 
-// What a person gives with their words goes to the model with them, and the
-// objective's images come back with the summary that replaces the
-// conversation, which has only words for them.
-func TestBuildShowsWhatAPersonGave(t *testing.T) {
+// The files a person gives with their words are named to the model after
+// them, each in a line, and alone when there are no words.
+func TestBuildNamesTheFilesAPersonGave(t *testing.T) {
+	state, err := Build([]store.Entry{
+		entry(1, KindUser, Text{Text: "sum these up", Files: []string{"/tmp/report.pdf", "data/sales.csv"}}),
+		entry(2, KindAssistant, Assistant{Message: protocol.Message{Role: protocol.RoleAssistant, Content: []protocol.Block{{Type: protocol.BlockText, Text: "ok"}}}}),
+		entry(3, KindSteer, Text{Files: []string{"shot.png"}}),
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first := state.Messages[0].Content[0]; first.Text != "sum these up\n\n[file given: /tmp/report.pdf]\n[file given: data/sales.csv]" || len(first.Images) != 0 {
+		t.Fatalf("objective = %+v", first)
+	}
+
+	if steer := state.Messages[2].Content[0]; steer.Text != "[file given: shot.png]" {
+		t.Fatalf("steer = %+v", steer)
+	}
+
+	if state.Objective != "sum these up" || !slices.Equal(state.ObjectiveFiles, []string{"/tmp/report.pdf", "data/sales.csv"}) {
+		t.Fatalf("objective %q with the files %q", state.Objective, state.ObjectiveFiles)
+	}
+}
+
+// A session of when a person could give images with their words still
+// shows them to the model, and the objective's with the summary that
+// replaces the conversation, which has only words for them.
+func TestBuildShowsTheImagesASessionHolds(t *testing.T) {
 	mockup := protocol.Image{MediaType: "image/png", Data: []byte("mockup")}
 	crop := protocol.Image{MediaType: "image/png", Data: []byte("crop")}
 

@@ -49,8 +49,8 @@ func (a *app) enter() tea.Cmd {
 		return a.refreshMenu()
 	}
 
-	line, images := strings.TrimSpace(a.input.String()), a.pasted
-	said := line != "" || len(images) > 0
+	line, files := strings.TrimSpace(a.input.String()), a.files
+	said := line != "" || len(files) > 0
 
 	if line != "" {
 		a.history.add(line)
@@ -65,9 +65,9 @@ func (a *app) enter() tea.Cmd {
 		a.input.clear()
 		return a.command(line)
 	case said && run != nil:
-		return a.steer(run, line, images)
+		return a.steer(run, line, files)
 	case said:
-		return a.submit(line, images)
+		return a.submit(line, files)
 	}
 
 	return nil
@@ -312,7 +312,7 @@ func (a *app) help(args []string) string {
 	}
 
 	out.WriteString("\n/help <command> says more of one, with examples. A slash on an empty line opens the menu of the commands, as Ctrl-P does: Up and Down choose, Tab or Enter take, Escape closes it; it goes on with what the command takes next, and what is still to type shows after the cursor.\n")
-	out.WriteString("Enter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the image in the clipboard to what you send next.\n")
+	out.WriteString("Enter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the image in the clipboard to what you send next, as a file; /attach adds any file.\n")
 	out.WriteString("Escape cancels the run; Ctrl-C does too, else clears what is typed, else quits.\n")
 	out.WriteString("Shift-Tab goes up into the conversation, where j and k, or Up and Down, choose, K and J go to your messages, and gg and G to either end. Enter on a tool call shows all of it, on what you asked offers to change it or ask it again in a branch, and on anything else copies it; c copies what is chosen, and b branches from the message of yours its task started with, once you agree.\n")
 	out.WriteString("Each session is a rumbo of its own. With the sessions shown (Ctrl-B), Tab on an empty line goes to them, where j, k, gg, and G choose, Enter shows one, starting its rumbo, and d deletes one, once you agree; Ctrl-N starts a new one. The runs of the sessions you leave go on.\n")
@@ -563,8 +563,8 @@ func (a *app) offered(msg choicesMsg) {
 	msg.menu.filter(token)
 }
 
-// pasteImage reads the image in the clipboard into the composer, in the
-// background, since the clipboard may take a moment.
+// pasteImage saves the image in the clipboard as a file and puts it in the
+// composer, in the background, since the clipboard may take a moment.
 func (a *app) pasteImage() tea.Cmd {
 	read := a.clipboard
 
@@ -582,9 +582,9 @@ func (a *app) pasteImage() tea.Cmd {
 			return pastedMsg{err: err}
 		}
 
-		shown, err := prepared(data)
+		file, err := keep(data)
 
-		return pastedMsg{shown, err}
+		return pastedMsg{file, err}
 	}
 }
 

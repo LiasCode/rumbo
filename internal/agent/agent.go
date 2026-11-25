@@ -40,9 +40,9 @@ type Observer interface {
 // before every request, so what was said reaches the model at its next turn.
 type Inbox interface {
 	// Take passes what was said since the last call to record, in order,
-	// each text with the images given with it, and stops at the first
+	// each text with the files given with it, and stops at the first
 	// error, which it returns.
-	Take(record func(text string, images []protocol.Image) error) error
+	Take(record func(text string, files []string) error) error
 }
 
 // DefaultRetryWaits are the pauses before each retry of a request that
@@ -102,11 +102,11 @@ type Agent struct {
 	RetryWaits []time.Duration
 }
 
-// Run works on objective, and the images given with it, in the given
+// Run works on objective, and the files given with it, in the given
 // session until the model stops, a limit is reached, or ctx is cancelled.
-func (a *Agent) Run(ctx context.Context, session store.Session, objective string, images ...protocol.Image) error {
+func (a *Agent) Run(ctx context.Context, session store.Session, objective string, files ...string) error {
 	ctx = tool.InSession(ctx, session.ID)
-	given := transcript.Text{Text: objective, Images: images}
+	given := transcript.Text{Text: objective, Files: files}
 	err := a.prepare(ctx, session)
 
 	if err == nil {
@@ -141,7 +141,7 @@ func (a *Agent) Resume(ctx context.Context, session store.Session) error {
 	}
 
 	if err == nil {
-		err = a.loop(ctx, session, transcript.Text{Text: state.Objective, Images: state.ObjectiveImages})
+		err = a.loop(ctx, session, transcript.Text{Text: state.Objective, Files: state.ObjectiveFiles, Images: state.ObjectiveImages})
 	}
 
 	return a.finish(ctx, session, err)
@@ -242,8 +242,8 @@ func (a *Agent) listen(session store.Session) ([]transcript.Text, error) {
 
 	var heard []transcript.Text
 
-	err := a.Inbox.Take(func(text string, images []protocol.Image) error {
-		told := transcript.Text{Text: text, Images: images}
+	err := a.Inbox.Take(func(text string, files []string) error {
+		told := transcript.Text{Text: text, Files: files}
 
 		if err := a.append(session, transcript.KindSteer, told); err != nil {
 			return err
@@ -324,7 +324,7 @@ func (a *Agent) Compact(ctx context.Context, session store.Session) (int64, erro
 		return 0, errors.New("there is no conversation to compact yet")
 	}
 
-	objective := transcript.Text{Text: state.Objective, Images: state.ObjectiveImages}
+	objective := transcript.Text{Text: state.Objective, Files: state.ObjectiveFiles, Images: state.ObjectiveImages}
 
 	return state.Tokens, a.summarize(ctx, session, state, state.Messages, objective, "")
 }
@@ -405,7 +405,7 @@ func (a *Agent) summarize(ctx context.Context, session store.Session, state tran
 
 	return a.append(session, transcript.KindCompaction, transcript.Compaction{
 		Prompt:   summarize,
-		Text:     fmt.Sprintf(compacted, summary, objective.Text) + note,
+		Text:     fmt.Sprintf(compacted, summary, objective.Said()) + note,
 		Images:   objective.Images,
 		Usage:    result.Usage,
 		Provider: a.ProviderName,

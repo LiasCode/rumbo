@@ -40,7 +40,7 @@ evaluation set before and after it: `go run ./evals -model <provider>/<model>`.
 
 60. **Front ends do not see a tool's images.** A tool's events carry its
     text, so a person following a run is not shown the screenshots the
-    model is; the images a person gave are in the history.
+    model is.
 
 ### Provider options
 

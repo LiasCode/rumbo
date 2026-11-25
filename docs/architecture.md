@@ -48,8 +48,9 @@ tokens on every request, and a shell already reaches everything else. A
 result is text, and may show the model images as well: `read` shows an
 image file as an image, with text that says what it is for a provider that
 cannot send it. `internal/picture` prepares every image the model is shown,
-a tool's or one a person gives with a task, at a size a model sees whole
-and in a form every model API reads. The tools keep a little state: a record of the files the model has seen,
+at a size a model sees whole and in a form every model API reads. What a
+person gives with a task is files of any kind, by their paths: the model is
+told the paths, and reads the files with its tools as it does any other. The tools keep a little state: a record of the files the model has seen,
 so it cannot replace a file whole without knowing what is in it, the
 processes left running in the background, and the files the tools save
 for the model. All of it is the host's, and goes when it exits.

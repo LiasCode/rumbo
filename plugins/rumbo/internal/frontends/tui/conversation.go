@@ -72,7 +72,7 @@ const (
 type entry struct {
 	kind   int
 	text   string
-	images []protocol.Image
+	files  []string
 	failed bool
 	// label marks a log line or an answer with where it comes from.
 	label string
@@ -127,10 +127,10 @@ func (c *conversation) last() *entry {
 
 // ask shows what the person asked a run started at now, which starts what
 // the run takes. A run resumed shows what stands for it, which is no task.
-func (c *conversation) ask(text string, images []protocol.Image, resumed bool, now time.Time) {
+func (c *conversation) ask(text string, files []string, resumed bool, now time.Time) {
 	c.settle("it never finished", now)
 	c.run = tally{started: now}
-	c.add(&entry{kind: entryTask, text: text, images: images, resumed: resumed})
+	c.add(&entry{kind: entryTask, text: text, files: files, resumed: resumed})
 }
 
 // point is the number of the person's message an entry is, counted from 1
@@ -291,10 +291,10 @@ func (c *conversation) apply(event protocol.Event, told bool, now time.Time) {
 	case protocol.EventObjective:
 		c.settle("it never finished", now)
 		c.run = tally{}
-		c.add(&entry{kind: entryTask, text: event.Text, images: event.Images})
+		c.add(&entry{kind: entryTask, text: event.Text, files: event.Files})
 
 	case protocol.EventSteer:
-		c.add(&entry{kind: entrySteer, text: event.Text, images: event.Images})
+		c.add(&entry{kind: entrySteer, text: event.Text, files: event.Files})
 
 	case protocol.EventEnded:
 		// A history says how long the run took, which ends at now here.
@@ -451,7 +451,7 @@ func (e *entry) drawn(t theme, width int, now time.Time) []string {
 func (e *entry) draw(t theme, width int) []string {
 	switch e.kind {
 	case entryTask, entrySteer:
-		return bubble(t, e.text, e.images, e.kind == entrySteer, width)
+		return bubble(t, e.text, e.files, e.kind == entrySteer, width)
 
 	case entryReply:
 		return reply(t, e.text, e.open, width)
@@ -559,9 +559,9 @@ func reply(t theme, text string, open bool, width int) []string {
 }
 
 // bubble draws what the person said in a box on the right, as a chat
-// shows it, with the images they gave under it, and over what they told a
+// shows it, with the files they gave under it, and over what they told a
 // run while it worked, a word saying so.
-func bubble(t theme, text string, images []protocol.Image, steered bool, width int) []string {
+func bubble(t theme, text string, files []string, steered bool, width int) []string {
 	room := max(min(width*3/4, width-4)-4, 1)
 
 	var inside []string
@@ -570,8 +570,8 @@ func bubble(t theme, text string, images []protocol.Image, steered bool, width i
 		inside = append(inside, wrap(line, room)...)
 	}
 
-	if len(images) > 0 {
-		inside = append(inside, wrap(styleDim+imageLabels(images)+styleReset, room)...)
+	if len(files) > 0 {
+		inside = append(inside, wrap(styleDim+fileLabels(files)+styleReset, room)...)
 	}
 
 	wide := 0

@@ -1,10 +1,12 @@
 # Agent Frontend Protocol
 
-Version 2. In version 1 a host worked in several sessions of a project: a
+Version 3. In version 1 a host worked in several sessions of a project: a
 `run` and a `history` could name one, and the host had functions that
 listed them and moved between them. A host is now one session, so those
-are gone, and a host and a front end that speak different versions refuse
-each other in `initialize`.
+are gone. In version 2 a person gave images with what they said, in an
+`images` field of `run` and `steer`; they now give files of any kind, by
+their paths, in `files`. A host and a front end that speak different
+versions refuse each other in `initialize`.
 
 The protocol connects a **front end** to the rumbo host. A front end is what a
 person uses: it sends objectives and shows what the agent does. The host owns
@@ -91,7 +93,7 @@ The host speaks first.
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-  "protocol": 2,
+  "protocol": 3,
   "dir": "/home/me/project",
   "session": "4cf0261c",
   "title": "fix the failing test",
@@ -140,14 +142,15 @@ continues the session's last run where it stopped: one that failed, was
 cancelled, or was cut short by the host dying. It is an error when the last
 run finished.
 
-`images` are pictures the person gave with the objective, such as one
-pasted: a list of `{"media_type": "image/png", "data": "<base64>"}`, as in a
-tool's result (see [protocol.md](protocol.md#content-blocks)). They go to
-the model with the objective, and come back with the summary when the
-conversation is compacted. A run of images alone, with no objective, is
-taken too. The host prepares each one for the model, made smaller when it
-is large, and refuses the run when one is not a PNG, JPEG, GIF, or WebP
-image.
+`files` are what the person gave with the objective: a list of paths, each
+of a file of any kind where the host runs, absolute or from the session's
+directory. The host reads none of them: it tells the model each path after
+the objective, and the model reads the file with its tools when it needs
+to. A run of files alone, with no objective, is taken too. What has no
+path, such as an image pasted from the clipboard, or a file from another
+machine, the front end saves first, where and for as long as it chooses;
+the host keeps the path, not the file, so a history names a file that may
+be gone.
 
 It runs in the host's session, which has one run at a time: a run sent
 while another works, or while the session is being compacted, is refused
@@ -396,7 +399,7 @@ Tells a run something while it works: the run whose request had the id
 `run`, or without it the run in progress. The text reaches the model
 before its next request, as the user's words, and the run's objective stays
 as it was. If the model was about to finish, the run goes on so the model
-reads it. `images` go with the text, or alone, as they do with `run`.
+reads it. `files` go with the text, or alone, as they do with `run`.
 
 The result, `{}`, arrives once the text is recorded for the model. An error
 means it never will be: the run is not in progress, or it ended first. A front end can offer the text as a new `run`
@@ -423,8 +426,8 @@ selects the other fields:
 | `tool_finished` | `name`, `result`, `failed` | The call ended; `result` is what the model receives. |
 | `turn` | `usage`, `context`, `window` | One model response finished. `usage` is what it cost; `context` is how many tokens the conversation takes now; `window` is how many the model holds, when the provider said. |
 | `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output, `extension` for an extension's, which starts with the extension's name, and `host` for what the host has to say, such as a request it retried or one that missed the provider's cache. |
-| `objective` | `text`, `images` | The objective a run was given, and the images given with it. Only in a [history](#history-request-front-end-to-host). |
-| `steer` | `text`, `images` | What the person told a run while it worked. Only in a history. |
+| `objective` | `text`, `files` | The objective a run was given, and the paths of the files given with it. Only in a [history](#history-request-front-end-to-host). |
+| `steer` | `text`, `files` | What the person told a run while it worked, and the files given with it. Only in a history. |
 | `ended` | `status`, `text`, `took` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. `took` is how long the run took, in milliseconds, from what it was prepared with to its end, or from where it was resumed; absent when the session does not know. Only in a history. |
 
 A front end ignores event types and fields it does not know. New ones may be

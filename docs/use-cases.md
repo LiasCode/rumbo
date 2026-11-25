@@ -72,6 +72,9 @@ knows no model API.
 - Take what the user tells a run while it works, give it to the model before
   its next request, and keep the run going when the model was about to
   finish.
+- Tell the model the paths of the files given with an objective, or with
+  what a run is told, after the words. It reads none of them and treats
+  every kind alike: the model reads a file with its tools when it needs to.
 - Cancel one run, or all of them.
 - Resume a run that failed, was cancelled, or was cut short by the host
   dying, telling the model it was interrupted.
@@ -614,8 +617,10 @@ speaks the Agent Frontend Protocol with the host.
 - Show what a session held before it was continued, from its history.
 - Bring back to its input what the person asked in the sessions of the
   host's directory, which the host recalls.
-- Give images with a task, or with what it tells a run, such as one pasted
-  from the clipboard.
+- Give files with a task, or with what it tells a run, by their paths
+  where the host runs. What has no path there, such as an image pasted
+  from the clipboard, it saves first, where and for as long as it
+  chooses.
 - Tell a run something while it works, and offer it as a new task when the
   run ended first.
 - Cancel one run, or all of them.
@@ -731,10 +736,10 @@ speaks the Agent Frontend Protocol with the host.
 - Its commands are few, each in the person's words, and made of the
   functions the host, the provider, and the extensions describe, which a
   person need not know (`verbs.go`, `verbs_config.go`): `/new`,
-  `/sessions`, `/resume`, `/rename`, `/branch`, `/compact`, `/delete`,
-  `/copy`, `/export`, `/status`, `/changes`, `/model`, `/login`,
-  `/logout`, `/providers`, `/extensions`, `/settings`, `/rumbos`,
-  `/help`, and `/quit`. Those functions are not commands of their own,
+  `/sessions`, `/resume`, `/rename`, `/branch`, `/attach`, `/compact`,
+  `/delete`, `/copy`, `/export`, `/status`, `/changes`, `/model`,
+  `/login`, `/logout`, `/providers`, `/extensions`, `/settings`,
+  `/rumbos`, `/help`, and `/quit`. Those functions are not commands of their own,
   nor are the provider's and the extensions'; a function of the host no
   command wraps, as a newer host has, is one, under its name, but for
   those there to list a parameter's values. `/help` lists the commands by
@@ -815,10 +820,13 @@ speaks the Agent Frontend Protocol with the host.
   entered; Ctrl-R searches it. It starts with what the host recalls of the
   project's sessions, and adds what is entered while it runs, commands
   too, which it keeps nowhere; answers to a question are not in it.
-- Ctrl-V reads the image in the desktop's clipboard, with `wl-paste` on
-  Wayland, `xclip` on X11, or AppKit on macOS, since a terminal pastes text
-  only; the images wait in the composer for what is sent next, and
-  Backspace on an empty composer takes the last one away.
+- `/attach` gives a file of any kind with what is sent next, by its path,
+  from the session's directory. Ctrl-V does it for the image in the
+  desktop's clipboard, read with `wl-paste` on Wayland, `xclip` on X11, or
+  AppKit on macOS, since a terminal pastes text only, and saved as it is
+  in the user's cache (`rumbo/pasted`), where it stays. The files wait in
+  the composer for what is sent next, and Backspace on an empty composer
+  takes the last one away.
 - Escape gives up a provider's function in progress, else cancels the run
   of the session shown. Ctrl-C does the same, else clears the composer,
   else quits; Ctrl-D quits on an empty composer.

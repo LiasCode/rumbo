@@ -17,8 +17,10 @@ import (
 
 // FrontendVersion is the version of the front end protocol this package
 // implements. In version 2 a host is one session: a run names no session
-// and starts no other one, and history is the host's session's.
-const FrontendVersion = 2
+// and starts no other one, and history is the host's session's. In version
+// 3 what a person gives with what they say is files, named by their paths,
+// and no images.
+const FrontendVersion = 3
 
 // Frontend method names. initialize and invoke are shared with the provider
 // protocol.
@@ -128,14 +130,16 @@ type HostState struct {
 	Model    string `json:"model"`
 }
 
-// RunParams starts a run on Objective, and the Images the person gave with
+// RunParams starts a run on Objective, and the Files the person gave with
 // it, or, with Resume, continues the session's last run where it stopped.
+// A file is the path of one where the host runs, of any kind: the host
+// tells the model the path, and the model reads the file with its tools.
 // The run works in the host's session, which has one run at a time. Model
 // and Options choose, for this run, what the provider described; what is
 // left out keeps its stored value.
 type RunParams struct {
 	Objective string          `json:"objective,omitempty"`
-	Images    []Image         `json:"images,omitempty"`
+	Files     []string        `json:"files,omitempty"`
 	Resume    bool            `json:"resume,omitempty"`
 	Model     string          `json:"model,omitempty"`
 	Options   json.RawMessage `json:"options,omitempty"`
@@ -166,10 +170,11 @@ type FrontendAskParams struct {
 // SteerParams is what the user says to a run in progress, named by the id of
 // its run request; without one, to the run in progress. It reaches the
 // model before its next request, and the run's objective stays as it was.
+// Files are those given with it, as a run's are.
 type SteerParams struct {
-	Text   string  `json:"text"`
-	Images []Image `json:"images,omitempty"`
-	Run    int64   `json:"run,omitempty"`
+	Text  string   `json:"text"`
+	Files []string `json:"files,omitempty"`
+	Run   int64    `json:"run,omitempty"`
 }
 
 // DescribeResult is what the provider in use offers and what is in force.
@@ -218,9 +223,9 @@ type RunResult struct {
 //   - log: Text, and Source saying whose line it is: the provider's own
 //     output, an extension's, which starts with its name, or something the
 //     host did, such as retrying a request.
-//   - objective: Text, the objective a run was given, and the Images given
+//   - objective: Text, the objective a run was given, and the Files given
 //     with it.
-//   - steer: Text, what the person told a run while it worked, and Images.
+//   - steer: Text, what the person told a run while it worked, and Files.
 //   - ended: Status, how a run ended, as a RunResult says it; Text, why a
 //     failed run failed; and Took, how long the run took, in milliseconds,
 //     when the session knows it.
@@ -242,7 +247,7 @@ type Event struct {
 	Context  int64           `json:"context,omitempty"`
 	Window   int64           `json:"window,omitempty"`
 	Usage    *Usage          `json:"usage,omitempty"`
-	Images   []Image         `json:"images,omitempty"`
+	Files    []string        `json:"files,omitempty"`
 	Status   string          `json:"status,omitempty"`
 	Took     int64           `json:"took,omitempty"`
 }
@@ -396,12 +401,12 @@ func (c *FrontendConn) Steer(text string) error {
 	return c.SteerRun(0, text)
 }
 
-// SteerRun tells text, and images, to one run, named by the id of its
+// SteerRun tells text, and files, to one run, named by the id of its
 // request, which its events carry, and returns like Steer.
-func (c *FrontendConn) SteerRun(run int64, text string, images ...Image) error {
+func (c *FrontendConn) SteerRun(run int64, text string, files ...string) error {
 	var result struct{}
 
-	return c.request(MethodSteer, SteerParams{Text: text, Images: images, Run: run}, &result, nil)
+	return c.request(MethodSteer, SteerParams{Text: text, Files: files, Run: run}, &result, nil)
 }
 
 // Describe asks what the provider in use offers and what is in force.

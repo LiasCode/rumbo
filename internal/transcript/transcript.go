@@ -60,11 +60,33 @@ type Context struct {
 
 // Text is the payload of user, steer, and harness entries. A user entry is
 // an objective; a steer is what the user said to a run while it worked,
-// which leaves the objective as it was. Images are those the user gave with
-// it, prepared for the model.
+// which leaves the objective as it was. Files are the paths of those the
+// user gave with it. Images are those given with it when a person could
+// give images, which the sessions of then still hold.
 type Text struct {
 	Text   string           `json:"text"`
+	Files  []string         `json:"files,omitempty"`
 	Images []protocol.Image `json:"images,omitempty"`
+}
+
+// Said is what the model reads of it: the text, and a line that names each
+// file, which the model reads with its tools when it needs to.
+func (t Text) Said() string {
+	said := t.Text
+
+	for index, file := range t.Files {
+		if index == 0 && said != "" {
+			said += "\n"
+		}
+
+		if said != "" {
+			said += "\n"
+		}
+
+		said += "[file given: " + file + "]"
+	}
+
+	return said
 }
 
 // Assistant is a model response and where it came from.
@@ -140,9 +162,11 @@ type State struct {
 	System   System
 	Messages []protocol.Message
 	Sections map[string]string
-	// Objective is the one the last run worked on, and ObjectiveImages the
-	// images it came with.
+	// Objective is the one the last run worked on, ObjectiveFiles the files
+	// given with it, and ObjectiveImages the images, in a session of when
+	// a person could give them.
 	Objective       string
+	ObjectiveFiles  []string
 	ObjectiveImages []protocol.Image
 	// Unfinished is true when the last run did not end with a done note, so
 	// it can be resumed.
@@ -273,12 +297,12 @@ func (b *builder) add(entry store.Entry) error {
 		}
 
 		if entry.Kind == KindUser {
-			b.state.Objective, b.state.ObjectiveImages = text.Text, text.Images
+			b.state.Objective, b.state.ObjectiveFiles, b.state.ObjectiveImages = text.Text, text.Files, text.Images
 			b.state.Unfinished = true
 		}
 
 		b.closePending()
-		b.user(protocol.Block{Type: protocol.BlockText, Text: text.Text, Images: text.Images})
+		b.user(protocol.Block{Type: protocol.BlockText, Text: text.Said(), Images: text.Images})
 
 	case KindAssistant:
 		var assistant Assistant

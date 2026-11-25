@@ -1,28 +1,25 @@
 package tui
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/gif" // registers the format with image.DecodeConfig
-	_ "image/jpeg"
-	_ "image/png"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/LiasCode/rumbo/internal/picture"
-	"github.com/LiasCode/rumbo/protocol"
 )
 
 // A terminal pastes text only, so Ctrl-V reads an image from the desktop's
-// clipboard itself, and the input keeps it for the next task or steer.
+// clipboard itself. The model is given files, by their paths, so the image
+// is saved as one, and the input keeps its path for the next task or steer.
 
 // clipboardTimeout bounds how long reading the clipboard may take.
 const clipboardTimeout = 5 * time.Second
@@ -34,37 +31,40 @@ var clipboardTypes = []string{"image/png", "image/jpeg", "image/webp", "image/gi
 // errNoImage says the clipboard holds no image a model takes.
 var errNoImage = errors.New("the clipboard holds no image; your terminal pastes text, often with Ctrl-Shift-V")
 
-// prepared returns the image in data as the model will be shown it, which
-// is also what is sent: no larger than it needs to be.
-func prepared(data []byte) (protocol.Image, error) {
+// keep saves the clipboard's image in data as a file and returns its path.
+// It goes in the user's cache, so a session shown again later still finds
+// it, under a name made of what it holds, so the same image is kept once.
+func keep(data []byte) (string, error) {
 	kind := picture.Kind(data)
 
 	if kind == "" {
-		return protocol.Image{}, errors.New("the clipboard's image is not a PNG, JPEG, GIF, or WebP image")
+		return "", errors.New("the clipboard's image is not a PNG, JPEG, GIF, or WebP image")
 	}
 
-	shown, _, err := picture.Prepare(data, kind)
+	cache, err := os.UserCacheDir()
 
-	return shown, err
-}
-
-// imageLabel says what an image is, such as "png, 1280×720".
-func imageLabel(given protocol.Image) string {
-	format := strings.TrimPrefix(given.MediaType, "image/")
-
-	if config, _, err := image.DecodeConfig(bytes.NewReader(given.Data)); err == nil {
-		return fmt.Sprintf("%s, %d×%d", format, config.Width, config.Height)
+	if err != nil {
+		return "", fmt.Errorf("the pasted image has nowhere to be kept: %w", err)
 	}
 
-	return format
+	dir := filepath.Join(cache, "rumbo", "pasted")
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+
+	sum := sha256.Sum256(data)
+	path := filepath.Join(dir, fmt.Sprintf("pasted-%x.%s", sum[:4], strings.TrimPrefix(kind, "image/")))
+
+	return path, os.WriteFile(path, data, 0o600)
 }
 
-// imageLabels shows images as a row of their labels.
-func imageLabels(images []protocol.Image) string {
-	labels := make([]string, len(images))
+// fileLabels shows files as a row of their names.
+func fileLabels(files []string) string {
+	labels := make([]string, len(files))
 
-	for index, given := range images {
-		labels[index] = fmt.Sprintf("[image %d: %s]", index+1, imageLabel(given))
+	for index, file := range files {
+		labels[index] = "[" + filepath.Base(file) + "]"
 	}
 
 	return strings.Join(labels, "  ")
@@ -88,7 +88,7 @@ func readClipboard(ctx context.Context) ([]byte, error) {
 			func(kind string) []string { return []string{"-selection", "clipboard", "-target", kind, "-out"} })
 	}
 
-	return nil, errors.New("there is no desktop clipboard where rumbo runs, as over ssh; give the image's path in the task, and the model reads it")
+	return nil, errors.New("there is no desktop clipboard where rumbo runs, as over ssh; give the image's file with /attach")
 }
 
 // listedClipboard reads a clipboard whose program lists the types it holds,

@@ -3,6 +3,8 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -123,6 +125,16 @@ func verbs() []verb {
 			examples: []string{"/branch", "/branch 2"},
 			complete: func(a *app, args []string, _ string) func() ([]choice, string) { return a.messageChoices(args) },
 			run:      func(a *app, args []string) tea.Cmd { return a.branchCommand(args) },
+		},
+		{
+			name: "attach", group: groupSessions, args: "<file>", description: "Give a file with what you send next, by its path; the model reads it with its tools when it needs to",
+			examples: []string{"/attach notes/plan.pdf"},
+			complete: func(*app, []string, string) func() ([]choice, string) {
+				return func() ([]choice, string) {
+					return nil, "<file>  the words that follow are its path, from the session's folder"
+				}
+			},
+			run: func(a *app, args []string) tea.Cmd { return a.give(args) },
 		},
 		{
 			name: "compact", group: groupSessions, description: "Replace the conversation with a summary now, to free the model's context",
@@ -413,6 +425,34 @@ func (a *app) deleteCommand(args []string) tea.Cmd {
 	return a.deleteSession(session)
 }
 
+// give puts a file in the composer, to go with what is sent next. Its
+// path is from the session's folder, where the model's tools read it from,
+// and is given to the model as it was typed, with ~ as the home directory.
+func (a *app) give(args []string) tea.Cmd {
+	path := strings.Join(args, " ")
+
+	if rest, homed := strings.CutPrefix(path, "~/"); homed {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, rest)
+		}
+	}
+
+	found := path
+
+	if !filepath.IsAbs(found) {
+		found = filepath.Join(a.info.Dir, found)
+	}
+
+	if _, err := os.Stat(found); path == "" || err != nil {
+		a.shown.add(&entry{kind: entryAnswer, text: "there is no file at " + found, failed: true})
+		return nil
+	}
+
+	a.files = append(a.files, path)
+
+	return nil
+}
+
 // messageChoices offers the person's messages a branch can start before,
 // by their number, each with what it said.
 func (a *app) messageChoices(args []string) func() ([]choice, string) {
@@ -449,7 +489,7 @@ func (a *app) branchCommand(args []string) tea.Cmd {
 
 	for index, each := range a.shown.entries {
 		if err == nil && a.shown.point(index) == point {
-			return a.branchAt(point, each.text, each.images, false)
+			return a.branchAt(point, each.text, each.files, false)
 		}
 	}
 

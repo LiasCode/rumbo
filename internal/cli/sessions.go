@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -121,9 +122,9 @@ func (h *host) work(ctx context.Context, params protocol.RunParams, run *fronten
 
 	title := params.Objective
 
-	// A task of images alone is named by them.
-	if strings.TrimSpace(title) == "" && len(params.Images) > 0 {
-		title = "[image]"
+	// A task of files alone is named by the first.
+	if strings.TrimSpace(title) == "" && len(params.Files) > 0 {
+		title = filepath.Base(params.Files[0])
 	}
 
 	session, err := h.made(title)
@@ -142,7 +143,7 @@ func (h *host) work(ctx context.Context, params protocol.RunParams, run *fronten
 		return session.ID, worker.Resume(ctx, session)
 	}
 
-	return session.ID, worker.Run(ctx, session, params.Objective, params.Images...)
+	return session.ID, worker.Run(ctx, session, params.Objective, params.Files...)
 }
 
 // agent builds the loop for one piece of work in the session, with the
@@ -317,7 +318,7 @@ const recallLimit = 1000
 
 // recall tells a front end what the person asked in the sessions started
 // in the host's directory, most recent first and each once, so it can bring
-// it back. The same words given with other images are one text to bring
+// it back. The same words given with other files are one text to bring
 // back.
 func (h *host) recall() (protocol.RecallResult, error) {
 	recalled := protocol.RecallResult{Asked: []string{}}
