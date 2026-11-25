@@ -1,0 +1,1 @@
+echo "KX-4827-PLUM" > "$RUMBO_EVAL_OUTPUT"

@@ -1,0 +1,3 @@
+What is the total due on this invoice? Answer with just the amount.
+
+[file given: invoice.pdf]

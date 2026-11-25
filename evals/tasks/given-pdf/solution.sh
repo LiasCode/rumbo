@@ -1,0 +1,1 @@
+echo "1,556.54" > "$RUMBO_EVAL_OUTPUT"

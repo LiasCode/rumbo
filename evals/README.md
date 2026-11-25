@@ -1,7 +1,7 @@
 # Evaluation set
 
-Eight small tasks that rumbo is run on, to measure a change instead of
-guessing at it. They are programming tasks because those are easy to check
+Ten small tasks that rumbo is run on, to measure a change instead of
+guessing at it. Most are programming tasks because those are easy to check
 exactly; what they exercise is general: the tools, the context, staying on
 the task, and stopping when it is done.
 
@@ -15,6 +15,8 @@ the task, and stopping when it is done.
 | `python-fix` | Finds a bug that only shows in the program's output, by running it. |
 | `large-file` | Edits one line of a file much larger than a read window. |
 | `answer-only` | Answers a question without changing anything. |
+| `given-image` | Looks at a file given by its path, an image, which `read` shows. The objective names it as a front end's `files` do. |
+| `given-pdf` | Reads a file given by its path that `read` does not show, a PDF, by other means. |
 
 ## Running
 
