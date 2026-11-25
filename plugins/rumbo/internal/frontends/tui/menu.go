@@ -16,6 +16,9 @@ type choice struct {
 	description string
 	// example shows a command in use, under the menu while it is chosen.
 	example string
+	// continues says what it is taken into goes on: the value of a list,
+	// which takes another item after a comma.
+	continues bool
 }
 
 // menu offers what the word being typed can become: a command, or a value

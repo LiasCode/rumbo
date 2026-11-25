@@ -505,3 +505,163 @@ func TestTheCommandsHelpWhereTheyAreTyped(t *testing.T) {
 		t.Fatalf("the help:\n%s", help)
 	}
 }
+
+// After a program, the changes already given are not offered again; a
+// function it offers has its parameters completed by what lists them, of
+// the same program; and a program being added is offered the commands the
+// programs of its kind are started with.
+func TestWhatAProgramTakesIsCompleted(t *testing.T) {
+	var asked []string
+
+	handlers := configHost(&asked)
+	handlers.Describe = func(context.Context) (protocol.DescribeResult, error) {
+		return protocol.DescribeResult{
+			Provider: "toy",
+			Offers: protocol.Description{Functions: []protocol.Function{
+				{Name: "greet", Description: "Say hello", Params: []protocol.Option{{Name: "who", Type: protocol.OptionString, Values: "people"}, {Name: "how", Type: protocol.OptionString, Enum: []string{"warmly", "briefly"}}}},
+				{Name: "people", Lists: true},
+			}},
+			Extensions: []protocol.ExtensionOffer{{Name: "notes", Functions: []protocol.Function{
+				{Name: "forget", Params: []protocol.Option{{Name: "tag", Type: protocol.OptionString, Values: "tags"}}},
+				{Name: "tags", Lists: true},
+			}}},
+		}, nil
+	}
+	handlers.Invoke = func(_ context.Context, params protocol.InvokeParams, _ protocol.Dialog) (json.RawMessage, error) {
+		listed := map[string][]protocol.Value{"people": {{Value: "Ana"}, {Value: "Luis"}}, "tags": {{Value: "work"}, {Value: "home"}}}[params.Name]
+
+		return json.Marshal(protocol.ValuesResult{Values: listed})
+	}
+
+	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: configFunctions})
+	s.run(s.a.describe(s.a.host, ""))
+
+	offered := func(line string) []string {
+		t.Helper()
+
+		s.a.input.clear()
+		s.a.menu = nil
+		s.text(line)
+
+		var values []string
+
+		for _, each := range s.a.menu.shown {
+			values = append(values, each.value)
+		}
+
+		return values
+	}
+
+	if got := offered("/providers toy "); !slices.Equal(got, []string{"base_url=", "greet"}) {
+		t.Fatalf("after the provider: %q", got)
+	}
+
+	if got := offered("/providers toy base_url=x "); len(got) != 0 {
+		t.Fatalf("after its one change: %q", got)
+	}
+
+	if got := offered("/providers toy greet "); !slices.Equal(got, []string{"Ana", "Luis"}) {
+		t.Fatalf("who to greet: %q", got)
+	}
+
+	if got := offered("/providers toy greet Ana "); !slices.Equal(got, []string{"warmly", "briefly"}) {
+		t.Fatalf("how to greet: %q", got)
+	}
+
+	if got := offered("/extensions notes forget "); !slices.Equal(got, []string{"work", "home"}) {
+		t.Fatalf("the tag to forget: %q", got)
+	}
+
+	if got := offered("/providers add mine "); !slices.Equal(got, []string{"{self} provide toy", "llama-server"}) {
+		t.Fatalf("how to start a provider: %q", got)
+	}
+
+	if got := offered("/extensions add docs "); !slices.Equal(got, []string{"config=", "replaces="}) {
+		t.Fatalf("what an extension is added with: %q", got)
+	}
+
+	if got := offered("/extensions add docs config={} "); !slices.Equal(got, []string{"replaces="}) {
+		t.Fatalf("once its configuration is given: %q", got)
+	}
+}
+
+// A field of an extension's configuration that the extension lists the
+// values of, by a function named after it, is completed as a list: the
+// list as it is chosen now first, then each item not in it yet, which a
+// comma goes on from and Enter sends.
+func TestAListOfAnExtensionsIsChosenItemByItem(t *testing.T) {
+	var asked []string
+
+	handlers := configHost(&asked)
+	handlers.Describe = func(context.Context) (protocol.DescribeResult, error) {
+		return protocol.DescribeResult{Provider: "toy", Extensions: []protocol.ExtensionOffer{{Name: "linear", Functions: []protocol.Function{{Name: "tools", Lists: true}}}}}, nil
+	}
+	handlers.Invoke = func(_ context.Context, params protocol.InvokeParams, _ protocol.Dialog) (json.RawMessage, error) {
+		return json.Marshal(protocol.ValuesResult{Values: []protocol.Value{
+			{Value: "get_issue", Label: "chosen", Description: "Read an issue"},
+			{Value: "list_issues", Description: "List issues"},
+			{Value: "save_issue", Label: "chosen", Description: "Write an issue"},
+		}})
+	}
+
+	functions := append(slices.Clone(configFunctions),
+		protocol.Function{Name: "extension-set", Group: protocol.GroupExtension, Params: []protocol.Option{{Name: "extension", Type: protocol.OptionString}, {Name: "change", Type: protocol.OptionString}}},
+		protocol.Function{Name: "extension-values", Group: protocol.GroupExtension, Lists: true, Params: []protocol.Option{{Name: "extension", Type: protocol.OptionString}}})
+
+	s := staged(t, handlers, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: functions})
+	s.run(s.a.describe(s.a.host, ""))
+
+	values := func() []string {
+		var shown []string
+
+		for _, each := range s.a.menu.shown {
+			shown = append(shown, each.value)
+		}
+
+		return shown
+	}
+
+	s.text("/extensions linear tools=")
+
+	if got := values(); !slices.Equal(got, []string{"tools=get_issue,save_issue", "tools=get_issue", "tools=list_issues", "tools=save_issue"}) {
+		t.Fatalf("the first choices: %q", got)
+	}
+
+	// Taking one goes on with it; a comma offers those not in it yet.
+	s.press(tea.KeyDown)
+	s.press(tea.KeyDown)
+	s.press(tea.KeyEnter)
+
+	if s.a.input.String() != "/extensions linear tools=list_issues" {
+		t.Fatalf("typed %q", s.a.input.String())
+	}
+
+	s.text(",")
+
+	if got := values(); !slices.Equal(got, []string{"tools=list_issues,get_issue", "tools=list_issues,save_issue"}) {
+		t.Fatalf("after a comma: %q", got)
+	}
+
+	s.press(tea.KeyEnter)
+	s.press(tea.KeyEnter)
+
+	if want := `extension-set {"change":"tools=list_issues,get_issue","extension":"linear"}`; !slices.Contains(asked, want) {
+		t.Fatalf("asked %q", asked)
+	}
+}
+
+// The choices are asked for again past a provider's slash, and past a
+// name= and each comma of a command of the terminal UI's, but not past
+// what is in a value.
+func TestTheStemIsWhereTheChoicesChange(t *testing.T) {
+	for _, each := range []struct{ line, token, want string }{
+		{"/model router/vendor/sm", "router/vendor/sm", "router/"},
+		{"/extensions linear tools=a,b", "tools=a,b", "tools=a,"},
+		{"/providers local base_url=http://x", "base_url=http://x", "base_url="},
+		{"/doctor-set key=a,b", "key=a,b", ""},
+	} {
+		if got := stemOf(each.line, each.token); got != each.want {
+			t.Errorf("the stem of %q is %q, not %q", each.token, got, each.want)
+		}
+	}
+}

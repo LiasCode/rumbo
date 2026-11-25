@@ -31,7 +31,7 @@ func (a *app) enter() tea.Cmd {
 
 			// A name= waits for its value, or for Enter again to send it
 			// empty.
-			if lacksParams(a.info.Functions, a.input.String()) || strings.HasSuffix(chosen.value, "=") || strings.HasSuffix(chosen.value, "/") {
+			if lacksParams(a.info.Functions, a.input.String()) || strings.HasSuffix(chosen.value, "=") || strings.HasSuffix(chosen.value, "/") || chosen.continues {
 				return a.refreshMenu()
 			}
 		}
@@ -84,8 +84,9 @@ func (a *app) take() {
 
 	head, _ := splitLast(a.input.String())
 
-	// A name= goes on with its value, and a provider/ with its models.
-	if strings.HasSuffix(chosen.value, "=") || strings.HasSuffix(chosen.value, "/") {
+	// A name= goes on with its value, a provider/ with its models, and an
+	// item of a list with a comma for another, or with Enter.
+	if strings.HasSuffix(chosen.value, "=") || strings.HasSuffix(chosen.value, "/") || chosen.continues {
 		a.input.set(head + chosen.value)
 		return
 	}
@@ -430,11 +431,7 @@ func (a *app) refreshMenu() tea.Cmd {
 
 	head, token := splitLast(line)
 
-	// What comes after the first slash in the word is asked for again, as
-	// the models of the provider before it; a model's name may hold more.
-	if slash := strings.IndexByte(token, '/'); slash > 0 {
-		head += token[:slash+1]
-	}
+	head += stemOf(line, token)
 
 	// The selection stays where Up and Down took it until the word changes.
 	if a.menu != nil && a.menu.head == head {
@@ -521,6 +518,25 @@ func (a *app) offer(asked *menu) tea.Cmd {
 
 		return choicesMsg{asked, choices, hint}
 	}
+}
+
+// stemOf is the part of the word being typed after which the choices are
+// asked for again: past the first slash of a provider/model, as the models
+// of the provider before it, since a model's name may hold more; and, in
+// a command of the terminal UI's, past a name= and each comma after it, as
+// the items of a list.
+func stemOf(line, token string) string {
+	cut := 0
+
+	if slash := strings.IndexByte(token, '/'); slash > 0 && !strings.Contains(token[:slash], "=") {
+		cut = slash + 1
+	}
+
+	if _, own := verbNamed(strings.Fields(line)[0]); own && strings.Contains(token, "=") {
+		cut = max(cut, strings.LastIndexAny(token, "=,")+1)
+	}
+
+	return token[:cut]
 }
 
 // lookup finds the function of the host a command names, among those no

@@ -761,8 +761,13 @@ speaks the Agent Frontend Protocol with the host.
   and whose functions are called as `/extensions <name> <function>`.
   `/settings` shows what applies and where each value comes from, and
   `/settings <name>=<value>…` changes rumbo's own settings. Each word is
-  completed: the programs, `add` and `remove`, the changes each takes, and
-  what each offers.
+  completed: the programs, `add` and `remove`, the changes each takes but
+  those given already, what each offers and what its functions take, from
+  what that program lists, and for `add` how the programs there are are
+  started. A field of an extension's configuration that the extension
+  lists the values of, by a function of the same name, is completed as a
+  list separated by commas, item by item, from the list as it is chosen
+  now: `/extensions linear tools=` offers the MCP server's tools.
 - `/copy` puts the model's last answer in the clipboard, `/copy code`
   only its last code block, and `/copy id` the session's id.
 - `/export` writes the session as Markdown, from its history: what

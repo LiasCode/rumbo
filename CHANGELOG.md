@@ -57,6 +57,16 @@ it. The commits hold the reasons.
   lists the commands by what they are about; and an empty conversation
   shows the few commands to start with.
 
+- `/providers` and `/extensions` complete more: what a provider's or an
+  extension's function takes, from what that program lists; the changes
+  you have not given yet; and, for `add`, how the programs there are are
+  started, such as `{self} extend mcp`, and an extension's `config=` and
+  `replaces=`.
+
+- `/extensions <name> tools=` chooses an MCP server's tools from all
+  it has, item by item: the list as it is chosen now first, then each one
+  not in it yet, with what it does; a comma goes on with another.
+
 ### Extensions
 
 - The `mcp` extension lists every tool its server has with a function of
