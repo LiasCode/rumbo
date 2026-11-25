@@ -205,7 +205,7 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 	server := newProtected(t)
 	adapter, declared, heard := started(t, server)
 
-	if len(declared.Tools) != 0 || len(declared.Functions) != 1 || declared.Functions[0].Name != "login" || !heard.has("/docs-login signs in") {
+	if len(declared.Tools) != 0 || len(declared.Functions) != 1 || declared.Functions[0].Name != "login" || !heard.has("the login of the extension docs signs in") {
 		t.Fatalf("signed out, it declared %+v and said %q", declared, heard.text.String())
 	}
 
@@ -258,7 +258,7 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 	// Started again, it has the server's tools.
 	adapter, declared, _ = started(t, server)
 
-	if len(declared.Tools) != len(serverTools) || len(declared.Functions) != 1 || declared.Functions[0].Name != "logout" {
+	if len(declared.Tools) != len(serverTools) || len(declared.Functions) != 2 || declared.Functions[0].Name != "tools" || declared.Functions[1].Name != "logout" {
 		t.Fatalf("signed in, it declared %d tools and %+v", len(declared.Tools), declared.Functions)
 	}
 
@@ -279,7 +279,7 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 
 	_, err = adapter.Call(context.Background(), protocol.CallParams{Name: "echo", Args: json.RawMessage(`{}`)}, nil)
 
-	if err == nil || !strings.Contains(err.Error(), "the user signs in again with /docs-login") || adapter.signing.signedIn() {
+	if err == nil || !strings.Contains(err.Error(), "the user signs in again with the login of the extension docs") || adapter.signing.signedIn() {
 		t.Fatalf("with the sign-in over: %v", err)
 	}
 
@@ -378,7 +378,8 @@ func TestNoSignInWhereThereIsNoneToDo(t *testing.T) {
 
 	declared, err := adapter.Initialize(context.Background(), protocol.InitializeParams{Config: json.RawMessage(fmt.Sprintf(`{"url":%q}`, open.URL))})
 
-	if err != nil || len(declared.Functions) != 0 || len(declared.Tools) != len(serverTools) {
+	// Only what lists its tools, with no sign-in to offer.
+	if err != nil || len(declared.Functions) != 1 || declared.Functions[0].Name != "tools" || len(declared.Tools) != len(serverTools) {
 		t.Fatalf("declared %+v, err = %v", declared, err)
 	}
 }

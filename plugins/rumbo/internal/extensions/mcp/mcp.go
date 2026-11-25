@@ -54,7 +54,11 @@ type Adapter struct {
 	// names are the server's names of the tools declared, by the names they
 	// were declared with.
 	names map[string]string
-	gone  chan struct{}
+	// offered are every tool the server has, which tools lists for a front
+	// end to choose among, and wanted those the configuration chose.
+	offered []offeredTool
+	wanted  []string
+	gone    chan struct{}
 
 	// name is what the user registered the extension as, which its commands
 	// are named after. signing signs in to a server at a URL that takes no
@@ -175,27 +179,37 @@ func (a *Adapter) Initialize(ctx context.Context, params protocol.InitializePara
 
 	result := protocol.ExtensionInitializeResult{Protocol: protocol.ExtensionVersion, Name: name, Tools: tools}
 
+	// What a front end completes the tools field with.
+	a.offered = offered
+	result.Functions = []protocol.Function{{Name: "tools", Description: "List the tools the server has, which the tools field chooses among", Lists: true}}
+
 	if a.signed {
-		result.Functions = []protocol.Function{{Name: "logout", Description: "Forget the sign-in to " + chosen.URL}}
+		result.Functions = append(result.Functions, protocol.Function{Name: "logout", Description: "Forget the sign-in to " + chosen.URL})
 	}
 
 	return result, nil
 }
 
-// commandFor is how a function of the adapter is called in a front end:
-// named after what the user registered the extension as.
+// commandFor says which function of the adapter to call, named after what
+// the user registered the extension as; how a front end offers it is the
+// front end's.
 func (a *Adapter) commandFor(function string) string {
 	if a.name == "" {
-		return "its " + function + " command"
+		return "its " + function
 	}
 
-	return "/" + a.name + "-" + function
+	return "the " + function + " of the extension " + a.name
 }
 
-// InvokeDialog implements protocol.DialogInvoker: login signs the person
-// in to the server, in their browser, and logout forgets the sign-in. Both
-// change what the adapter declares, so the host starts it again.
+// InvokeDialog implements protocol.DialogInvoker: tools lists the server's
+// tools, login signs the person in to the server, in their browser, and
+// logout forgets the sign-in. The last two change what the adapter
+// declares, so the host starts it again.
 func (a *Adapter) InvokeDialog(ctx context.Context, name string, _ json.RawMessage, dialog protocol.Dialog) (any, error) {
+	if name == "tools" {
+		return a.toolChoices(), nil
+	}
+
 	if a.signing == nil {
 		return nil, errors.New("this server takes no sign-in")
 	}
@@ -375,7 +389,7 @@ func (a *Adapter) declare(offered []offeredTool, chosen config) ([]protocol.Tool
 		}
 	}
 
-	a.names = map[string]string{}
+	a.names, a.wanted = map[string]string{}, wanted
 
 	var tools []protocol.ToolDef
 
@@ -399,6 +413,30 @@ func (a *Adapter) declare(offered []offeredTool, chosen config) ([]protocol.Tool
 	}
 
 	return tools, nil
+}
+
+// toolChoices are the server's tools, by the names the tools field takes,
+// with the first line of what each does, and those chosen marked.
+func (a *Adapter) toolChoices() protocol.ValuesResult {
+	var listed protocol.ValuesResult
+
+	for _, each := range a.offered {
+		about, _, _ := strings.Cut(strings.TrimSpace(each.Description), "\n")
+
+		if about == "" {
+			about = each.Title
+		}
+
+		value := protocol.Value{Value: each.Name, Description: about}
+
+		if slices.Contains(a.wanted, each.Name) {
+			value.Label = "chosen"
+		}
+
+		listed.Values = append(listed.Values, value)
+	}
+
+	return listed
 }
 
 // content is one piece of a tool's result as MCP has them.

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -273,6 +274,25 @@ func TestTheConfigurationChoosesAndNamesTheTools(t *testing.T) {
 
 	if said := call(t, adapter, "fake_echo", `{}`); said.Text != "{}" {
 		t.Fatalf("fake_echo = %+v", said)
+	}
+
+	// What lists the tools lists every one the server has, by the name the
+	// tools field takes, those chosen marked, for a front end to choose
+	// among.
+	listed, err := adapter.InvokeDialog(context.Background(), "tools", nil, nil)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var names []string
+
+	for _, value := range listed.(protocol.ValuesResult).Values {
+		names = append(names, strings.Join(strings.Fields(value.Value+" "+value.Label+" "+value.Description), " "))
+	}
+
+	if want := []string{"echo chosen Says it back", "untold Has a title only", "mixed chosen Every kind of content", "hang Never answers", "leave Exits"}; !slices.Equal(names, want) {
+		t.Fatalf("listed %q", names)
 	}
 
 	t.Setenv("RUMBO_TEST_TOKEN", "")

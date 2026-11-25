@@ -122,7 +122,7 @@ rumbo, registered once for each server:
 # one started with a command
 rumbo extension add files {self} extend mcp npx -y @modelcontextprotocol/server-filesystem ~/notes
 
-# one reached at a URL; if it wants a sign-in, /docs-login in the terminal UI
+# one reached at a URL; if it wants a sign-in, /login docs in the terminal UI
 # signs in with your browser
 rumbo extension add -config '{"url":"https://example.com/mcp"}' docs {self} extend mcp
 ```

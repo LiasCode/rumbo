@@ -57,6 +57,12 @@ it. The commits hold the reasons.
   lists the commands by what they are about; and an empty conversation
   shows the few commands to start with.
 
+### Extensions
+
+- The `mcp` extension lists every tool its server has with a function of
+  its own, `tools`, for a front end to choose among, and says to sign in
+  with its `login` rather than naming a command of the terminal UI's.
+
 ### Front ends
 
 - What rumbo answers no longer names functions a front end may not

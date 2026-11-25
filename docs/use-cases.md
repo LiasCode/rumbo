@@ -545,12 +545,14 @@ once for each server, under a name of the user's:
   names the ones the model is given, separated by commas, since a server
   may have dozens and each is declared with every request; and `prefix`
   goes before each name, to tell them from the tools of another server.
+  Its function `tools` lists every tool the server has, with what each
+  does and those `tools` names marked, for a front end to choose among.
 - A result's text and images go to the model; a resource with text is its
   text, a result given only as structured data is that JSON, and what a
   model cannot be shown, such as audio, is said in a line.
 - A server at a `url` that wants a sign-in gets one as MCP specifies it,
   with OAuth: the adapter starts with no tools and one command, `login`
-  (`/<name>-login` in the terminal UI), which finds where to sign in from
+  (`/login <name>` in the terminal UI), which finds where to sign in from
   what the server and its authorization server publish, registers rumbo
   there as a client, and sends the person to their browser, with PKCE and
   a redirect to the loopback; from another computer, the person pastes the
