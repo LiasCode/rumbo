@@ -26,6 +26,10 @@ const (
 	KindCompaction = "compaction"
 )
 
+// Resumed is what the harness tells the model where a run that did not
+// finish is resumed, which is where that run starts again.
+const Resumed = "[harness] The run was interrupted before it finished, and tool calls in progress did not complete. Check the current state of the project and continue working on the objective."
+
 // Note types. Every run ends with exactly one of done, failed, or cancelled;
 // a run with none of them was killed.
 const (

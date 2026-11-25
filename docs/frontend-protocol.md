@@ -227,7 +227,7 @@ show a session it continues as if it had followed every run:
    {"type":"objective","session":"4cf0261c","text":"fix the failing test"},
    {"type":"text","session":"4cf0261c","text":"Let me look"},
    {"type":"turn","session":"4cf0261c","usage":{"input":900,"output":40},"context":940},
-   {"type":"ended","session":"4cf0261c","status":"done"}]}
+   {"type":"ended","session":"4cf0261c","status":"done","took":12840}]}
 ```
 
 The events name no run, since run ids belong to the connection that sent
@@ -425,7 +425,7 @@ selects the other fields:
 | `log` | `text`, `source` | A diagnostic. `source` is `provider` for the provider's own output, `extension` for an extension's, which starts with the extension's name, and `host` for what the host has to say, such as a request it retried or one that missed the provider's cache. |
 | `objective` | `text`, `images` | The objective a run was given, and the images given with it. Only in a [history](#history-request-front-end-to-host). |
 | `steer` | `text`, `images` | What the person told a run while it worked. Only in a history. |
-| `ended` | `status`, `text` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. Only in a history. |
+| `ended` | `status`, `text`, `took` | How a run ended, with the `status` of a run result, and `text` saying why a failed run failed. `took` is how long the run took, in milliseconds, from what it was prepared with to its end, or from where it was resumed; absent when the session does not know. Only in a history. |
 
 A front end ignores event types and fields it does not know. New ones may be
 added without a new protocol version.

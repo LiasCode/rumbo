@@ -3,6 +3,7 @@ package transcript
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/protocol"
@@ -41,11 +42,36 @@ type history struct {
 	// cache is what the last request left in the provider's cache, to tell
 	// the responses that missed it as a run does.
 	cache Cache
+	// started is when the run being told started, to tell how long it took
+	// when it ends; prepared is when the entries a run is prepared with
+	// began, the system prompt and the context, which come before what
+	// starts it.
+	started  time.Time
+	prepared time.Time
 }
 
 func (h *history) add(entry store.Entry) error {
 	if entry.Kind != KindToolResult {
 		h.unanswered()
+	}
+
+	switch entry.Kind {
+	case KindSystem, KindContext:
+		if h.prepared.IsZero() {
+			h.prepared = entry.CreatedAt
+		}
+	case KindUser:
+		h.start(entry)
+	case KindHarness:
+		var text Text
+
+		if json.Unmarshal(entry.Payload, &text) == nil && text.Text == Resumed {
+			h.start(entry)
+		}
+
+		h.prepared = time.Time{}
+	default:
+		h.prepared = time.Time{}
 	}
 
 	switch entry.Kind {
@@ -141,7 +167,14 @@ func (h *history) add(entry store.Entry) error {
 
 		switch note.Type {
 		case NoteDone, NoteFailed, NoteCancelled:
-			h.tell(protocol.Event{Type: protocol.EventEnded, Status: note.Type, Text: note.Text})
+			ended := protocol.Event{Type: protocol.EventEnded, Status: note.Type, Text: note.Text}
+
+			if !h.started.IsZero() && !entry.CreatedAt.IsZero() {
+				ended.Took = max(entry.CreatedAt.Sub(h.started).Milliseconds(), 0)
+			}
+
+			h.started = time.Time{}
+			h.tell(ended)
 		case NoteRetry:
 			h.tell(protocol.Event{Type: protocol.EventLog, Text: note.Text, Source: protocol.TargetHost})
 		}
@@ -167,6 +200,18 @@ func (h *history) add(entry store.Entry) error {
 	}
 
 	return nil
+}
+
+// start takes in that a run starts with entry, prepared by the entries
+// just before it, if there were any.
+func (h *history) start(entry store.Entry) {
+	h.started = entry.CreatedAt
+
+	if !h.prepared.IsZero() {
+		h.started = h.prepared
+	}
+
+	h.prepared = time.Time{}
 }
 
 // unanswered tells the calls that never got a result, as started: their run

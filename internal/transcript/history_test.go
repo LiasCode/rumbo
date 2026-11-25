@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/protocol"
@@ -78,6 +79,51 @@ func TestHistoryTellsRunsAsTheyWereSeen(t *testing.T) {
 	if !reflect.DeepEqual(events, want) {
 		got, _ := json.MarshalIndent(events, "", "  ")
 		t.Fatalf("history:\n%s", got)
+	}
+}
+
+// The end of each run says how long it took: from the first entry it was
+// prepared with, or what started it, to its end. A run resumed after its
+// process died starts again where it was resumed.
+func TestHistoryTellsHowLongEachRunTook(t *testing.T) {
+	start := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+
+	at := func(seconds float64, made store.Entry) store.Entry {
+		made.CreatedAt = start.Add(time.Duration(seconds * float64(time.Second)))
+		return made
+	}
+
+	events, err := History([]store.Entry{
+		at(0, entry(1, KindSystem, System{Text: "prompt"})),
+		at(0.5, entry(2, KindContext, Context{Sections: []Section{{Name: "environment"}}})),
+		at(1, entry(3, KindUser, Text{Text: "first"})),
+		at(13.25, entry(4, KindNote, Note{Type: NoteDone})),
+		// The second run's process dies, and the run is resumed later.
+		at(100, entry(5, KindUser, Text{Text: "second"})),
+		at(110, entry(6, KindAssistant, Assistant{})),
+		at(500, entry(7, KindContext, Context{Sections: []Section{{Name: "environment"}}})),
+		at(501, entry(8, KindHarness, Text{Text: Resumed})),
+		at(503, entry(9, KindHarness, Text{Text: "[harness] continue"})),
+		at(520, entry(10, KindNote, Note{Type: NoteFailed, Text: "gone"})),
+		// A session stored without times tells none.
+		entry(11, KindUser, Text{Text: "third"}),
+		entry(12, KindNote, Note{Type: NoteDone}),
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var took []int64
+
+	for _, event := range events {
+		if event.Type == protocol.EventEnded {
+			took = append(took, event.Took)
+		}
+	}
+
+	if !reflect.DeepEqual(took, []int64{13250, 20000, 0}) {
+		t.Fatalf("took %v", took)
 	}
 }
 

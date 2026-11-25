@@ -5,6 +5,11 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Front ends
+
+- A session's history says how long each run took: `ended` has `took`,
+  in milliseconds, which is absent when the session does not know.
+
 ## 0.10.0 (2026-11-25)
 
 A rumbo is one session. Each `rumbo` you start works in a session of its

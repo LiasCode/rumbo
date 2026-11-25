@@ -221,8 +221,9 @@ type RunResult struct {
 //   - objective: Text, the objective a run was given, and the Images given
 //     with it.
 //   - steer: Text, what the person told a run while it worked, and Images.
-//   - ended: Status, how a run ended, as a RunResult says it, and Text,
-//     why a failed run failed.
+//   - ended: Status, how a run ended, as a RunResult says it; Text, why a
+//     failed run failed; and Took, how long the run took, in milliseconds,
+//     when the session knows it.
 //
 // The last three appear in a session's history, which is told in the same
 // events as the runs that made it.
@@ -243,6 +244,7 @@ type Event struct {
 	Usage    *Usage          `json:"usage,omitempty"`
 	Images   []Image         `json:"images,omitempty"`
 	Status   string          `json:"status,omitempty"`
+	Took     int64           `json:"took,omitempty"`
 }
 
 // HistoryResult is what the host's session holds, told in events, oldest

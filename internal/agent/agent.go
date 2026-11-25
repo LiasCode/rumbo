@@ -60,7 +60,7 @@ const (
 
 	cutCall = "not executed: the response was cut off by the output limit before this call was complete. Send it again; if it is large, split the work into smaller calls."
 
-	resumed = "[harness] The run was interrupted before it finished, and tool calls in progress did not complete. Check the current state of the project and continue working on the objective."
+	resumed = transcript.Resumed
 
 	// summarize asks for the summary that will replace the conversation. The
 	// last sentence matters: the request still declares the tools, because
