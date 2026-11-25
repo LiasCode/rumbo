@@ -15,6 +15,14 @@ it. The commits hold the reasons.
 - Ctrl-V still pastes the clipboard's image, now as a file: it is saved
   as it is in your cache directory (`rumbo/pasted`), and the model looks
   at it with `read`, in a turn of its own.
+- **Ctrl-V also gives the files you copied in a file manager**, of any
+  kind, on Wayland and X11, and **a file you drop on the terminal is
+  given** instead of its path being typed. A path you paste as text is
+  typed as before unless it is all there is in the paste and the file
+  exists.
+- The files given show over the composer and under your message, each
+  with an icon for its kind: an image, a PDF, a spreadsheet, code, an
+  archive, sound, video, or any other file.
 - A session from before still shows the model the images it holds; the
   terminal UI no longer names them when it shows that session.
 - **Front ends: the protocol is version 3.** `images` is gone from `run`,

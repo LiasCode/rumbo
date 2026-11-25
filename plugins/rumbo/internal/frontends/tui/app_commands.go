@@ -312,7 +312,7 @@ func (a *app) help(args []string) string {
 	}
 
 	out.WriteString("\n/help <command> says more of one, with examples. A slash on an empty line opens the menu of the commands, as Ctrl-P does: Up and Down choose, Tab or Enter take, Escape closes it; it goes on with what the command takes next, and what is still to type shows after the cursor.\n")
-	out.WriteString("Enter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the image in the clipboard to what you send next, as a file; /attach adds any file.\n")
+	out.WriteString("Enter sends; Shift-Enter, Alt-Enter, or Ctrl-J starts a new line. Up and Down go through what you entered before, which Ctrl-R searches. Ctrl-V adds the files or the image in the clipboard to what you send next, as does dropping a file on the terminal; /attach adds one by its path.\n")
 	out.WriteString("Escape cancels the run; Ctrl-C does too, else clears what is typed, else quits.\n")
 	out.WriteString("Shift-Tab goes up into the conversation, where j and k, or Up and Down, choose, K and J go to your messages, and gg and G to either end. Enter on a tool call shows all of it, on what you asked offers to change it or ask it again in a branch, and on anything else copies it; c copies what is chosen, and b branches from the message of yours its task started with, once you agree.\n")
 	out.WriteString("Each session is a rumbo of its own. With the sessions shown (Ctrl-B), Tab on an empty line goes to them, where j, k, gg, and G choose, Enter shows one, starting its rumbo, and d deletes one, once you agree; Ctrl-N starts a new one. The runs of the sessions you leave go on.\n")
@@ -563,9 +563,10 @@ func (a *app) offered(msg choicesMsg) {
 	msg.menu.filter(token)
 }
 
-// pasteImage saves the image in the clipboard as a file and puts it in the
-// composer, in the background, since the clipboard may take a moment.
-func (a *app) pasteImage() tea.Cmd {
+// pasteClipboard puts the files in the clipboard in the composer, or its
+// image, saved as a file, in the background, since the clipboard may take a
+// moment.
+func (a *app) pasteClipboard() tea.Cmd {
 	read := a.clipboard
 
 	if read == nil {
@@ -576,15 +577,19 @@ func (a *app) pasteImage() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
 		defer cancel()
 
-		data, err := read(ctx)
+		found, err := read(ctx)
+
+		if err != nil || len(found.files) > 0 {
+			return pastedMsg{found.files, err}
+		}
+
+		file, err := keep(found.image)
 
 		if err != nil {
 			return pastedMsg{err: err}
 		}
 
-		file, err := keep(data)
-
-		return pastedMsg{file, err}
+		return pastedMsg{files: []string{file}}
 	}
 }
 

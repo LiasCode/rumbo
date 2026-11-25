@@ -252,7 +252,7 @@ func (a *app) composerKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 		}
 
 	case "ctrl+v":
-		cmd = a.pasteImage()
+		cmd = a.pasteClipboard()
 
 	case "ctrl+r":
 		a.searching, a.query, a.found, a.before = true, "", len(a.history.entries), a.input.String()

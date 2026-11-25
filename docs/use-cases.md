@@ -821,12 +821,17 @@ speaks the Agent Frontend Protocol with the host.
   project's sessions, and adds what is entered while it runs, commands
   too, which it keeps nowhere; answers to a question are not in it.
 - `/attach` gives a file of any kind with what is sent next, by its path,
-  from the session's directory. Ctrl-V does it for the image in the
-  desktop's clipboard, read with `wl-paste` on Wayland, `xclip` on X11, or
-  AppKit on macOS, since a terminal pastes text only, and saved as it is
-  in the user's cache (`rumbo/pasted`), where it stays. The files wait in
-  the composer for what is sent next, and Backspace on an empty composer
-  takes the last one away.
+  from the session's directory. Ctrl-V does it for what the desktop's
+  clipboard holds, read with `wl-paste` on Wayland, `xclip` on X11, or
+  AppKit on macOS, since a terminal pastes text only: the files copied in
+  a file manager, where they are, on Wayland and X11, or else an image,
+  saved as it is in the user's cache (`rumbo/pasted`), where it stays. A
+  file dropped on the terminal, which pastes its path, is given too: a
+  paste that is wholly the whole paths of files there are, quoted as a
+  shell takes them or as `file://` addresses, is those files and no text.
+  The files wait over the composer for what is sent next, each named after
+  an icon for its kind, which the end of its name says, or one for any
+  file; Backspace on an empty composer takes the last one away.
 - Escape gives up a provider's function in progress, else cancels the run
   of the session shown. Ctrl-C does the same, else clears the composer,
   else quits; Ctrl-D quits on an empty composer.

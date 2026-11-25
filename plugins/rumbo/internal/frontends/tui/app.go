@@ -60,12 +60,12 @@ type app struct {
 	branch string
 
 	// input is what is typed in the composer, and files those given with
-	// it, by /attach or pasted with Ctrl-V, which go with the next task or
-	// steer; clipboard reads
-	// the image to paste, when a test does not want the desktop's.
+	// it, by /attach, pasted with Ctrl-V, or dropped on the terminal, which
+	// go with the next task or steer; clipboard reads what Ctrl-V pastes,
+	// when a test does not want the desktop's.
 	input     inputLine
 	files     []string
-	clipboard func(context.Context) ([]byte, error)
+	clipboard func(context.Context) (held, error)
 	// copier puts text in the desktop's clipboard, when a test does not
 	// want the desktop's.
 	copier  func(ctx context.Context, text string, primary bool) (string, error)
@@ -219,8 +219,8 @@ type (
 	}
 	askGoneMsg struct{ question *question }
 	pastedMsg  struct {
-		file string
-		err  error
+		files []string
+		err   error
 	}
 	recalledMsg struct{ asked []string }
 	// copiedMsg is where what was copied went, lines of it.
@@ -327,6 +327,12 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if a.floating() {
 			a.pasteFloating(msg.Content)
+			break
+		}
+
+		// A file dropped on the terminal is pasted as its path.
+		if files := dropped(msg.Content); len(files) > 0 {
+			a.files = append(a.files, files...)
 			break
 		}
 
@@ -455,7 +461,7 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			a.notice = msg.err.Error()
 		} else {
-			a.files = append(a.files, msg.file)
+			a.files = append(a.files, msg.files...)
 		}
 
 	case recalledMsg:
