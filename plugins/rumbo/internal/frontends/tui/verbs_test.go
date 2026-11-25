@@ -665,3 +665,28 @@ func TestTheStemIsWhereTheChoicesChange(t *testing.T) {
 		}
 	}
 }
+
+// While a run works, how it stands shows on a row of its own over the
+// composer, outside its border, and goes once it ends.
+func TestTheRunStandsOverTheComposer(t *testing.T) {
+	s := composing(t)
+
+	run := &flight{host: s.a.host, label: "fix it", conv: s.a.shown}
+	s.a.shown.ask("fix it", nil, false, s.a.now.Add(-3*time.Second))
+	s.a.runs = append(s.a.runs, run)
+
+	rows := strings.Split(s.screen(), "\n")
+	top := slices.IndexFunc(rows, func(row string) bool {
+		return strings.Contains(row, "╭") && !strings.Contains(row, "fix it") && strings.Count(row, "─") > 50
+	})
+
+	if top < 1 || !strings.Contains(rows[top-1], "working 3.0s") || strings.Contains(rows[top-1], "│") || strings.Contains(strings.Join(rows[top:], "\n"), "working") {
+		t.Fatalf("the screen:\n%s", s.screen())
+	}
+
+	s.a.runs = nil
+
+	if strings.Contains(s.screen(), "working") {
+		t.Fatalf("the run ended, and still:\n%s", s.screen())
+	}
+}

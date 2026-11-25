@@ -66,6 +66,8 @@ it. The commits hold the reasons.
 - `/extensions <name> tools=` chooses an MCP server's tools from all
   it has, item by item: the list as it is chosen now first, then each one
   not in it yet, with what it does; a comma goes on with another.
+- How a run stands, its spinner and its time, shows over the composer,
+  outside it, instead of in its last row.
 
 ### Extensions
 

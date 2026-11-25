@@ -11,7 +11,8 @@ import (
 
 // The screen: the sidebar beside the main area, which holds the
 // conversation in a column of its own, the menu of a command being typed,
-// the composer, and a line that says what the keys do.
+// how the run stands, the composer, and a line that says what the keys
+// do.
 
 const (
 	// bodyTop is the first row of the sidebar, the main area, and the
@@ -43,7 +44,10 @@ type frame struct {
 	// conversation is how many rows the conversation takes.
 	conversation int
 	menu         []string
-	composer     []string
+	// status is how the run stands, on a row of its own over the composer,
+	// while there is something to say.
+	status   string
+	composer []string
 	// composerTop is the screen row the composer starts on, and cursorRow
 	// and cursorColumn where the cursor is in it.
 	composerTop  int
@@ -104,8 +108,15 @@ func (a *app) layout() frame {
 	}
 
 	// Over the line that says what the keys do.
-	shown.conversation = max(height-bodyTop-len(shown.menu)-len(shown.composer)-1, 1)
-	shown.composerTop = bodyTop + shown.conversation + len(shown.menu)
+	shown.status = a.status()
+	statusRows := 0
+
+	if shown.status != "" {
+		statusRows = 1
+	}
+
+	shown.conversation = max(height-bodyTop-len(shown.menu)-statusRows-len(shown.composer)-1, 1)
+	shown.composerTop = bodyTop + shown.conversation + len(shown.menu) + statusRows
 
 	return shown
 }
@@ -225,6 +236,10 @@ func (a *app) main(shown frame, body int) []string {
 	}
 
 	column = append(column, shown.menu...)
+
+	if shown.status != "" {
+		column = append(column, " "+shown.status)
+	}
 	column = append(column, shown.composer...)
 
 	top, all := a.conversationTop(shown.column, shown.conversation)
@@ -480,27 +495,32 @@ func (a *app) footer(width int) string {
 	context, window := a.shown.usage.Fill()
 	meter := contextMeter(a.theme, context, window)
 	spent := spentOf(a.shown.usage)
-	state := ""
-
-	switch run := a.here(); {
-	case run != nil:
-		state = a.theme.progress + spin(a.now) + styleColorOff + " working " + elapsed(a.now.Sub(run.conv.run.started))
-	case a.asking:
-		state = styleDim + "waiting for the answer" + styleWeightOff
-	case a.elsewhere() > 0:
-		state = a.theme.progress + spin(a.now) + styleColorOff + fmt.Sprintf(" %d working elsewhere", a.elsewhere())
-	}
 
 	for _, left := range [][]string{
 		{model, branch, dir, meter, spent},
 		{model, branch, dir, meter},
 		{model, branch, meter},
 		{model, branch},
-		{model},
 	} {
-		if shown := together(left); visibleWidth(shown)+visibleWidth(state)+2 <= width || len(left) == 1 {
-			return spread(shown, state, width)
+		if shown := together(left); visibleWidth(shown) <= width {
+			return shown
 		}
+	}
+
+	return fit(model, width)
+}
+
+// status is how the run here stands, or that a command waits for its
+// answer, or how many runs work in other sessions; nothing when none is
+// so.
+func (a *app) status() string {
+	switch run := a.here(); {
+	case run != nil:
+		return a.theme.progress + spin(a.now) + styleColorOff + " working " + styleDim + elapsed(a.now.Sub(run.conv.run.started)) + styleWeightOff
+	case a.asking:
+		return styleDim + "waiting for the answer" + styleWeightOff
+	case a.elsewhere() > 0:
+		return a.theme.progress + spin(a.now) + styleColorOff + fmt.Sprintf(" %d working elsewhere", a.elsewhere())
 	}
 
 	return ""
