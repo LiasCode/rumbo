@@ -106,6 +106,8 @@ and stopping that group (`internal/procgroup`), locks the system drops
 with the process that held them (`internal/filelock`), the shell the
 shell tool runs, bash on Unix and PowerShell on Windows
 (`internal/tool/shell_*.go`), and the desktops the screen drives.
+Everything rumbo keeps is in one directory, the same on every system,
+`.rumbo` in the user's home (`internal/home`).
 
 **Ambient context** (`internal/ambient`). The little the model is told
 without asking: the environment it runs in, the user's instruction files,

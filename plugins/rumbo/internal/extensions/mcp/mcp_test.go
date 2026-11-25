@@ -424,8 +424,7 @@ func TestAServerIsReachedOverHTTP(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
 		defer server.Close()
 
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("RUMBO_HOME", t.TempDir())
 
 		adapter := New(nil, "test", io.Discard)
 		declared, err := adapter.Initialize(context.Background(), protocol.InitializeParams{Config: json.RawMessage(fmt.Sprintf(`{"url":%q}`, server.URL))})

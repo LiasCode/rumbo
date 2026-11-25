@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/LiasCode/rumbo/internal/agent"
+	"github.com/LiasCode/rumbo/internal/home"
 	"github.com/LiasCode/rumbo/internal/store"
 )
 
@@ -31,40 +32,29 @@ type limits struct {
 const configFile = "config.yaml"
 
 // ConfigPath is the file that holds what the user chose: RUMBO_CONFIG, or
-// config.yaml in rumbo's directory of the user's configuration, next to
-// their instructions and skills.
+// config.yaml in rumbo's directory, next to their instructions and skills.
 func ConfigPath() (string, error) {
 	if path := os.Getenv("RUMBO_CONFIG"); path != "" {
 		return path, nil
 	}
 
-	dir, err := os.UserConfigDir()
+	dir, err := home.Dir()
 
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(dir, "rumbo", configFile), nil
+	return filepath.Join(dir, configFile), nil
 }
 
-// DataDir is where the sessions are kept: RUMBO_DATA, or rumbo's directory
-// of the user's data.
+// DataDir is where the sessions and plugins are kept: RUMBO_DATA, or
+// rumbo's directory.
 func DataDir() (string, error) {
 	if dir := os.Getenv("RUMBO_DATA"); dir != "" {
 		return dir, nil
 	}
 
-	if data := os.Getenv("XDG_DATA_HOME"); data != "" {
-		return filepath.Join(data, "rumbo"), nil
-	}
-
-	home, err := os.UserHomeDir()
-
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(home, ".local", "share", "rumbo"), nil
+	return home.Dir()
 }
 
 // openStore opens the files rumbo keeps: what the user chose, and the

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LiasCode/rumbo/internal/home"
 	"github.com/LiasCode/rumbo/internal/picture"
 )
 
@@ -54,13 +55,13 @@ func keep(data []byte) (string, error) {
 		return "", errors.New("the clipboard's image is not a PNG, JPEG, GIF, or WebP image")
 	}
 
-	cache, err := os.UserCacheDir()
+	rumbo, err := home.Dir()
 
 	if err != nil {
 		return "", fmt.Errorf("the pasted image has nowhere to be kept: %w", err)
 	}
 
-	dir := filepath.Join(cache, "rumbo", "pasted")
+	dir := filepath.Join(rumbo, "pasted")
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err

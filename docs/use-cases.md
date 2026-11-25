@@ -103,11 +103,11 @@ knows no model API.
 - The environment it works in: the working directory, the platform, and the
   date.
 - The user's instructions: the `AGENTS.md` or `CLAUDE.md` file of the
-  working directory, and the user's own in `~/.config/rumbo/`. A long one
+  working directory, and the user's own in `~/.rumbo/`. A long one
   is cut, saying where the rest is.
 - The user's skills: the name, the description, and the path of each
   `SKILL.md` in the `skills/<name>/` of each plugin the user added, in
-  `~/.config/rumbo/skills/<name>/`, where one of the same name replaces a
+  `~/.rumbo/skills/<name>/`, where one of the same name replaces a
   plugin's, and in `.agents/skills/<name>/` of the working directory, where
   one of the same name replaces the user's. The model reads
   a skill when a task needs it. One without a description in its
@@ -156,7 +156,7 @@ knows no model API.
   line gives none, so the person can choose one in the front end; a run is
   refused until there is one, saying how to choose it.
 - Keep a session where a person can read it, in
-  `~/.local/share/rumbo/sessions/<id>/`: `session.json`, what it is and what
+  `~/.rumbo/sessions/<id>/`: `session.json`, what it is and what
   it chose, and `entries.jsonl`, its entries, one to a line. A line a
   process died writing is no entry.
 - Print a session's whole record (`rumbo log`), and the exact request any
@@ -825,7 +825,7 @@ speaks the Agent Frontend Protocol with the host.
   clipboard holds, read with `wl-paste` on Wayland, `xclip` on X11, or
   AppKit on macOS, since a terminal pastes text only: the files copied in
   a file manager, where they are, on Wayland and X11, or else an image,
-  saved as it is in the user's cache (`rumbo/pasted`), where it stays; on
+  saved as it is in rumbo's directory (`pasted`), where it stays; on
   Windows it says it does not read the clipboard yet, and to use `/attach`. A
   file dropped on the terminal, which pastes its path, is given too: a
   paste that is wholly the whole paths of files there are, quoted as a

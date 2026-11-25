@@ -50,8 +50,7 @@ func TestLoginStoresAKeyThatWorks(t *testing.T) {
 		t.Setenv(name, "")
 	}
 
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("RUMBO_HOME", t.TempDir())
 
 	var sent string
 

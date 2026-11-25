@@ -228,7 +228,7 @@ it brought.
 | Added from | Where it is | `rumbo plugin update` |
 |---|---|---|
 | A directory | The directory itself, by its full path. | Not needed. |
-| The address of a Git repository | A copy in rumbo's data, `~/.local/share/rumbo/plugins/<name>`. | Fetches what is new. |
+| The address of a Git repository | A copy in rumbo's directory, `~/.rumbo/plugins/<name>`. | Fetches what is new. |
 
 `rumbo plugin rm` takes the plugin out, with what the person had set for
 the programs it brought, and removes the copy; a directory it was added

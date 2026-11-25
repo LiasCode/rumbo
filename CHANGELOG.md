@@ -14,6 +14,14 @@ it. The commits hold the reasons.
   browser. The computer tool, and Ctrl-V for an image or files, are not
   available on Windows yet, and say so; `/attach` gives a file.
 
+### One directory for everything
+
+- **rumbo keeps everything in `~/.rumbo/`**: `config.yaml`, your
+  `AGENTS.md` and skills, credentials, plugins, sessions, and pasted
+  images, on every system. `RUMBO_HOME` puts it elsewhere. What you had
+  is not moved: to keep it, move `~/.config/rumbo/` (`~/Library/Application
+  Support/rumbo/` on macOS) and `~/.local/share/rumbo/` into `~/.rumbo/`.
+
 ### Files in what you ask
 
 - **You give the model files of any kind, not only images.** `/attach

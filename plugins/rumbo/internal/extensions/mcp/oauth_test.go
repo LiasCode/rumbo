@@ -200,8 +200,7 @@ func started(t *testing.T, server *protected) (*Adapter, protocol.ExtensionIniti
 // cannot be renewed ends the sign-in, which the model is told how to mend.
 func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("RUMBO_HOME", home)
 
 	server := newProtected(t)
 	adapter, declared, heard := started(t, server)
@@ -242,15 +241,7 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 		t.Fatalf("the authorization was asked with %v", asked)
 	}
 
-	// Where the system keeps configuration: XDG_CONFIG_HOME on Linux, and
-	// under HOME on macOS, both in the test's own directory.
-	config, err := os.UserConfigDir()
-
-	if err != nil || !strings.HasPrefix(config, home) {
-		t.Fatalf("the configuration directory is %q, outside the test's: %v", config, err)
-	}
-
-	kept := filepath.Join(config, "rumbo", "credentials", "mcp.json")
+	kept := filepath.Join(home, "credentials", "mcp.json")
 
 	// Windows has no modes; there the profile's own permissions keep it.
 	if info, err := os.Stat(kept); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
@@ -297,8 +288,7 @@ func TestAServerIsSignedInToWithOAuth(t *testing.T) {
 // grant.
 func TestASignInTakesAPastedAddressAndIsForgotten(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("RUMBO_HOME", home)
 
 	server := newProtected(t)
 	adapter, _, _ := started(t, server)
@@ -349,8 +339,7 @@ func TestASignInTakesAPastedAddressAndIsForgotten(t *testing.T) {
 // environment is not renewed: the server that refuses it says so.
 func TestNoSignInWhereThereIsNoneToDo(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("RUMBO_HOME", home)
 	t.Setenv("RUMBO_TEST_TOKEN", "stale")
 
 	server := newProtected(t)
@@ -391,8 +380,7 @@ func TestNoSignInWhereThereIsNoneToDo(t *testing.T) {
 // and offers the sign-in again.
 func TestAnExpiredSignInIsOfferedAgain(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("RUMBO_HOME", home)
 
 	server := newProtected(t)
 	adapter, _, _ := started(t, server)

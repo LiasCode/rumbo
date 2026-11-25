@@ -11,22 +11,15 @@ import (
 )
 
 func TestRunIsolatesGlobalContextWithoutMovingProviderConfiguration(t *testing.T) {
-	home, xdg := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", xdg)
+	user := t.TempDir()
+	t.Setenv("RUMBO_HOME", user)
 	t.Setenv("RUMBO_AMBIENT_DIR", "")
-
-	user, err := os.UserConfigDir()
-
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	project := t.TempDir()
 
 	for path, text := range map[string]string{
-		filepath.Join(user, "rumbo", "AGENTS.md"):                        "Global instructions",
-		filepath.Join(user, "rumbo", "skills", "global", "SKILL.md"):     "---\nname: global\ndescription: Global skill\n---\n",
+		filepath.Join(user, "AGENTS.md"):                                 "Global instructions",
+		filepath.Join(user, "skills", "global", "SKILL.md"):              "---\nname: global\ndescription: Global skill\n---\n",
 		filepath.Join(project, "AGENTS.md"):                              "Project instructions",
 		filepath.Join(project, ".agents", "skills", "local", "SKILL.md"): "---\nname: local\ndescription: Project skill\n---\n",
 	} {
@@ -59,7 +52,7 @@ func TestRunIsolatesGlobalContextWithoutMovingProviderConfiguration(t *testing.T
 		name, value, _ := strings.Cut(binding, "=")
 
 		switch name {
-		case "HOME", "XDG_CONFIG_HOME", "RUMBO_AMBIENT_DIR":
+		case "RUMBO_HOME", "RUMBO_AMBIENT_DIR":
 			t.Setenv(name, value)
 		}
 	}
@@ -71,7 +64,7 @@ func TestRunIsolatesGlobalContextWithoutMovingProviderConfiguration(t *testing.T
 		t.Fatalf("expected only project context: %v", after)
 	}
 
-	if os.Getenv("HOME") != home || os.Getenv("XDG_CONFIG_HOME") != xdg {
+	if os.Getenv("RUMBO_HOME") != user {
 		t.Fatal("evaluation moved the provider configuration directories")
 	}
 }

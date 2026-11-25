@@ -38,7 +38,7 @@ func TestSkillsComeFromTheUserAndTheDirectory(t *testing.T) {
 	}
 
 	dir := filepath.Join(repository, "pkg")
-	user := filepath.Join(config, "rumbo", "skills")
+	user := filepath.Join(config, "skills")
 
 	pdf := writeSkill(t, user, "pdf", "---\nname: pdf\ndescription: Read and fill PDF forms.\n---\n# PDF\n")
 	replaced := writeSkill(t, user, "review", "---\nname: review\ndescription: The user's way to review.\n---\n")

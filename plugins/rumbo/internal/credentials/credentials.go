@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/LiasCode/rumbo/internal/filelock"
+	"github.com/LiasCode/rumbo/internal/home"
 )
 
 // Store is the file of one provider, or of the plugin's extension, which
@@ -23,17 +24,16 @@ type Store struct {
 	Path string
 }
 
-// Default returns the store of the named provider, or extension, in the
-// user's configuration directory. It is empty when that directory is not
-// known.
+// Default returns the store of the named provider, or extension, in
+// rumbo's directory. It is empty when that directory is not known.
 func Default(provider string) Store {
-	dir, err := os.UserConfigDir()
+	dir, err := home.Dir()
 
 	if err != nil {
 		return Store{}
 	}
 
-	return Store{Path: filepath.Join(dir, "rumbo", "credentials", provider+".json")}
+	return Store{Path: filepath.Join(dir, "credentials", provider+".json")}
 }
 
 // server is what is kept for one server.

@@ -62,7 +62,7 @@ rumbo "summarize notes.md" > summary.txt         # piped: plain text out, exit c
 `rumbo help` lists every command and flag, and `rumbo config` shows what is
 set, each value with where it comes from.
 
-What you set is kept in `~/.config/rumbo/config.yaml`. It holds only what
+What you set is kept in `~/.rumbo/config.yaml`. It holds only what
 you chose and you can edit it; rumbo changes it one value at a time and
 leaves your comments:
 
@@ -76,11 +76,10 @@ providers:
       effort: high # every session, unless it chooses another with -o
 ```
 
-Each session is a directory in `~/.local/share/rumbo/sessions/`:
-`session.json` says what it is, and `entries.jsonl` holds its history, one
-entry to a line. On macOS, read `~/Library/Application Support/rumbo/`
-wherever this page says `~/.config/rumbo/`; the sessions are in the same
-place on both.
+Each session is a directory in `~/.rumbo/sessions/`: `session.json` says
+what it is, and `entries.jsonl` holds its history, one entry to a line.
+Everything rumbo keeps is in `~/.rumbo/` (`%USERPROFILE%\.rumbo\` on
+Windows), or in the directory `RUMBO_HOME` names.
 
 ## Providers
 
@@ -104,10 +103,10 @@ so `anthropic` takes an API key.
 ## Instructions and skills
 
 The model reads your instructions: the `AGENTS.md` or `CLAUDE.md` file of
-the directory you start rumbo in, and yours in `~/.config/rumbo/`.
+the directory you start rumbo in, and yours in `~/.rumbo/`.
 
 It is told of your skills too, in the [Agent Skills](https://agentskills.io)
-format: yours in `~/.config/rumbo/skills/`, and a project's in
+format: yours in `~/.rumbo/skills/`, and a project's in
 `.agents/skills/` of the directory you start rumbo in, which replaces one
 of yours with the same name. Only a skill's description is sent with every
 request; the model reads the rest when a task needs it. `rumbo skills`

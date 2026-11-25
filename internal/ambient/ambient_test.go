@@ -9,23 +9,14 @@ import (
 	"testing"
 )
 
-// userConfig gives the test a configuration directory of its own, and
-// returns it: XDG_CONFIG_HOME on Linux, and one under HOME on macOS, which
-// does not read XDG_CONFIG_HOME.
+// userConfig gives the test a rumbo directory of its own, and returns it.
 func userConfig(t *testing.T) string {
 	t.Helper()
 
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	dir := t.TempDir()
+	t.Setenv("RUMBO_HOME", dir)
 
-	config, err := os.UserConfigDir()
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return config
+	return dir
 }
 
 // The model is told where it is and what the user's instructions are, and
@@ -78,14 +69,14 @@ func TestInstructionsStopAtTheDirectory(t *testing.T) {
 
 	dir := filepath.Join(repository, "pkg")
 	os.MkdirAll(dir, 0o755)
-	os.MkdirAll(filepath.Join(config, "rumbo"), 0o755)
+	os.MkdirAll(config, 0o755)
 
-	os.WriteFile(filepath.Join(config, "rumbo", "AGENTS.md"), []byte("The user's guide.\n"), 0o644)
+	os.WriteFile(filepath.Join(config, "AGENTS.md"), []byte("The user's guide.\n"), 0o644)
 	os.WriteFile(filepath.Join(repository, "AGENTS.md"), []byte("The repository's guide.\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("The directory's guide.\n"), 0o644)
 
 	got := instructions(context.Background(), dir)
-	want := "[" + filepath.Join(config, "rumbo", "AGENTS.md") + "]\nThe user's guide.\n\n" +
+	want := "[" + filepath.Join(config, "AGENTS.md") + "]\nThe user's guide.\n\n" +
 		"[" + filepath.Join(dir, "AGENTS.md") + "]\nThe directory's guide."
 
 	if got != want {

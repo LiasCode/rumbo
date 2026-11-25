@@ -45,15 +45,8 @@ func holding(data []byte, err error) func(context.Context) (held, error) {
 func cached(t *testing.T) string {
 	t.Helper()
 
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
-
-	dir, err := os.UserCacheDir()
-
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := t.TempDir()
+	t.Setenv("RUMBO_HOME", dir)
 
 	return dir
 }
@@ -74,7 +67,7 @@ func TestCtrlVPastesTheClipboardsImage(t *testing.T) {
 		t.Fatalf("pasted the files %q:\n%s", s.a.files, s.screen())
 	}
 
-	if kept, err := os.ReadFile(s.a.files[0]); err != nil || !bytes.Equal(kept, pngOf(t, 40, 20)) || filepath.Dir(s.a.files[0]) != filepath.Join(cache, "rumbo", "pasted") || filepath.Ext(s.a.files[0]) != ".png" {
+	if kept, err := os.ReadFile(s.a.files[0]); err != nil || !bytes.Equal(kept, pngOf(t, 40, 20)) || filepath.Dir(s.a.files[0]) != filepath.Join(cache, "pasted") || filepath.Ext(s.a.files[0]) != ".png" {
 		t.Fatalf("the first image was kept in %s: %d bytes, %v", s.a.files[0], len(kept), err)
 	}
 

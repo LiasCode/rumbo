@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LiasCode/rumbo/internal/home"
 	"github.com/LiasCode/rumbo/internal/transcript"
 )
 
@@ -164,11 +165,11 @@ func userDir() (string, bool) {
 		return dir, true
 	}
 
-	config, err := os.UserConfigDir()
+	dir, err := home.Dir()
 
 	if err != nil {
 		return "", false
 	}
 
-	return filepath.Join(config, "rumbo"), true
+	return dir, true
 }
