@@ -80,7 +80,7 @@ type started struct {
 // one of them, which no rumbo may hold.
 type rumbos struct {
 	start  func(dir, session string) (started, error)
-	list   func(dir string) ([]protocol.Value, error)
+	list   func(dir string) ([]listing, error)
 	remove func(dir, session string) error
 }
 
@@ -88,7 +88,7 @@ type rumbos struct {
 type (
 	// listedMsg is the sessions of the directory, for the sidebar.
 	listedMsg struct {
-		values []protocol.Value
+		values []listing
 		err    error
 	}
 	// openedMsg is a rumbo started for a session, or why it did not start;
@@ -359,11 +359,49 @@ func (a *app) close(held *host) tea.Cmd {
 	}
 }
 
-// delete asks the person to agree to deleting the session shown. The one
-// rumbo started in is held by that rumbo for as long as the terminal UI
-// lives, so it is not one to delete from here.
+// delete asks the person to agree to deleting the session shown.
 func (a *app) delete() tea.Cmd {
-	held, why := a.host, ""
+	return a.deleteHeld(a.host)
+}
+
+// deleteSession asks the person to agree to deleting a session of the
+// directory, as the sidebar lists it: through the rumbo held for it, when
+// there is one, and else from the command line, which refuses a session
+// another rumbo has open.
+func (a *app) deleteSession(session string) tea.Cmd {
+	if held := a.holding(session); held != nil {
+		return a.deleteHeld(held)
+	}
+
+	if a.rumbos.remove == nil {
+		a.notice = "this terminal UI cannot delete a session"
+		return nil
+	}
+
+	title := session
+
+	for _, listed := range a.sessions.listed {
+		if listed.session == session && listed.title != "" {
+			title = render.FirstLine(listed.title)
+		}
+	}
+
+	remove, dir := a.rumbos.remove, a.first().info.Dir
+	asked := protocol.Function{
+		Name:    "delete",
+		Confirm: "This deletes “" + title + "” and its history, for good. The files it changed stay as they are.",
+	}
+
+	a.confirming = &confirmation{function: asked, run: func() tea.Msg { return deletedMsg{title, remove(dir, session)} }, conv: a.shown}
+
+	return nil
+}
+
+// deleteHeld asks the person to agree to deleting the session of a rumbo
+// held. The one rumbo started in is held by that rumbo for as long as the
+// terminal UI lives, so it is not one to delete from here.
+func (a *app) deleteHeld(held *host) tea.Cmd {
+	why := ""
 
 	switch {
 	case a.rumbos.remove == nil:
@@ -426,6 +464,7 @@ func (a *app) deleting(held *host) tea.Cmd {
 
 // deleted says how deleting a session went, and lists the ones left.
 func (a *app) deleted(msg deletedMsg) tea.Cmd {
+	a.asking = false
 	a.notice = "“" + msg.title + "” was deleted"
 
 	if msg.err != nil {
@@ -744,8 +783,8 @@ func startRumbo(program string, inForce json.RawMessage) func(dir, session strin
 
 // listSessions returns what lists the sessions of a directory, as program,
 // the rumbo this terminal UI is of, lists them for a program to read.
-func listSessions(program string) func(dir string) ([]protocol.Value, error) {
-	return func(dir string) ([]protocol.Value, error) {
+func listSessions(program string) func(dir string) ([]listing, error) {
+	return func(dir string) ([]listing, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 		defer cancel()
 
@@ -759,19 +798,20 @@ func listSessions(program string) func(dir string) ([]protocol.Value, error) {
 		}
 
 		var sessions []struct {
-			Session string `json:"session"`
-			Title   string `json:"title"`
-			State   string `json:"state"`
+			Session string    `json:"session"`
+			Title   string    `json:"title"`
+			State   string    `json:"state"`
+			Used    time.Time `json:"used"`
 		}
 
 		if err := json.Unmarshal(output, &sessions); err != nil {
 			return nil, err
 		}
 
-		values := make([]protocol.Value, 0, len(sessions))
+		values := make([]listing, 0, len(sessions))
 
 		for _, each := range sessions {
-			values = append(values, protocol.Value{Value: each.Session, Label: each.Title, Description: each.State})
+			values = append(values, listing{session: each.Session, title: each.Title, state: each.State, used: each.Used})
 		}
 
 		return values, nil

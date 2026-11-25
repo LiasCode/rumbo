@@ -18,6 +18,11 @@ func (a *app) press(key tea.KeyPressMsg) tea.Cmd {
 	a.notice = ""
 	a.unselect()
 
+	// gg is two keys in a row; anything else between them leaves one g.
+	if textOf(key) != "g" {
+		a.pendingG = false
+	}
+
 	// What floats takes every key while it is open.
 	if cmd, taken := a.floatingKey(key, stroke); taken {
 		return cmd
@@ -279,6 +284,32 @@ func (a *app) cancel() {
 func (a *app) sidebarKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 	body := a.height - bodyTop
 
+	// The keys that choose in the conversation choose here too, and d
+	// deletes the session chosen, once the person agrees.
+	switch textOf(key) {
+	case "k":
+		stroke = "up"
+	case "j":
+		stroke = "down"
+	case "g":
+		if !a.pendingG {
+			a.pendingG = true
+
+			return nil
+		}
+
+		a.pendingG = false
+		stroke = "home"
+	case "G":
+		stroke = "end"
+	case "d":
+		if session := a.sessions.chosen(); session != "" {
+			return a.deleteSession(session)
+		}
+
+		return nil
+	}
+
 	switch stroke {
 	case "up":
 		a.sessions.move(-1, body)
@@ -387,8 +418,7 @@ func (a *app) wheel(mouse tea.Mouse) {
 		a.palette.move(step / 3)
 	case a.floating():
 	case mouse.X < shown.side:
-		room := max(a.height-bodyTop-sidebarSessionsRow, 1)
-		a.sessions.top = max(min(a.sessions.top+step/3, len(a.sessions.listed)-room), 0)
+		a.sessions.scroll(step/3, a.height-bodyTop)
 	case shown.panel > 0 && mouse.X >= shown.panelX:
 		a.panels.top = max(a.panels.top+step, 0)
 	default:

@@ -20,7 +20,10 @@ import (
 type confirmation struct {
 	function protocol.Function
 	run      tea.Cmd
-	conv     *conversation
+	// act, when there is one, is what agreeing does in place of run: what
+	// asks the host itself, once agreed.
+	act  func() tea.Cmd
+	conv *conversation
 	// agree is true while the button that goes ahead has the keyboard.
 	agree bool
 }
@@ -142,17 +145,17 @@ func (a *app) paletteEntries() []paletteEntry {
 
 	if a.rumbos.start != nil {
 		for _, listed := range a.sessions.listed {
-			if listed.Value == a.session {
+			if listed.session == a.session {
 				continue
 			}
 
-			title := listed.Label
+			title := listed.title
 
 			if title == "" {
-				title = listed.Value
+				title = listed.session
 			}
 
-			entries = append(entries, paletteEntry{group: "sessions", name: title, description: listed.Description, action: actionOpen, session: listed.Value})
+			entries = append(entries, paletteEntry{group: "sessions", name: title, description: listed.state, action: actionOpen, session: listed.session})
 		}
 	}
 
@@ -320,6 +323,10 @@ func (a *app) confirmKey(stroke string) tea.Cmd {
 		if !asked.agree {
 			asked.conv.add(&entry{kind: entryAnswer, text: "nothing was done"})
 			return nil
+		}
+
+		if asked.act != nil {
+			return asked.act()
 		}
 
 		if a.asking {

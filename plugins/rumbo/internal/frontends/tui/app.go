@@ -55,6 +55,9 @@ type app struct {
 	focus    int
 	// panels are what shows beside the conversation.
 	panels panels
+	// branch is the Git branch checked out in the session's directory, as
+	// it was last read, which the composer shows; empty outside Git.
+	branch string
 
 	// input is what is typed in the composer, and pasted the images Ctrl-V
 	// put with it, which go with the next task or steer; clipboard reads
@@ -92,6 +95,9 @@ type app struct {
 	palette    *palette
 	form       *form
 	confirming *confirmation
+	// pendingG is true after a g in the conversation or the sidebar, which
+	// a second g makes gg.
+	pendingG bool
 	// notice says something until the next key, such as why Enter did
 	// nothing.
 	notice string
@@ -132,6 +138,7 @@ type flight struct {
 // The messages that come from the host, or from asking it.
 type (
 	tickMsg     time.Time
+	branchMsg   struct{ dir, branch string }
 	hostGoneMsg struct{ host *host }
 	runIDMsg    struct {
 		run *flight
@@ -219,7 +226,6 @@ func newApp(conn *protocol.FrontendConn, info protocol.FrontendInitializeParams,
 		theme:   colors,
 		clock:   time.Now,
 		history: &history{},
-		sidebar: true,
 	}
 
 	a.now = a.clock()
@@ -283,7 +289,7 @@ func (a *app) Init() tea.Cmd {
 		return nil
 	}
 
-	cmds := []tea.Cmd{recall, a.list()}
+	cmds := []tea.Cmd{recall, a.list(), a.readBranch()}
 
 	if a.session != "" {
 		a.afterLoad = begin
@@ -330,6 +336,13 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.FocusMsg:
 		a.unfocused = false
+		// The branch may have changed while the person was elsewhere.
+		cmd = a.readBranch()
+
+	case branchMsg:
+		if msg.dir == a.info.Dir {
+			a.branch = msg.branch
+		}
 
 	case tea.BlurMsg:
 		a.unfocused = true
@@ -452,6 +465,20 @@ func (a *app) tick() tea.Cmd {
 	a.ticking = true
 
 	return tea.Tick(tickEvery, func(now time.Time) tea.Msg { return tickMsg(now) })
+}
+
+// readBranch reads, away from the screen, what is checked out in the
+// session's directory, for the composer.
+func (a *app) readBranch() tea.Cmd {
+	dir := a.info.Dir
+
+	if dir == "" {
+		return nil
+	}
+
+	return func() tea.Msg {
+		return branchMsg{dir, branchOf(dir)}
+	}
 }
 
 // leaving is what stays in the terminal once the terminal UI has quit: the
@@ -588,6 +615,9 @@ func (a *app) ended(msg endedMsg) tea.Cmd {
 	}
 
 	run.conv.end(status, reason, a.now)
+
+	// A run may have checked out another branch.
+	cmds = append(cmds, a.readBranch())
 
 	outcome := status
 

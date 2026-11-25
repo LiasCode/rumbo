@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/LiasCode/rumbo/internal/frontend"
+	"github.com/LiasCode/rumbo/protocol"
 )
 
 // What the host says is read by its shape: a short line ending in a colon
@@ -113,5 +116,23 @@ func TestGitSaysWhatChangedInTheFolder(t *testing.T) {
 
 	if _, err := readChanges(t.TempDir()); err == nil || !strings.Contains(err.Error(), "not in a Git repository") {
 		t.Fatalf("outside a repository: %v", err)
+	}
+}
+
+// The sidebar starts put away, and the composer says, beside the model,
+// the branch checked out and the folder, under the home directory as ~/.
+func TestTheComposerSaysWhereTheSessionIs(t *testing.T) {
+	dir := scratchRepository(t)
+	t.Setenv("HOME", filepath.Dir(dir))
+
+	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Dir: dir, Provider: "toy", Model: "any"})
+	s.run(s.a.readBranch())
+
+	if want := "toy · any · ⎇ main · ~/" + filepath.Base(dir); s.a.layout().side != 0 || !strings.Contains(s.screen(), want) {
+		t.Fatalf("the screen, without %q:\n%s", want, s.screen())
+	}
+
+	if homed("/elsewhere/project") != "/elsewhere/project" || homed(filepath.Dir(dir)) != "~" {
+		t.Fatalf("homed %q, %q", homed("/elsewhere/project"), homed(filepath.Dir(dir)))
 	}
 }

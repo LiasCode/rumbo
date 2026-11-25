@@ -639,13 +639,14 @@ speaks the Agent Frontend Protocol with the host.
 
 **`tui`**, the terminal UI, of rumbo's own plugin:
 
-- It takes the whole screen, as rumbo-gui takes a window: a header with
-  the session's folder and what the session is called; a sidebar with the
-  sessions of the folder, which Ctrl-B shows or puts away; the conversation
-  in a column of its own, which PgUp, PgDn, and
-  the mouse's wheel scroll; and under it a composer with the model, how
-  full the context is, and what the session spent, over a line that says
-  what the keys do. The conversation goes with the screen when it quits.
+- It takes the whole screen, as rumbo-gui takes a window: a sidebar with
+  the sessions of the folder, a row apart, each with how long ago it was
+  used, put away when it starts, which Ctrl-B shows or puts away; the conversation across the main area, short of its
+  sides, which PgUp,
+  PgDn, and the mouse's wheel scroll; and under it a composer with the
+  model, the Git branch checked out, the session's folder under the home
+  as `~/`, how full the context is, and what the session spent, over a
+  line that says what the keys do. The conversation goes with the screen when it quits.
 - What the person said shows in a box on the right, and what the model
   writes as the Markdown it is: headings, lists, quotes, code, bold,
   italics, links, and tables with their columns lined up. A code block
@@ -655,15 +656,16 @@ speaks the Agent Frontend Protocol with the host.
   as a block that says how it went: an edit with the lines it changed, a
   command with the start of what it printed, or, when it failed, with its
   status and the end of what it printed.
-- A run ends with a line that says how it ended, how long it took, and its
-  turns and tokens.
+- A run ends with a line that says how it ended, how long it took, its
+  tokens in and out, what the provider's cache gave of what went in, and
+  its turns.
 - It holds a rumbo for each session it has open, and shows one at a time:
   the one that started it, and those it starts itself, with `rumbo serve`,
   when the person first shows another session of the folder, from the
   sidebar, with Tab and Enter or a click, or from the palette, or starts
   a new one with Ctrl-N. A session shows what it holds first, told as its
   runs were shown. It lists the sessions with `rumbo sessions -json`.
-- A run goes on in a session that is left: the header counts the runs
+- A run goes on in a session that is left: the composer counts the runs
   working elsewhere, the sidebar marks the sessions that work, those whose
   run ended unseen, and those a rumbo is open for, and the end of a run
   elsewhere is said where the person is. What a tool of such a run asks
@@ -681,7 +683,11 @@ speaks the Agent Frontend Protocol with the host.
 - `/delete` deletes the session shown once the person agrees, with
   `rumbo sessions rm`, after ending the rumbo it started for it, and shows
   the first one in its place. It refuses the session of the rumbo that
-  started it, which that one holds, and one that works.
+  started it, which that one holds, and one that works. In the sidebar,
+  d does the same with the session chosen; one no rumbo of the terminal
+  UI holds is deleted with `rumbo sessions rm` at once, which refuses one
+  another rumbo has open. j, k, gg, and G choose there as in the
+  conversation.
 - `/branch` shows the branch once its rumbo starts. In the conversation,
   Enter on what the person asked offers to change it or to ask it again in
   a branch that starts before it, which shows the same way.
@@ -706,10 +712,15 @@ speaks the Agent Frontend Protocol with the host.
   folder, as Git sees it against the last commit, new files included,
   which it only reads, with Git's optional locks off. Where there is no
   room for both, the panel takes the conversation's place.
-- Shift-Tab goes up into the conversation, where Up and Down choose an
-  entry and Enter acts on it, as a click on it does: a tool call shows all
-  it was given and returned, or goes back to its excerpt, what the person
-  asked offers what can be done with it, and anything else is copied.
+- Shift-Tab goes up into the conversation, where Up and Down, or k and j,
+  choose an entry, K and J the person's messages, and gg and G the first
+  and the last, and Enter acts on it, as a click on it does: a tool call
+  shows all it was given and returned, or goes back to its excerpt, what
+  the person asked offers what can be done with it, and anything else is
+  copied. c copies the entry chosen, and b chooses the person's message
+  its task started with and branches the session from it, once they
+  agree: the branch holds the conversation before that message, and the
+  message is in its composer.
 - Dragging the mouse over the conversation or the panel selects its text,
   shown in reverse, within the part the drag started in, and letting go
   copies it, to the clipboard and to the primary selection; the

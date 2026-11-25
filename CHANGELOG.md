@@ -5,6 +5,30 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Terminal UI
+
+- The bar at the top is gone, so the conversation has its row. How many
+  runs work in other sessions shows under the composer, on the right.
+- The sidebar starts put away; Ctrl-B shows it.
+- Under the composer, beside the model, are the Git branch checked out
+  and the folder, under your home as `~/`. The branch is read again when
+  a run ends and when the terminal comes back to the front.
+- The conversation and the composer take the whole width, short of its
+  sides, instead of a column of at most 100.
+- The line under a finished task puts its tokens in and out first, then
+  what the cache gave, with its share of what went in, as
+  `12.3s · 1.1k in · 810 out · 26.5k cached (96%) · 1 turn`.
+- A session you continue says how long each of its earlier tasks took
+  too, under each, and so does `/export`.
+- In the conversation (Shift-Tab), j and k choose too, K and J jump
+  between your messages, gg and G go to the start and the end, c copies
+  what is chosen, and b branches the session from your message that
+  task started with: it chooses that message first, and asks you to
+  agree, saying what the branch keeps.
+- In the sidebar, j, k, gg, and G choose too, and d deletes the session
+  chosen, once you agree. The sessions are a row apart, each with how
+  long ago it was used, as `5m`, `3h`, or `2d`.
+
 ### Front ends
 
 - A session's history says how long each run took: `ended` has `took`,

@@ -2,23 +2,24 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
 
-// The screen, from the top: a header with where the person is, a rule,
-// and under it the sidebar beside the main area, which holds the
+// The screen: the sidebar beside the main area, which holds the
 // conversation in a column of its own, the menu of a command being typed,
 // the composer, and a line that says what the keys do.
 
 const (
-	// bodyTop is the first row under the header and its rule.
-	bodyTop = 2
-	// maxColumn bounds how wide the conversation is, so lines stay easy to
-	// read on a wide screen.
-	maxColumn = 100
+	// bodyTop is the first row of the sidebar, the main area, and the
+	// panel.
+	bodyTop = 0
+	// margin is how far the conversation, the menu, and the composer stay
+	// from each side of the main area, which marks the entry chosen.
+	margin = 2
 	// The sidebar is a fifth of the screen within these bounds, and shows
 	// only on a screen at least sidebarFrom columns wide.
 	sidebarMin  = 24
@@ -89,7 +90,7 @@ func (a *app) layout() frame {
 		shown.panelX = width - shown.panel
 	}
 
-	shown.column = min(shown.mainWidth-4, maxColumn)
+	shown.column = shown.mainWidth - 2*margin
 
 	if shown.column < 20 {
 		shown.column = shown.mainWidth
@@ -102,8 +103,7 @@ func (a *app) layout() frame {
 		shown.menu = a.menu.rows(shown.column)
 	}
 
-	// Under the header, its rule, and over the line that says what the keys
-	// do.
+	// Over the line that says what the keys do.
 	shown.conversation = max(height-bodyTop-len(shown.menu)-len(shown.composer)-1, 1)
 	shown.composerTop = bodyTop + shown.conversation + len(shown.menu)
 
@@ -141,10 +141,11 @@ func (a *app) View() tea.View {
 	return view
 }
 
-// screenRows draws the screen as it is under what floats: the header, its
-// rule, and the sidebar, the main area, and the panel beside each other.
+// screenRows draws the screen as it is under what floats: the sidebar,
+// the main area, and the panel beside each other.
 func (a *app) screenRows(shown frame) []string {
-	rows := []string{a.header(), a.rule(shown)}
+	var rows []string
+
 	body := a.height - bodyTop
 
 	var side []string
@@ -199,43 +200,6 @@ func titleOf(held *host) string {
 	}
 
 	return held.called
-}
-
-// header says where the person is, as a breadcrumb, and on the right how
-// many runs work in other sessions.
-func (a *app) header() string {
-	left := " " + styleBold + a.theme.progress + "rumbo" + styleReset + styleDim + "  │  " + styleWeightOff + styleBold + a.project() + styleWeightOff + styleDim + " › " + styleWeightOff + titleOf(a.host)
-	right := ""
-
-	if elsewhere := a.elsewhere(); elsewhere > 0 {
-		right = a.theme.progress + spin(a.now) + styleColorOff + fmt.Sprintf(" %d working elsewhere ", elsewhere)
-	}
-
-	return spread(left, right, a.width)
-}
-
-// rule is the line under the header, which meets the borders of the
-// sidebar and of the panel.
-func (a *app) rule(shown frame) string {
-	line := []rune(strings.Repeat("─", max(a.width, 0)))
-
-	var joints []int
-
-	if shown.side > 0 {
-		joints = append(joints, shown.side)
-	}
-
-	if shown.panel > 0 && !shown.covered {
-		joints = append(joints, shown.panelX-1)
-	}
-
-	for _, at := range joints {
-		if at < len(line) {
-			line[at] = '┬'
-		}
-	}
-
-	return styleDim + string(line) + styleReset
 }
 
 // spread puts left and right on one row of width columns, apart, leaving
@@ -416,11 +380,45 @@ func (a *app) chip() string {
 	return styleBold + a.info.Provider + styleWeightOff + styleDim + " · " + styleWeightOff + a.info.Model
 }
 
-// footer is the composer's last row: the model, how full its context is,
-// and what the session spent on the left, and how the run here stands on
-// the right. What does not fit goes, the least needed first.
+// where is the Git branch checked out and the session's directory, under
+// the home directory as ~/, beside the model.
+func (a *app) where() (string, string) {
+	branch := ""
+
+	if a.branch != "" {
+		branch = styleDim + "⎇ " + styleWeightOff + a.branch
+	}
+
+	return branch, styleDim + homed(a.info.Dir) + styleWeightOff
+}
+
+// homed is dir with the person's home directory at its start written ~.
+func homed(dir string) string {
+	home, err := os.UserHomeDir()
+
+	if err != nil || home == "" || home == "/" {
+		return dir
+	}
+
+	if dir == home {
+		return "~"
+	}
+
+	if rest, under := strings.CutPrefix(dir, home+string(filepath.Separator)); under {
+		return "~" + string(filepath.Separator) + rest
+	}
+
+	return dir
+}
+
+// footer is the composer's last row: the model, the branch and the
+// directory, how full its context is, and what the session spent on the
+// left, and on the right how the run here stands, or how many work in
+// other sessions. What does not fit goes,
+// the least needed first.
 func (a *app) footer(width int) string {
 	model := a.chip()
+	branch, dir := a.where()
 	context, window := a.shown.usage.Fill()
 	meter := contextMeter(a.theme, context, window)
 	spent := spentOf(a.shown.usage)
@@ -431,9 +429,17 @@ func (a *app) footer(width int) string {
 		state = a.theme.progress + spin(a.now) + styleColorOff + " working " + elapsed(a.now.Sub(run.conv.run.started))
 	case a.asking:
 		state = styleDim + "waiting for the answer" + styleWeightOff
+	case a.elsewhere() > 0:
+		state = a.theme.progress + spin(a.now) + styleColorOff + fmt.Sprintf(" %d working elsewhere", a.elsewhere())
 	}
 
-	for _, left := range [][]string{{model, meter, spent}, {model, meter}, {model}} {
+	for _, left := range [][]string{
+		{model, branch, dir, meter, spent},
+		{model, branch, dir, meter},
+		{model, branch, meter},
+		{model, branch},
+		{model},
+	} {
 		if shown := together(left); visibleWidth(shown)+visibleWidth(state)+2 <= width || len(left) == 1 {
 			return spread(shown, state, width)
 		}
@@ -448,8 +454,12 @@ func (a *app) footer(width int) string {
 func (a *app) hint(width int, below bool) string {
 	keys := styleDim + "Enter sends · ^P commands · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
 
-	if a.reaches() {
+	// Tab goes to the sessions while the sidebar shows them.
+	switch {
+	case a.reaches() && a.layout().side > 0:
 		keys = styleDim + "Enter sends · ^P commands · Tab sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
+	case a.reaches():
+		keys = styleDim + "Enter sends · ^P commands · ^B sessions · Shift-Tab messages · Shift-Enter new line" + styleWeightOff
 	}
 
 	switch {
@@ -460,11 +470,11 @@ func (a *app) hint(width int, below bool) string {
 	case a.searching:
 		keys = "search: " + a.query + styleDim + "  (Ctrl-R older, Enter takes it, Escape leaves)" + styleWeightOff
 	case a.focus == focusSidebar:
-		keys = styleDim + "↑ ↓ choose · Enter shows it · Tab goes on" + styleWeightOff
+		keys = styleDim + "j k choose · gg G ends · Enter shows it · d deletes · Tab goes on" + styleWeightOff
 	case a.focus == focusPanel:
 		keys = styleDim + "↑ ↓ PgUp PgDn scroll the panel · Esc puts it away · Tab goes back" + styleWeightOff
 	case a.focus == focusConversation:
-		keys = styleDim + "↑ ↓ choose · Enter " + a.acting() + " · Esc goes back" + styleWeightOff
+		keys = styleDim + "j k choose · J K your messages · gg G ends · Enter " + a.acting() + " · c copies · b branches · Esc goes back" + styleWeightOff
 	case a.menu != nil:
 		keys = styleDim + "↑ ↓ choose · Tab takes · Enter sends · Esc closes" + styleWeightOff
 	case a.here() != nil && a.telling > 0:

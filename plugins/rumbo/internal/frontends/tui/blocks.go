@@ -306,13 +306,27 @@ func (t *tally) summary(colors theme, status, reason string, now time.Time) stri
 	return colors.failure + markFailed + " " + reason + styleColorOff + took
 }
 
-// took says what a run took: its time, when it is known, its turns, and
-// its tokens.
+// took says what a run took: its time, when it is known, its tokens in
+// and out, what the provider's cache gave of what went in, and its turns.
 func (t *tally) took(now time.Time) string {
 	var parts []string
 
 	if !t.started.IsZero() {
 		parts = append(parts, elapsed(now.Sub(t.started)))
+	}
+
+	if t.turns > 0 {
+		in := render.Input(t.spent)
+		parts = append(parts, tokens(in)+" in", tokens(t.spent.Output)+" out")
+
+		cached := tokens(t.spent.CacheRead) + " cached"
+
+		// What the cache gave is a share of everything that went in.
+		if sent := in + t.spent.CacheRead; sent > 0 {
+			cached += fmt.Sprintf(" (%d%%)", (t.spent.CacheRead*100+sent/2)/sent)
+		}
+
+		parts = append(parts, cached)
 	}
 
 	switch t.turns {
@@ -321,10 +335,6 @@ func (t *tally) took(now time.Time) string {
 		parts = append(parts, "1 turn")
 	default:
 		parts = append(parts, fmt.Sprintf("%d turns", t.turns))
-	}
-
-	if t.turns > 0 {
-		parts = append(parts, fmt.Sprintf("%s in, %s cached, %s out", tokens(render.Input(t.spent)), tokens(t.spent.CacheRead), tokens(t.spent.Output)))
 	}
 
 	return strings.Join(parts, " · ")

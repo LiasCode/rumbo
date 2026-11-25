@@ -87,6 +87,23 @@ func readChanges(dir string) (changes, error) {
 	return read, nil
 }
 
+// branchOf is what is checked out in dir: its branch, or the short hash of
+// the commit on a detached head. It is empty outside Git, or before the
+// first commit of a detached head.
+func branchOf(dir string) string {
+	if branch, err := git(dir, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
+		return strings.TrimSpace(branch)
+	}
+
+	commit, err := git(dir, "rev-parse", "--short", "HEAD")
+
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(commit)
+}
+
 func git(dir string, args ...string) (string, error) {
 	return runGit(dir, []int{0}, args...)
 }

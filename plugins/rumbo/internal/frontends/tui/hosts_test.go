@@ -26,8 +26,10 @@ type directory struct {
 	removed  []string
 	asked    map[string][]string
 	sessions []protocol.Value
-	// branch is the session a host's branch function answers with.
+	// branch is the session a host's branch function answers with, and
+	// points what each call to it was given.
 	branch string
+	points []string
 }
 
 // handlers are what the host of a session answers: its history, one task
@@ -42,13 +44,15 @@ func (d *directory) handlers(session string) frontend.Handlers {
 		Describe: func(context.Context) (protocol.DescribeResult, error) {
 			return protocol.DescribeResult{Provider: "toy", Model: "any"}, nil
 		},
-		Host: func(_ context.Context, name string, _ json.RawMessage) (protocol.HostResult, error) {
+		Host: func(_ context.Context, name string, params json.RawMessage) (protocol.HostResult, error) {
 			d.mu.Lock()
 			defer d.mu.Unlock()
 
 			d.asked[session] = append(d.asked[session], name)
 
 			if name == "branch" {
+				d.points = append(d.points, string(params))
+
 				return protocol.HostResult{Text: "session " + d.branch + " is a branch of this one", Values: []protocol.Value{{Value: d.branch, Label: "a branch"}}, State: state}, nil
 			}
 
@@ -90,6 +94,9 @@ func among(t *testing.T, sessions ...string) (*stage, *directory) {
 
 	s := staged(t, folder.handlers(sessions[0]), folder.info(sessions[0]))
 
+	// The sidebar starts put away.
+	s.apply(ctrl('b'))
+
 	s.a.rumbos = rumbos{
 		start: func(dir, session string) (started, error) {
 			if session == "broken" {
@@ -112,18 +119,24 @@ func among(t *testing.T, sessions ...string) (*stage, *directory) {
 				folder.stopped = append(folder.stopped, session)
 			}}, nil
 		},
-		list: func(string) ([]protocol.Value, error) {
+		list: func(string) ([]listing, error) {
 			folder.mu.Lock()
 			defer folder.mu.Unlock()
 
-			return slices.Clone(folder.sessions), nil
+			var listed []listing
+
+			for _, each := range folder.sessions {
+				listed = append(listed, listing{session: each.Value, title: each.Label})
+			}
+
+			return listed, nil
 		},
 		remove: func(_, session string) error {
 			folder.mu.Lock()
 			defer folder.mu.Unlock()
 
 			// A session is its rumbo's for as long as that one lives.
-			if !slices.Contains(folder.stopped, session) {
+			if open := slices.Contains(folder.started, "/home/me/alpha "+session) && !slices.Contains(folder.stopped, session); open || session == sessions[0] {
 				return errors.New("session " + session + " is in use")
 			}
 
@@ -176,7 +189,7 @@ func (s *stage) mark(title string) string {
 func TestAnotherSessionIsARumboOfItsOwn(t *testing.T) {
 	s, folder := among(t, "s1", "s2")
 
-	if screen := s.screen(); !inOrder(screen, "alpha › title of s1", "+ New session", "SESSIONS", "▌ title of s1", "title of s2") || !strings.Contains(screen, "task of s1") {
+	if screen := s.screen(); !inOrder(screen, "+ New session", "SESSIONS", "▌ title of s1", "title of s2") || !strings.Contains(screen, "task of s1") {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 
@@ -189,7 +202,7 @@ func TestAnotherSessionIsARumboOfItsOwn(t *testing.T) {
 		t.Fatalf("started %v, holds %q, shows %q", folder.started, s.held(), s.a.session)
 	}
 
-	if screen := s.screen(); !inOrder(screen, "alpha › title of s2", "title of s1", "▌ title of s2") || s.mark("title of s1") != "○" || !strings.Contains(screen, "task of s2") || strings.Contains(screen, "task of s1") {
+	if screen := s.screen(); !inOrder(screen, "title of s1", "▌ title of s2") || s.mark("title of s1") != "○" || !strings.Contains(screen, "task of s2") || strings.Contains(screen, "task of s1") {
 		t.Fatalf("the screen of the other session:\n%s", screen)
 	}
 
@@ -229,7 +242,7 @@ func TestANewSessionIsARumboOfItsOwn(t *testing.T) {
 		t.Fatalf("started %v, holds %q", folder.started, s.held())
 	}
 
-	if screen := s.screen(); !inOrder(screen, "alpha › new session", "▌ + New session") || !strings.Contains(screen, "Give it a task below") {
+	if screen := s.screen(); !inOrder(screen, "▌ + New session") || !strings.Contains(screen, "Give it a task below") {
 		t.Fatalf("the screen of a new session:\n%s", screen)
 	}
 
@@ -239,7 +252,7 @@ func TestANewSessionIsARumboOfItsOwn(t *testing.T) {
 
 	s.apply(eventMsg{run, protocol.Event{Type: protocol.EventContext, Session: "s9"}})
 
-	if screen := s.screen(); s.a.session != "s9" || !inOrder(screen, "alpha › write the docs", "▌ write the docs", "title of s1") {
+	if screen := s.screen(); s.a.session != "s9" || !inOrder(screen, "▌ write the docs", "title of s1") {
 		t.Fatalf("session %q:\n%s", s.a.session, screen)
 	}
 
@@ -368,7 +381,7 @@ func TestABranchShowsInARumboOfItsOwn(t *testing.T) {
 		t.Fatalf("started %v, shows %q", folder.started, s.a.session)
 	}
 
-	if screen := s.screen(); !inOrder(screen, "alpha › a branch", "▌ a branch") || !strings.Contains(screen, "task of b1") {
+	if screen := s.screen(); !inOrder(screen, "▌ a branch") || !strings.Contains(screen, "task of b1") {
 		t.Fatalf("the screen of the branch:\n%s", screen)
 	}
 
@@ -394,6 +407,131 @@ func TestABranchShowsInARumboOfItsOwn(t *testing.T) {
 
 	if s.a.session != "b2" || s.a.input.String() != "task of s1" || s.a.focus != focusComposer || !slices.Equal(folder.asked["s1"], []string{"branch", "branch"}) {
 		t.Fatalf("shows %q, typed %q, asked %v", s.a.session, s.a.input.String(), folder.asked)
+	}
+}
+
+// In the conversation, j and k choose among the entries, K and J among the
+// person's messages, gg and G go to either end, c copies the entry chosen,
+// and b chooses the message its task started with and branches from it,
+// once the person agrees after being told what that keeps.
+func TestTheConversationBranchesFromAnEntry(t *testing.T) {
+	s, folder := among(t, "s1")
+	folder.branch = "b1"
+	folder.sessions = append(folder.sessions, protocol.Value{Value: "b1", Label: "a branch"})
+
+	s.a.shown.add(&entry{kind: entryReply, text: "One."})
+	s.a.shown.add(&entry{kind: entryTask, text: "second"})
+	s.a.shown.add(&entry{kind: entryReply, text: "Two."})
+
+	letter := func(text string) {
+		s.apply(tea.KeyPressMsg{Code: rune(text[0]), Text: text})
+	}
+
+	chose := func(want int) {
+		t.Helper()
+
+		if s.a.focus != focusConversation || s.a.shown.selected != want {
+			t.Fatalf("focus %d, chose %d, not %d", s.a.focus, s.a.shown.selected, want)
+		}
+	}
+
+	s.apply(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	chose(3)
+
+	for _, step := range []struct {
+		keys string
+		want int
+	}{{"k", 2}, {"j", 3}, {"K", 2}, {"K", 0}, {"K", 0}, {"J", 2}, {"gg", 0}, {"G", 3}, {"gkg", 2}} {
+		for _, key := range step.keys {
+			letter(string(key))
+		}
+
+		chose(step.want)
+	}
+
+	letter("c")
+
+	if !strings.Contains(s.a.notice, "copied 1 line") {
+		t.Fatalf("notice %q", s.a.notice)
+	}
+
+	// From a reply, b chooses the message first, and Enter on the button
+	// that has the keyboard leaves things as they are.
+	letter("G")
+	letter("b")
+	chose(2)
+
+	if screen := s.screen(); !inOrder(screen, "Branch from your message “second”", "Cancel", "Branch") {
+		t.Fatalf("the confirmation:\n%s", screen)
+	}
+
+	s.press(tea.KeyEnter)
+
+	if len(folder.points) != 0 || s.a.confirming != nil {
+		t.Fatalf("branched %v without agreeing", folder.points)
+	}
+
+	chose(2)
+
+	letter("k")
+	letter("b")
+	chose(0)
+	s.press(tea.KeyRight)
+	s.press(tea.KeyEnter)
+
+	if !slices.Equal(folder.points, []string{`{"point":"1"}`}) || s.a.session != "b1" || s.a.input.String() != "task of s1" {
+		t.Fatalf("branched %v, shows %q, typed %q", folder.points, s.a.session, s.a.input.String())
+	}
+}
+
+// In the sidebar, j, k, gg, and G choose as in the conversation, and d
+// deletes the session chosen once the person agrees: through its rumbo
+// when one is held, and else from the command line.
+func TestTheSidebarChoosesAndDeletes(t *testing.T) {
+	s, folder := among(t, "s1", "s2", "s3")
+
+	letter := func(text string) {
+		s.apply(tea.KeyPressMsg{Code: rune(text[0]), Text: text})
+	}
+
+	s.press(tea.KeyTab)
+
+	for _, step := range []struct {
+		keys string
+		want string
+	}{{"j", "s2"}, {"j", "s3"}, {"k", "s2"}, {"gg", ""}, {"G", "s3"}} {
+		for _, key := range step.keys {
+			letter(string(key))
+		}
+
+		if s.a.focus != focusSidebar || s.a.sessions.chosen() != step.want {
+			t.Fatalf("after %q: focus %d, chose %q", step.keys, s.a.focus, s.a.sessions.chosen())
+		}
+	}
+
+	letter("d")
+
+	if screen := s.screen(); !inOrder(screen, "This deletes “title of s3”", "Cancel", "Delete") {
+		t.Fatalf("the confirmation:\n%s", screen)
+	}
+
+	s.press(tea.KeyRight)
+	s.press(tea.KeyEnter)
+
+	if !slices.Equal(folder.removed, []string{"s3"}) || s.a.asking || s.a.notice != "“title of s3” was deleted" {
+		t.Fatalf("removed %v, asking %v, notice %q", folder.removed, s.a.asking, s.a.notice)
+	}
+
+	// The one rumbo started in is not deleted from here.
+	if s.a.focus != focusSidebar {
+		t.Fatalf("focus %d once deleted", s.a.focus)
+	}
+
+	s.a.sessions.choose("s1")
+	letter("d")
+
+	if s.a.confirming != nil || !strings.Contains(s.screen(), "holds it until you quit") {
+		t.Fatalf("the session rumbo started in:\n%s", s.screen())
 	}
 }
 

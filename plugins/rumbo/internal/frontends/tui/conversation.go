@@ -185,6 +185,37 @@ func (c *conversation) choose(step int) {
 	c.selected = chosen[at]
 }
 
+// chooseTask moves the selection to the person's next task, or with a
+// negative step to the one before, staying where it is when there is none;
+// with none selected, it starts from the last entry.
+func (c *conversation) chooseTask(step int) {
+	from := c.selected
+
+	if from < 0 {
+		from = len(c.entries)
+	}
+
+	for index := from + step; index >= 0 && index < len(c.entries); index += step {
+		if c.entries[index].kind == entryTask {
+			c.selected = index
+			return
+		}
+	}
+}
+
+// taskOf is the person's message an entry is part of the task of, the
+// nearest before it, or the entry itself, that a branch can start before;
+// -1 when there is none.
+func (c *conversation) taskOf(index int) int {
+	for ; index >= 0 && index < len(c.entries); index-- {
+		if c.point(index) > 0 {
+			return index
+		}
+	}
+
+	return -1
+}
+
 // at returns the entry drawn on a row, as rows drew it last.
 func (c *conversation) at(row int) (int, bool) {
 	for _, drawn := range c.spans {
@@ -266,6 +297,11 @@ func (c *conversation) apply(event protocol.Event, told bool, now time.Time) {
 		c.add(&entry{kind: entrySteer, text: event.Text, images: event.Images})
 
 	case protocol.EventEnded:
+		// A history says how long the run took, which ends at now here.
+		if event.Took > 0 {
+			c.run.started = now.Add(-time.Duration(event.Took) * time.Millisecond)
+		}
+
 		c.end(event.Status, event.Text, now)
 
 	case protocol.EventLog:

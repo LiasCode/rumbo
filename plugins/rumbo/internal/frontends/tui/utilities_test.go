@@ -78,7 +78,7 @@ func TestAnExportIsTheSessionAsMarkdown(t *testing.T) {
 		{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage("{\"command\":\"echo `date`\"}")},
 		{Type: protocol.EventToolFinished, Name: "bash", Result: "a\n```\nb\n[exit status 1]", Failed: true},
 		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 1200, Output: 40}},
-		{Type: protocol.EventEnded, Status: protocol.RunDone},
+		{Type: protocol.EventEnded, Status: protocol.RunDone, Took: 4200},
 		{Type: protocol.EventObjective, Text: "and the tests"},
 		{Type: protocol.EventToolStarted, Name: "bash", Args: json.RawMessage(`{"command":"go test"}`)},
 	}}
@@ -90,7 +90,7 @@ func TestAnExportIsTheSessionAsMarkdown(t *testing.T) {
 		"\n---\n\n**You**\n\nfix the notes\n",
 		"\nfix the notes\n\nI will fix the **typo**.\n\n**✓ edit** `notes.txt`\n\n```diff\n- wrold\n+ world\n```\n",
 		"\n**✗ bash** `` echo `date` ``\n\n````text\na\n```\nb\n[exit status 1]\n````\n",
-		"\n*✓ done · 1 turn · 1.2k in, 0 cached, 40 out*\n",
+		"\n*✓ done · 4.2s · 1.2k in · 40 out · 0 cached (0%) · 1 turn*\n",
 		"\n**· bash** `go test` (it never finished)\n",
 	} {
 		if !strings.Contains(document, part) {

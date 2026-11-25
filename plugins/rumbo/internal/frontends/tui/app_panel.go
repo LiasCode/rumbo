@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/LiasCode/rumbo/internal/frontends/render"
 	"github.com/LiasCode/rumbo/protocol"
 )
 
@@ -175,11 +176,51 @@ func (a *app) panelKey(stroke string) tea.Cmd {
 	return nil
 }
 
-// conversationKey applies a key while the conversation has it: Up and Down
-// choose an entry, Enter acts on it, and Tab or Escape give the keys back
-// to the composer, as typing does.
+// conversationKey applies a key while the conversation has it: Up and Down,
+// or k and j, choose an entry, K and J the person's messages, gg and G the
+// first and the last, Enter acts on the one chosen, c copies it, b branches
+// from its message once the person agrees, and Tab or Escape give the keys
+// back to the composer, as typing anything else does.
 func (a *app) conversationKey(key tea.KeyPressMsg, stroke string) tea.Cmd {
 	shown := a.shown
+
+	switch textOf(key) {
+	case "k":
+		stroke = "up"
+	case "j":
+		stroke = "down"
+	case "K":
+		shown.chooseTask(-1)
+		a.reveal()
+
+		return nil
+	case "J":
+		shown.chooseTask(1)
+		a.reveal()
+
+		return nil
+	case "g":
+		if a.pendingG {
+			a.pendingG = false
+			stroke = "home"
+		} else {
+			a.pendingG = true
+
+			return nil
+		}
+	case "G":
+		stroke = "end"
+	case "c":
+		if shown.selected >= 0 && shown.selected < len(shown.entries) {
+			return a.copy(shown.entries[shown.selected].copied())
+		}
+
+		return nil
+	case "b":
+		a.confirmBranch(shown.selected)
+
+		return nil
+	}
 
 	switch stroke {
 	case "up":
@@ -278,6 +319,45 @@ func (a *app) act(index int) tea.Cmd {
 	return a.copy(chosen.copied())
 }
 
+// confirmBranch asks the person to agree to branch the session shown from
+// the message of theirs an entry is part of the task of, chosen first so
+// it is plain where the branch starts: before that message, which goes in
+// the composer there to change or send again.
+func (a *app) confirmBranch(index int) {
+	if index < 0 || index >= len(a.shown.entries) {
+		return
+	}
+
+	if !a.branches() {
+		a.notice = "this session cannot be branched: it has no run yet, or its host does not branch"
+		return
+	}
+
+	task := a.shown.taskOf(index)
+
+	if task < 0 {
+		a.notice = "there is no message of yours here to branch from"
+		return
+	}
+
+	a.shown.selected = task
+	a.reveal()
+
+	chosen := a.shown.entries[task]
+	point := a.shown.point(task)
+	quoted := cut(render.FirstLine(strings.TrimSpace(chosen.text)), 60)
+
+	a.confirming = &confirmation{
+		function: protocol.Function{
+			Name: "branch",
+			Confirm: "Branch from your message “" + quoted + "”: a new session holds the conversation as it was before it, and the message goes in the composer there, to change it or send it again. " +
+				"This session stays as it is, and so do the files: a branch does not undo what the runs changed on disk.",
+		},
+		act:  func() tea.Cmd { return a.branchAt(point, chosen.text, chosen.images, false) },
+		conv: a.shown,
+	}
+}
+
 // messageMenu offers what can be done with what the person asked.
 func (a *app) messageMenu(index int) *palette {
 	chosen, point := a.shown.entries[index], a.shown.point(index)
@@ -307,7 +387,8 @@ func (a *app) copy(text string) tea.Cmd {
 }
 
 // branchAt goes on in a branch of the session shown that starts before the
-// person's message numbered point: its host makes the branch, a rumbo is
+// person's message numbered point, or from now without one: its host makes
+// the branch, a rumbo is
 // started for it, and there what the message said is put in the composer
 // to change, or, again, sent as it is once the branch shows what it holds.
 func (a *app) branchAt(point int, text string, images []protocol.Image, again bool) tea.Cmd {
@@ -316,8 +397,17 @@ func (a *app) branchAt(point int, text string, images []protocol.Image, again bo
 		return nil
 	}
 
-	params, _ := json.Marshal(map[string]string{"point": strconv.Itoa(point)})
-	a.shown.add(&entry{kind: entryTyped, text: "/branch " + strconv.Itoa(point)})
+	// Without a point, the branch starts from now.
+	var params json.RawMessage
+
+	typed := "/branch"
+
+	if point > 0 {
+		params, _ = json.Marshal(map[string]string{"point": strconv.Itoa(point)})
+		typed += " " + strconv.Itoa(point)
+	}
+
+	a.shown.add(&entry{kind: entryTyped, text: typed})
 	a.shown.follow = true
 	a.asking = true
 

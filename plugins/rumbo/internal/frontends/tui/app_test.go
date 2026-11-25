@@ -123,8 +123,8 @@ func (s *stage) screen() string {
 
 // A task runs in the host's session: what was asked shows, then what the
 // model wrote and the tools it called, how it ended, and the session it
-// made, which the header names after the task until the host says what it
-// is called.
+// made, which is called after the task until the host says what it is
+// called.
 func TestAFullRunIsShownInItsSession(t *testing.T) {
 	var sent protocol.RunParams
 
@@ -148,7 +148,7 @@ func TestAFullRunIsShownInItsSession(t *testing.T) {
 		},
 	}, protocol.FrontendInitializeParams{Dir: "/home/me/alpha", Provider: "toy", Model: "any", Functions: []protocol.Function{{Name: "rename", Group: protocol.GroupSession}}})
 
-	if screen := s.screen(); !strings.Contains(screen, "alpha › new session") {
+	if screen := s.screen(); !strings.Contains(screen, "Give rumbo a task") || titleOf(s.a.host) != "new session" {
 		t.Fatalf("the screen of a new session:\n%s", screen)
 	}
 
@@ -160,7 +160,7 @@ func TestAFullRunIsShownInItsSession(t *testing.T) {
 
 	screen := s.screen()
 
-	if !inOrder(screen, "alpha › list the files", "Looking.", "✓ bash ls", "a.txt", "Done.", "✓ done", "toy · any", "1% of 200k", "1.5k in") {
+	if !inOrder(screen, "list the files", "Looking.", "✓ bash ls", "a.txt", "Done.", "✓ done", "toy · any", "1% of 200k", "1.5k in") || titleOf(s.a.host) != "list the files" {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 
@@ -172,10 +172,10 @@ func TestAFullRunIsShownInItsSession(t *testing.T) {
 		t.Fatalf("leaving %q", s.a.leaving())
 	}
 
-	// What the host says the session is called is what the header says.
+	// What the host says the session is called is what it is called.
 	s.typing("/rename")
 
-	if screen := s.screen(); !inOrder(screen, "alpha › Listing", "Looking.", "› /rename", "rename done") {
+	if screen := s.screen(); !inOrder(screen, "Looking.", "› /rename", "rename done") || titleOf(s.a.host) != "Listing" {
 		t.Fatalf("the screen once the host named the session:\n%s", screen)
 	}
 }
@@ -194,7 +194,7 @@ func TestAContinuedSessionShowsItsHistory(t *testing.T) {
 
 	s.run(s.a.load(s.a.host))
 
-	if screen := s.screen(); !inOrder(screen, "alpha › First", "first task", "One.") {
+	if screen := s.screen(); !inOrder(screen, "first task", "One.") {
 		t.Fatalf("the screen:\n%s", screen)
 	}
 }
@@ -555,12 +555,6 @@ func TestThePanelsShowBesideTheConversation(t *testing.T) {
 			if visibleWidth(row) != size[0] {
 				t.Fatalf("%dx%d: a row of %d columns: %q", size[0], size[1], visibleWidth(row), stripped(row))
 			}
-		}
-
-		// The rule under the header meets the border of a panel beside
-		// the conversation.
-		if joints, want := strings.Count(rows[1], "┬"), map[bool]int{true: 1}[size[0] == 160]; joints != want {
-			t.Fatalf("%dx%d: the rule meets %d borders, not %d: %q", size[0], size[1], joints, want, stripped(rows[1]))
 		}
 	}
 

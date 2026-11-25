@@ -107,6 +107,11 @@ func markdownOf(told protocol.HistoryResult, now time.Time) string {
 				ended = markFailed + " " + strings.TrimSpace(event.Status+": "+event.Text)
 			}
 
+			// A history says how long the run took, which ends at now here.
+			if event.Took > 0 {
+				run.started = now.Add(-time.Duration(event.Took) * time.Millisecond)
+			}
+
 			if took := run.took(now); took != "" {
 				ended += " · " + took
 			}

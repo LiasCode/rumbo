@@ -115,7 +115,7 @@ func TestAHistoryIsToldBeforeWhatFollows(t *testing.T) {
 		{Type: protocol.EventText, Text: "On it."},
 		{Type: protocol.EventToolStarted, Name: "edit", Args: json.RawMessage(`{"path":"a.go","old":"x","new":"y"}`)},
 		{Type: protocol.EventTurn, Usage: &protocol.Usage{Input: 1200, Output: 40}, Context: 1300, Window: 200000},
-		{Type: protocol.EventEnded, Status: protocol.RunCancelled},
+		{Type: protocol.EventEnded, Status: protocol.RunCancelled, Took: 83000},
 	}, time.Now())
 
 	want := []int{entryTask, entryContext, entryReply, entryTool, entryEnded, entryAnswer}
@@ -128,7 +128,7 @@ func TestAHistoryIsToldBeforeWhatFollows(t *testing.T) {
 		t.Fatalf("usage: context %d of %d, %+v", context, window, c.usage.Total())
 	}
 
-	if shown := plainRows(c, 60); !inOrder(shown, "fix it", "context: environment", "On it.", "· edit a.go  (it never finished)", "✗ cancelled  1 turn · 1.2k in, 0 cached, 40 out", "an answer") {
+	if shown := plainRows(c, 60); !inOrder(shown, "fix it", "context: environment", "On it.", "· edit a.go  (it never finished)", "✗ cancelled  1m23s · 1.2k in · 40 out · 0 cached (0%)", "an answer") {
 		t.Fatalf("shown:\n%s", shown)
 	}
 }
