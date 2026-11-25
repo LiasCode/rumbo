@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.11.0 (2026-11-25)
+
 ### Terminal UI
 
 - The bar at the top is gone, so the conversation has its row. How many
