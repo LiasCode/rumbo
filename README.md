@@ -45,6 +45,11 @@ go install github.com/LiasCode/rumbo/cmd/rumbo@latest
 On Windows, the model runs commands with PowerShell, and the computer
 tool is not available.
 
+> [!NOTE]
+> rumbo is used and tested every day only on Linux. On macOS and Windows it
+> passes the checks of continuous integration, but nobody has used it there
+> for real yet: expect rough edges, and please report what you find.
+
 ## Start
 
 ```sh
