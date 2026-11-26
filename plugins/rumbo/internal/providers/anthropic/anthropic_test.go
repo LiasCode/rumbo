@@ -326,3 +326,84 @@ func TestInitializeSaysEveryDefault(t *testing.T) {
 		}
 	}
 }
+
+// A tool's schema reaches the API whole, but for the dialect it names, and
+// in the same bytes on every request, since the tools open the prefix the
+// API caches.
+func TestToolSchemaIsSentWholeAndStable(t *testing.T) {
+	var bodies []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(body))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-should-retry", "false")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"type":"error","error":{"type":"invalid_request_error","message":"stop here"}}`)
+	}))
+
+	defer server.Close()
+
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	handler := testHandler(t)
+	config, _ := json.Marshal(Config{BaseURL: server.URL})
+
+	if _, err := handler.Initialize(context.Background(), protocol.InitializeParams{Config: config}); err != nil {
+		t.Fatal(err)
+	}
+
+	params := protocol.CompleteParams{
+		Model: "claude-opus-5-5",
+		Tools: []protocol.ToolDef{{
+			Name: "save", Description: "save an issue",
+			Schema: json.RawMessage(`{
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"type": "object",
+				"properties": {"issue": {"$ref": "#/$defs/issue"}},
+				"required": ["issue"],
+				"additionalProperties": false,
+				"$defs": {"issue": {"type": "object", "properties": {"title": {"type": "string"}}}},
+				"description": "what to save"
+			}`),
+		}},
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: []protocol.Block{{Type: protocol.BlockText, Text: "hi"}}}},
+	}
+
+	for range 5 {
+		handler.Complete(context.Background(), params, func(string) {})
+	}
+
+	if len(bodies) != 5 {
+		t.Fatalf("%d requests reached the server, want 5", len(bodies))
+	}
+
+	for _, body := range bodies[1:] {
+		if body != bodies[0] {
+			t.Fatalf("the requests differ:\n%s\n%s", bodies[0], body)
+		}
+	}
+
+	var sent struct {
+		Tools []struct {
+			InputSchema map[string]any `json:"input_schema"`
+		} `json:"tools"`
+	}
+
+	if err := json.Unmarshal([]byte(bodies[0]), &sent); err != nil || len(sent.Tools) != 1 {
+		t.Fatalf("tools = %+v, err = %v", sent.Tools, err)
+	}
+
+	schema := sent.Tools[0].InputSchema
+
+	for _, key := range []string{"type", "properties", "required", "additionalProperties", "$defs", "description"} {
+		if _, found := schema[key]; !found {
+			t.Errorf("the schema sent has no %s: %v", key, schema)
+		}
+	}
+
+	if _, found := schema["$schema"]; found {
+		t.Errorf("the schema sent keeps $schema: %v", schema)
+	}
+}

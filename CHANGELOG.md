@@ -5,6 +5,14 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Fixes
+
+- With `anthropic`, the model is given a tool's whole schema, as with
+  `openai` and `chatgpt`, instead of only its properties and which are
+  required. A tool of an MCP server whose schema refers to definitions of
+  its own (`$defs` and `$ref`), or allows no fields but its own, is now
+  described to the model as the server wrote it.
+
 ## 0.12.0 (2026-11-26)
 
 ### Windows

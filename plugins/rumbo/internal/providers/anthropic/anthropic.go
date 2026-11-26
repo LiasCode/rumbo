@@ -17,6 +17,7 @@ import (
 
 	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
+	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
 
 	"github.com/LiasCode/rumbo/plugins/rumbo/internal/credentials"
 	"github.com/LiasCode/rumbo/protocol"
@@ -390,19 +391,16 @@ func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams,
 	}
 
 	for _, def := range params.Tools {
-		var schema struct {
-			Properties map[string]any `json:"properties"`
-			Required   []string       `json:"required"`
-		}
+		schema, err := inputSchema(def.Schema)
 
-		if err := json.Unmarshal(def.Schema, &schema); err != nil {
+		if err != nil {
 			return request, fmt.Errorf("tool %s: invalid schema: %w", def.Name, err)
 		}
 
 		request.Tools = append(request.Tools, sdk.ToolUnionParam{OfTool: &sdk.ToolParam{
 			Name:        def.Name,
 			Description: sdk.String(def.Description),
-			InputSchema: sdk.ToolInputSchemaParam{Properties: schema.Properties, Required: schema.Required},
+			InputSchema: schema,
 			// Large arguments, such as file contents, stream as they are
 			// generated. The host validates the arguments before running a tool.
 			EagerInputStreaming: sdk.Bool(true),
@@ -424,6 +422,30 @@ func (h *Handler) request(params protocol.CompleteParams) (sdk.MessageNewParams,
 	}
 
 	return request, nil
+}
+
+// inputSchema is a tool's JSON Schema as the API takes it: whole, so that
+// what the tool's author wrote besides its properties, such as the $defs a
+// $ref points to or additionalProperties, reaches the model too. $schema,
+// which says the dialect, is left out, since the API has a dialect of its
+// own. It goes as a map, whose keys are written sorted: the SDK writes the
+// extra fields of a param in map order, which would change the request's
+// prefix from one request to the next.
+func inputSchema(raw json.RawMessage) (sdk.ToolInputSchemaParam, error) {
+	var schema map[string]any
+
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return sdk.ToolInputSchemaParam{}, err
+	}
+
+	if schema == nil {
+		schema = map[string]any{}
+	}
+
+	delete(schema, "$schema")
+	schema["type"] = "object"
+
+	return param.Override[sdk.ToolInputSchemaParam](schema), nil
 }
 
 // reasoning is the opaque data kept for a thinking block, which the API
