@@ -8,7 +8,8 @@ it. The commits hold the reasons.
 ### Windows
 
 - **rumbo runs on Windows.** The releases have a zip for it, with
-  `rumbo.exe`. There the model runs commands with PowerShell, through a
+  `rumbo.exe`. It passes the checks there and on macOS, but has been used
+  every day only on Linux: expect rough edges, and please report them. There the model runs commands with PowerShell, through a
   tool called `powershell` in place of `bash`, so an extension that takes
   its place there says `replaces=powershell`. `/login` opens your
   browser. The computer tool, Ctrl-V for an image or files, and what
@@ -35,7 +36,7 @@ it. The commits hold the reasons.
   with its tools when it needs to, so nothing of the file is kept in the
   session or sent again with every request.
 - Ctrl-V still pastes the clipboard's image, now as a file: it is saved
-  as it is in your cache directory (`rumbo/pasted`), and the model looks
+  as it is in `~/.rumbo/pasted/`, and the model looks
   at it with `read`, in a turn of its own.
 - **Ctrl-V also gives the files you copied in a file manager**, of any
   kind, on Wayland and X11, and **a file you drop on the terminal is
