@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.12.0 (2026-11-26)
+
 ### Windows
 
 - **rumbo runs on Windows.** The releases have a zip for it, with
