@@ -33,6 +33,10 @@ type Files struct {
 	// ends is where each session's entries ended when this process last
 	// looked, so an append does not read them all to number the next one.
 	ends map[string]end
+
+	// held are the files of the sessions this process has locked, by
+	// session, which a deletion on Windows lets go of first.
+	held map[string]*os.File
 }
 
 // end is the last entry of a session and the size of its file with it.
@@ -73,7 +77,7 @@ type entryRecord struct {
 // sessions are under data. Neither has to exist: each is made when something
 // is first written to it.
 func Open(config, data string) *Files {
-	return &Files{config: config, data: data, ends: map[string]end{}}
+	return &Files{config: config, data: data, ends: map[string]end{}, held: map[string]*os.File{}}
 }
 
 // Close implements Store.
@@ -458,7 +462,7 @@ func (f *Files) DeleteSession(id string) error {
 
 	doomed := filepath.Join(f.sessionsDir(), ".deleted-"+id+"-"+suffix)
 
-	if err := os.Rename(dir, doomed); errors.Is(err, os.ErrNotExist) {
+	if err := f.renameSession(id, dir, doomed); errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -501,7 +505,24 @@ func (f *Files) LockSession(id string) (func(), error) {
 		return nil, err
 	}
 
-	return func() { _ = file.Close() }, nil
+	f.mu.Lock()
+	f.held[id] = file
+	f.mu.Unlock()
+
+	return func() { f.letGo(id, file) }, nil
+}
+
+// letGo releases the lock of a session that file holds, once: a deletion
+// may have released it already.
+func (f *Files) letGo(id string, file *os.File) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.held[id] == file {
+		delete(f.held, id)
+	}
+
+	_ = file.Close()
 }
 
 // SessionInUse implements Store. A lock is taken on an open file, so trying
@@ -684,8 +705,10 @@ func (f *Files) end(sessionID string, file *os.File, path string) (end, error) {
 		return end{}, err
 	}
 
+	// Through the path, since Windows opens a file for appending without
+	// the right to cut it.
 	if whole < info.Size() {
-		if err := file.Truncate(whole); err != nil {
+		if err := os.Truncate(path, whole); err != nil {
 			return end{}, err
 		}
 	}

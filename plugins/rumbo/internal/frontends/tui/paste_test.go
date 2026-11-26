@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -118,6 +119,10 @@ func TestAClipboardWithoutAnImageIsSaid(t *testing.T) {
 // What the clipboard program lists is looked through for an image a model
 // takes, and that one is read.
 func TestTheClipboardIsReadForAnImage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("rumbo does not read the clipboard on Windows")
+	}
+
 	dir := t.TempDir()
 	file := filepath.Join(dir, "image.png")
 	os.WriteFile(file, pngOf(t, 4, 2), 0o644)
@@ -201,7 +206,8 @@ func TestAttachGivesAFileByItsPath(t *testing.T) {
 		t.Fatalf("attached the files %q", s.a.files)
 	}
 
-	if screen := s.screen(); !strings.Contains(screen, "📕 plan one.pdf") || !strings.Contains(screen, "there is no file at "+filepath.Join(dir, "missing.csv")) {
+	// A long path goes on to the next row, so the rows are read as one.
+	if screen := strings.Join(strings.Fields(s.screen()), " "); !strings.Contains(screen, "📕 plan one.pdf") || !strings.Contains(screen, "there is no file at "+filepath.Join(dir, "missing.csv")) {
 		t.Fatalf("the screen shows:\n%s", screen)
 	}
 }
@@ -210,6 +216,10 @@ func TestAttachGivesAFileByItsPath(t *testing.T) {
 // addresses, and Ctrl-V gives them as they are, where they are, before
 // the image one of them may also be there as.
 func TestCtrlVGivesTheFilesTheClipboardHolds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("rumbo does not read the clipboard on Windows")
+	}
+
 	dir := t.TempDir()
 	program := "#!/bin/sh\ncase \"$1\" in\n--list-types) printf 'image/png\\ntext/uri-list\\n';;\n*) [ \"$3\" = text/uri-list ] && printf 'file:///srv/my%%20notes/plan.pdf\\r\\nfile:///srv/data.bin\\r\\n';;\nesac\n"
 	os.WriteFile(filepath.Join(dir, "wl-paste"), []byte(program), 0o755)
@@ -241,20 +251,33 @@ func TestAFileDroppedOnTheTerminalIsGiven(t *testing.T) {
 	os.WriteFile(plain, nil, 0o644)
 	os.WriteFile(spaced, nil, 0o644)
 
-	for _, pasted := range []struct {
+	type paste struct {
 		text  string
 		files []string
-	}{
+	}
+
+	pastes := []paste{
 		{plain, []string{plain}},
 		{spaced + "\n", []string{spaced}},
 		{"'" + spaced + "' " + plain, []string{spaced, plain}},
-		{strings.ReplaceAll(spaced, " ", "\\ "), []string{spaced}},
-		{"file://" + plain + "\r\n" + plain, []string{plain, plain}},
+		{`"` + spaced + `" ` + plain, []string{spaced, plain}},
 		{"look at " + plain, nil},
 		{filepath.Join(dir, "missing.txt"), nil},
 		{"sales.csv", nil},
 		{"", nil},
-	} {
+	}
+
+	// On Windows a backslash separates folders, and an address is
+	// file:///C:/...; elsewhere a backslash escapes what follows it.
+	if runtime.GOOS == "windows" {
+		pastes = append(pastes, paste{"file:///" + filepath.ToSlash(plain) + "\r\n" + plain, []string{plain, plain}})
+	} else {
+		pastes = append(pastes,
+			paste{strings.ReplaceAll(spaced, " ", "\\ "), []string{spaced}},
+			paste{"file://" + plain + "\r\n" + plain, []string{plain, plain}})
+	}
+
+	for _, pasted := range pastes {
 		s := composing(t)
 
 		s.apply(tea.PasteMsg{Content: pasted.text})

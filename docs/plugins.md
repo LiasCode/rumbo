@@ -120,7 +120,7 @@ and rumbo builds it on the person's machine.
 
 ```yaml
 name: team
-build: [go, build, -o, bin/greeter, ./cmd/greeter]
+build: [go, build, -o, bin/, ./cmd/greeter]
 extensions:
   greeter:
     command: ["{plugin}/bin/greeter"]
@@ -128,7 +128,13 @@ extensions:
 
 - It runs in the plugin's directory, with `{plugin}` and `{self}` as in a
   program's `command`. A list is no shell: for several steps, run a script
-  of the plugin's, such as `[sh, "{plugin}/build.sh"]`.
+  of the plugin's, such as `[sh, "{plugin}/build.sh"]`, which Windows has
+  no `sh` to run.
+- On Windows a program is found with its extension, so
+  `{plugin}/bin/greeter` runs `bin/greeter.exe`: build into a directory,
+  as `-o bin/` does, and Go names the program `greeter.exe` there and
+  `greeter` elsewhere. `-o bin/greeter` writes `greeter` everywhere, which
+  Windows does not run.
 - It runs when the plugin is added, before what it brings is started, and
   when an update brings something new. What it prints goes to the
   person's terminal, after a line that says what is run.

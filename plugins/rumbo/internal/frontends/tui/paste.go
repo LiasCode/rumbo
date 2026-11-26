@@ -77,7 +77,7 @@ func keep(data []byte) (string, error) {
 // as a clipboard and some terminals give one.
 func located(word string) string {
 	if address, err := url.Parse(word); err == nil && address.Scheme == "file" {
-		return address.Path
+		return fileAddressPath(address)
 	}
 
 	return word
@@ -144,7 +144,7 @@ func dropped(text string) []string {
 }
 
 // unquoted splits a line in words as a shell does: at its spaces, but for
-// those in quotes or after a backslash.
+// those in quotes or, where a backslash escapes, after one.
 func unquoted(line string) []string {
 	var words []string
 	var word strings.Builder
@@ -156,7 +156,7 @@ func unquoted(line string) []string {
 		case escaped:
 			word.WriteRune(r)
 			escaped = false
-		case r == '\\' && quote != '\'':
+		case backslashEscapes && r == '\\' && quote != '\'':
 			escaped, open = true, true
 		case quote != 0 && r == quote:
 			quote = 0

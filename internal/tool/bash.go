@@ -34,6 +34,18 @@ type shellProgram struct {
 
 	// stopped says how to stop a background process, given its group.
 	stopped string
+
+	// crlf says the shell ends its lines with CR LF, which are given as LF.
+	crlf bool
+}
+
+// lines gives output with its lines ended as the model reads them.
+func (s shellProgram) lines(output string) string {
+	if s.crlf {
+		return strings.ReplaceAll(output, "\r\n", "\n")
+	}
+
+	return output
 }
 
 // command runs line with the shell.
@@ -96,7 +108,7 @@ func (b Bash) run(ctx context.Context, dir string, args json.RawMessage) (string
 	}
 
 	output, err := Shell(ctx, dir, input.Command, timeout)
-	output = clip(strings.TrimRight(output, "\n"), b.saved)
+	output = clip(strings.TrimRight(shell.lines(output), "\n"), b.saved)
 
 	if err != nil {
 		return "", fmt.Errorf("%s\n[%w]", output, err)
@@ -146,7 +158,7 @@ func (b Bash) start(dir, command string) (string, error) {
 	case err := <-ended:
 		output, _ := os.ReadFile(log.Name())
 		_ = os.Remove(log.Name())
-		text := clip(strings.TrimRight(string(output), "\n"), b.saved)
+		text := clip(strings.TrimRight(shell.lines(string(output)), "\n"), b.saved)
 
 		if err != nil {
 			return "", fmt.Errorf("%s\n[ended at once: %w]", text, err)

@@ -124,11 +124,12 @@ func TestGitSaysWhatChangedInTheFolder(t *testing.T) {
 func TestTheComposerSaysWhereTheSessionIs(t *testing.T) {
 	dir := scratchRepository(t)
 	t.Setenv("HOME", filepath.Dir(dir))
+	t.Setenv("USERPROFILE", filepath.Dir(dir))
 
 	s := staged(t, frontend.Handlers{}, protocol.FrontendInitializeParams{Dir: dir, Provider: "toy", Model: "any"})
 	s.run(s.a.readBranch())
 
-	if want := "toy · any · ⎇ main · ~/" + filepath.Base(dir); s.a.layout().side != 0 || !strings.Contains(s.screen(), want) {
+	if want := "toy · any · ⎇ main · ~" + string(filepath.Separator) + filepath.Base(dir); s.a.layout().side != 0 || !strings.Contains(s.screen(), want) {
 		t.Fatalf("the screen, without %q:\n%s", want, s.screen())
 	}
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LiasCode/rumbo/protocol"
@@ -82,6 +84,14 @@ func TestTheProcessesOfAHostAreThoseUnderIt(t *testing.T) {
 
 // The system says what this process and one it started use.
 func TestTheSystemIsAsked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		if _, err := Snapshot(context.Background()); err == nil || !strings.Contains(err.Error(), "on Windows yet") {
+			t.Fatalf("on Windows, err = %v", err)
+		}
+
+		return
+	}
+
 	child := exec.Command("sleep", "30")
 
 	if err := child.Start(); err != nil {

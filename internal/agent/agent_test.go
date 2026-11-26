@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -379,7 +380,7 @@ func TestRunStopsAtMaxTurns(t *testing.T) {
 func TestResumeAfterCancelClosesTheOpenCall(t *testing.T) {
 	sleep, _ := json.Marshal(map[string]any{"command": "sleep 30"})
 	model := &scripted{answers: []protocol.Message{
-		say(protocol.Block{Type: protocol.BlockToolCall, ID: "call-1", Name: "bash", Args: sleep}),
+		say(protocol.Block{Type: protocol.BlockToolCall, ID: "call-1", Name: shellTool, Args: sleep}),
 	}}
 
 	worker, database, session, _ := setup(t, model)
@@ -685,7 +686,21 @@ func TestOverflowIsRecoveredByDroppingTheLastStep(t *testing.T) {
 func command(id, line string) protocol.Block {
 	args, _ := json.Marshal(map[string]string{"command": line})
 
-	return protocol.Block{Type: protocol.BlockToolCall, ID: id, Name: "bash", Args: args}
+	return protocol.Block{Type: protocol.BlockToolCall, ID: id, Name: shellTool, Args: args}
+}
+
+// shellTool is the name of rumbo's shell tool: bash, or powershell on
+// Windows.
+var shellTool = tool.Defaults()[3].Def().Name
+
+// briefPause is a command that waits 10ms and prints checked, in the
+// shell's own words: Windows PowerShell waits whole seconds unless told.
+func briefPause() string {
+	if runtime.GOOS == "windows" {
+		return "Start-Sleep -Milliseconds 10; echo checked"
+	}
+
+	return "sleep 0.01; echo checked"
 }
 
 // told is an Inbox where the user speaks once the model has received a

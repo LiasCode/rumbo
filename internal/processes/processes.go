@@ -1,11 +1,13 @@
 // Package processes says what the processes of a host use of the machine:
 // the host, the programs it started, and theirs. It asks ps, which answers
 // the same on Linux and on macOS, and reads nothing else of the system.
+// Windows has no ps, and no process groups, so there it says it cannot.
 package processes
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +43,10 @@ type Started struct {
 
 // Snapshot lists the processes of the machine as they are now.
 func Snapshot(ctx context.Context) ([]Running, error) {
+	if !hasPS {
+		return nil, errors.New("rumbo cannot say what its processes use on Windows yet")
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

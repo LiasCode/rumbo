@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,6 +14,10 @@ import (
 // A host says the processes it has: itself, its provider's, its
 // extensions', and what the model left running, each with what it uses.
 func TestAHostSaysTheProcessesItHas(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no ps; internal/processes tests what it says there")
+	}
+
 	h := testHost(t)
 	withClaude(t, h.database, "")
 	call(t, h, "use", `{"provider":"claude","model":"claude-x"}`)

@@ -35,7 +35,7 @@ func TestEveryRequestIsReproduced(t *testing.T) {
 		answers: []protocol.Message{
 			say(write("call-1", "a.txt", "one")),
 			say(text("Half")),
-			say(command("call-2", "sleep 0.01; echo checked")),
+			say(command("call-2", briefPause())),
 			say(text("<summary>Wrote a.txt and checked it.</summary>")),
 			say(text("Done.")),
 			say(text("<summary>All done.</summary>")),
@@ -105,7 +105,7 @@ func TestEveryRequestIsReproduced(t *testing.T) {
 		var result transcript.ToolResult
 		json.Unmarshal(entry.Payload, &result)
 
-		if entry.Kind == transcript.KindToolResult && result.Name == "bash" && result.Duration < 10 {
+		if entry.Kind == transcript.KindToolResult && result.Name == shellTool && result.Duration < 10 {
 			t.Errorf("the command slept 10ms, and took %dms", result.Duration)
 		}
 	}

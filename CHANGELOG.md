@@ -11,8 +11,10 @@ it. The commits hold the reasons.
   `rumbo.exe`. There the model runs commands with PowerShell, through a
   tool called `powershell` in place of `bash`, so an extension that takes
   its place there says `replaces=powershell`. `/login` opens your
-  browser. The computer tool, and Ctrl-V for an image or files, are not
-  available on Windows yet, and say so; `/attach` gives a file.
+  browser. The computer tool, Ctrl-V for an image or files, and what
+  rumbo's processes use are not available on Windows yet, and say so;
+  `/attach` gives a file. A plugin built with Go builds into a directory
+  (`-o bin/`), so that Windows gets the `.exe` it runs.
 
 ### One directory for everything
 

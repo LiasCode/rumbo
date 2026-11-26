@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -263,6 +264,10 @@ func TestAPluginThatComesToBringWhatAnotherDoesIsSaid(t *testing.T) {
 // fails goes back to what it was, built again, since the failed build may
 // have broken what was there.
 func TestAPluginIsBuiltWhereItIsAdded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the build writes a shell script as the program, which Windows cannot run")
+	}
+
 	t.Setenv("RUMBO_DATA", t.TempDir())
 
 	self, err := os.Executable()
