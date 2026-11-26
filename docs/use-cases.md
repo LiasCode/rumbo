@@ -637,8 +637,9 @@ speaks the Agent Frontend Protocol with the host.
 - Take what it is attached to, its directory, session, provider, and model,
   from the host's answers instead of remembering it.
 - Be started by rumbo, with the terminal and with the protocol on file
-  descriptors 3 and 4, or start `rumbo serve` itself and speak on its stdin
-  and stdout.
+  descriptors 3 and 4 (on Windows, two inherited handles
+  `RUMBO_FRONTEND_HANDLES` names), or start `rumbo serve` itself and speak
+  on its stdin and stdout.
 - Read the configuration registered with it.
 - End the host by closing the connection.
 

@@ -41,7 +41,7 @@ Usage:
   rumbo extension ...            add, show, and set extensions, which give the model tools
   rumbo plugin ...               add, show, update, and remove plugins, which bring programs and skills
   rumbo provide <name>           run a provider of rumbo's own plugin on stdin/stdout
-  rumbo attach <name>            run plain, or a front end of rumbo's own plugin, on descriptors 3/4
+  rumbo attach <name>            run plain, or a front end of rumbo's own plugin, on descriptors 3/4 (handles on Windows)
   rumbo extend mcp [command...]  run rumbo's own plugin's extension for an MCP server on stdin/stdout
   rumbo version                  print the version
 

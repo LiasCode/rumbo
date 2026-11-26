@@ -165,7 +165,7 @@ specification:
 |---|---|---|---|
 | A provider | its stdin and stdout | [provider.py](examples/provider.py) | [protocol.md](docs/protocol.md) |
 | An extension | its stdin and stdout | [extension.py](examples/extension.py) | [extension-protocol.md](docs/extension-protocol.md) |
-| A front end | file descriptors 3 and 4, or `rumbo serve`, which it starts itself | [frontend.py](examples/frontend.py) | [frontend-protocol.md](docs/frontend-protocol.md) |
+| A front end | file descriptors 3 and 4 (on Windows, the handles `RUMBO_FRONTEND_HANDLES` names), or `rumbo serve`, which it starts itself | [frontend.py](examples/frontend.py) | [frontend-protocol.md](docs/frontend-protocol.md) |
 
 ```sh
 rumbo provider add mine /path/to/my-provider

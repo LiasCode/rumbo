@@ -11,11 +11,11 @@ import (
 	"text/tabwriter"
 
 	"github.com/LiasCode/rumbo/internal/agent"
+	"github.com/LiasCode/rumbo/internal/frontend"
 	"github.com/LiasCode/rumbo/internal/frontends/plain"
 	"github.com/LiasCode/rumbo/internal/store"
 	"github.com/LiasCode/rumbo/internal/transcript"
 	"github.com/LiasCode/rumbo/plugins/rumbo"
-	"github.com/LiasCode/rumbo/protocol"
 )
 
 // provide runs a provider of rumbo's own plugin as a protocol server on
@@ -46,13 +46,13 @@ func attach(args []string) error {
 		return errors.New("usage: rumbo attach <name>")
 	}
 
-	// Started by hand these descriptors are not open, and the front end
-	// reports that the host did not answer.
-	reader := os.NewFile(protocol.FrontendReadFD, "host-to-frontend")
-	writer := os.NewFile(protocol.FrontendWriteFD, "frontend-to-host")
+	reader, writer, err := frontend.Attached()
+
+	if err != nil {
+		return err
+	}
 
 	var code int
-	var err error
 
 	if args[0] == "plain" {
 		code = plain.Run(reader, writer)
@@ -74,7 +74,7 @@ func attach(args []string) error {
 // programHelp explains what each kind of program must speak.
 var programHelp = map[string]string{
 	store.KindProvider:  "A provider is any program that speaks the Agent Provider Protocol on its\nstdin and stdout.",
-	store.KindFrontend:  "A front end is any program that speaks the Agent Frontend Protocol on file\ndescriptors 3 (read) and 4 (write). It keeps the terminal on stdin and stdout.",
+	store.KindFrontend:  "A front end is any program that speaks the Agent Frontend Protocol on file\ndescriptors 3 (read) and 4 (write), or on Windows the two handles\nRUMBO_FRONTEND_HANDLES names. It keeps the terminal on stdin and stdout.",
 	store.KindExtension: "An extension is any program that speaks the Agent Extension Protocol on its\nstdin and stdout. The tools it declares are the model's, beside rumbo's own,\nand declaring them adds to every request. One of them takes the place of a\ntool of rumbo's, such as bash, when you say so with replaces. It can also\ndeclare sections, which the model is told when a run starts, and functions,\nwhich a front end offers you as commands named after it.\n\nrumbo's own plugin has one for the servers of the Model Context Protocol,\nadded once for each:\n  rumbo extension add files {self} extend mcp <the server's command>...\n  rumbo extension add -config '{\"url\":\"https://...\"}' docs {self} extend mcp\nA server at a url that wants a sign-in offers a login command in a front end.\nIts fields are url; token_env, the environment variable with a token of your\nown for a server at a url that takes one; client_id, for an authorization\nserver that registers no clients by itself; prefix, which goes before each\ntool's name; and tools, the names of the ones the model is given, separated\nby commas.",
 }
 

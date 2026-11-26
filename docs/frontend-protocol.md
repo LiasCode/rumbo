@@ -26,7 +26,13 @@ ways to be connected, with the same messages on both:
 | Who starts whom | The front end reads from | The front end writes to |
 |---|---|---|
 | `rumbo` starts a registered front end | file descriptor 3 | file descriptor 4 |
+| `rumbo` starts a registered front end, on Windows | the first handle `RUMBO_FRONTEND_HANDLES` names | the second |
 | The front end starts `rumbo serve` | the host's stdout | the host's stdin |
+
+Windows passes a program no file descriptor past stderr, so there the host
+gives the front end two inherited handles instead, and names them in its
+environment: `RUMBO_FRONTEND_HANDLES=<read>,<write>`, in decimal. Nothing
+else changes, and on Linux and macOS the variable is not set.
 
 A registered front end keeps stdin, stdout, and stderr connected to the
 terminal, so it can draw and read keys freely. A front end that starts

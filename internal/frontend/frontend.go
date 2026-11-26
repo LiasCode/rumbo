@@ -649,8 +649,9 @@ type Process struct {
 }
 
 // Start runs argv as a front end. It inherits the terminal on stdin, stdout,
-// and stderr, and gets the protocol on the file descriptors the protocol
-// package names.
+// and stderr, and gets the protocol where the protocol package says: file
+// descriptors 3 and 4, or on Windows the handles it is told of
+// (pass_unix.go, pass_windows.go).
 func Start(argv []string) (*Process, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("front end command is empty")
@@ -672,8 +673,11 @@ func Start(argv []string) (*Process, error) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	// ExtraFiles start at descriptor 3, in order.
-	cmd.ExtraFiles = []*os.File{toFrontend, fromFrontend}
+	if err := passProtocol(cmd, toFrontend, fromFrontend); err != nil {
+		closeAll(toFrontend, fromFrontend, hostWrites, hostReads)
+
+		return nil, err
+	}
 
 	err = cmd.Start()
 
@@ -718,4 +722,10 @@ func (p *Process) Pid() int {
 // Kill stops a front end that did not complete the handshake.
 func (p *Process) Kill() {
 	_ = p.cmd.Process.Kill()
+}
+
+func closeAll(files ...*os.File) {
+	for _, file := range files {
+		_ = file.Close()
+	}
 }

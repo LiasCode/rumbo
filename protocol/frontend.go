@@ -41,6 +41,12 @@ const (
 	FrontendWriteFD = 4
 )
 
+// FrontendHandlesEnv names, on Windows, the handles the protocol is on
+// when the host starts a front end, since a program there inherits no file
+// descriptor past stderr: the one to read from and the one to write to, in
+// decimal, separated by a comma.
+const FrontendHandlesEnv = "RUMBO_FRONTEND_HANDLES"
+
 // Event types.
 const (
 	EventContext      = "context"

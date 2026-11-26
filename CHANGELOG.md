@@ -14,7 +14,10 @@ it. The commits hold the reasons.
   browser. The computer tool, Ctrl-V for an image or files, and what
   rumbo's processes use are not available on Windows yet, and say so;
   `/attach` gives a file. A plugin built with Go builds into a directory
-  (`-o bin/`), so that Windows gets the `.exe` it runs.
+  (`-o bin/`), so that Windows gets the `.exe` it runs, and a front end of
+  your own reads the protocol there from the two handles
+  `RUMBO_FRONTEND_HANDLES` names, since Windows passes no file descriptors
+  3 and 4.
 
 ### One directory for everything
 
