@@ -5,6 +5,13 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Fixes
+
+- The example front end, `examples/frontend.py`, answers that it speaks
+  version 3 of the front end protocol, the one rumbo speaks since 0.12.0,
+  so rumbo no longer refuses it. The protocol's documentation said 2 in
+  the same place, and says 3 now.
+
 ## 0.13.0 (2026-11-27)
 
 ### Features

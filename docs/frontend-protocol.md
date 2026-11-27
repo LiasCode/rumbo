@@ -110,7 +110,7 @@ The host speaks first.
 }}
 ```
 
-- `protocol` is 2.
+- `protocol` is 3.
 - `dir` is the directory the session works in, which is its root.
 - `session` is the host's session, absent when it is a new one; the first
   `run` carries its id in its events and its result. `title` is what the
@@ -128,7 +128,7 @@ The host speaks first.
 - `functions` are what the host itself can be asked, whatever the provider.
   See [Functions of the host](#functions-of-the-host).
 
-Result: `{"protocol":2,"name":"my-frontend","config":{}}`.
+Result: `{"protocol":3,"name":"my-frontend","config":{}}`.
 
 `config` in the result is the start configuration in force: the one given,
 with the front end's own default for every field it was not given. The host

@@ -65,11 +65,12 @@ def run(params, request_id):
 
 # The host speaks first: it says which directory, session, and model this
 # front end is attached to, and passes an objective given on the command line.
-# The answer gives back the configuration in force, with a default for every
-# field left out. This one has none, so a field it was given is a mistake,
-# which it says rather than ignore.
+# The answer names the protocol version this front end speaks, which a host
+# of another version refuses, and gives back the configuration in force,
+# with a default for every field left out. This one has none, so a field it
+# was given is a mistake, which it says rather than ignore.
 hello = json.loads(from_host.readline())
-send({"id": hello["id"], "result": {"protocol": 2, "name": "simple", "config": {}}})
+send({"id": hello["id"], "result": {"protocol": 3, "name": "simple", "config": {}}})
 
 if hello["params"].get("config"):
     raise SystemExit("simple has no configuration, and was given: " + ", ".join(hello["params"]["config"]))

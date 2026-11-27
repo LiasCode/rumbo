@@ -590,7 +590,7 @@ speaks the Agent Frontend Protocol with the host.
 
 ### Must
 
-- Answer the host's `initialize` with protocol version 2, its name, and its
+- Answer the host's `initialize` with protocol version 3, its name, and its
   start configuration in force, with a default for every field it was not
   given.
 - Refuse a field of its configuration it does not have, or a value it
