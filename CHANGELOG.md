@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.13.0 (2026-11-27)
+
 ### Features
 
 - rumbo comes with a skill, `rumbo`, that tells the model where rumbo's
