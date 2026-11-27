@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/LiasCode/rumbo/internal/store"
+	"github.com/LiasCode/rumbo/plugins/rumbo"
 )
 
 // pluginIn writes a plugin in a directory of its own: its manifest, and a
@@ -193,6 +194,9 @@ func TestAPluginThatDoesNotFitIsNotAdded(t *testing.T) {
 // providers and front end, which start, and it cannot be taken out or
 // updated apart from rumbo.
 func TestRumbosOwnPluginIsOneMore(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("RUMBO_DATA", data)
+
 	h := testHost(t)
 	plugins, err := installed(h.database)
 
@@ -224,8 +228,27 @@ func TestRumbosOwnPluginIsOneMore(t *testing.T) {
 		t.Fatalf("rumbo's own plugin was written in the file: %+v", kept)
 	}
 
-	if places, err := skillPlaces(h.database); err != nil || len(places) != 0 {
+	// Its skills, which it has no directory for, are written to one, which
+	// keeps only this release's: one changed by hand, or left by another
+	// release, does not stay.
+	place := filepath.Join(data, "builtin", "skills")
+	skill := filepath.Join(place, "rumbo", "SKILL.md")
+	want, _ := rumbo.Skills.ReadFile("skills/rumbo/SKILL.md")
+
+	os.MkdirAll(filepath.Join(place, "gone"), 0o755)
+	os.MkdirAll(filepath.Dir(skill), 0o755)
+	os.WriteFile(skill, []byte("changed"), 0o644)
+
+	if places, err := skillPlaces(h.database); err != nil || len(places) != 1 || places[0] != place {
 		t.Fatalf("skill places = %q, err = %v", places, err)
+	}
+
+	if got, _ := os.ReadFile(skill); string(got) != string(want) {
+		t.Fatalf("its skill is:\n%s", got)
+	}
+
+	if _, err := os.Stat(filepath.Join(place, "gone")); !os.IsNotExist(err) {
+		t.Fatalf("a skill it no longer brings is still there: %v", err)
 	}
 
 	if _, err := removePlugin(h.database, "rumbo"); err == nil || !strings.Contains(err.Error(), "comes with rumbo and is always there") {

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -341,7 +342,8 @@ func broughtBy(database store.Store, kind, name string) (store.Program, string, 
 }
 
 // skillPlaces are where the plugins keep their skills. rumbo's own, which
-// has no directory, has none.
+// has no directory, has its skills written to one first, so a skill of the
+// user's of the same name replaces it.
 func skillPlaces(database store.Store) ([]string, error) {
 	plugins, err := installed(database)
 
@@ -351,6 +353,10 @@ func skillPlaces(database store.Store) ([]string, error) {
 
 	var places []string
 
+	if place, err := builtinSkills(); err == nil {
+		places = append(places, place)
+	}
+
 	for _, each := range plugins {
 		if each.dir != "" {
 			places = append(places, filepath.Join(each.dir, skillsDir))
@@ -358,6 +364,70 @@ func skillPlaces(database store.Store) ([]string, error) {
 	}
 
 	return places, nil
+}
+
+// builtinSkills writes the skills of rumbo's own plugin to builtin/skills in
+// rumbo's data directory, and returns it. They are written again only when
+// they differ from those of this executable, and one that is no longer
+// brought is removed, so the directory is always this release's.
+func builtinSkills() (string, error) {
+	data, err := DataDir()
+
+	if err != nil {
+		return "", err
+	}
+
+	place := filepath.Join(data, "builtin", skillsDir)
+	brought := map[string]bool{}
+
+	err = fs.WalkDir(rumbo.Skills, skillsDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+
+		relative := strings.TrimPrefix(path, skillsDir+"/")
+		brought[strings.Split(relative, "/")[0]] = true
+
+		content, err := rumbo.Skills.ReadFile(path)
+
+		if err != nil {
+			return err
+		}
+
+		target := filepath.Join(place, filepath.FromSlash(relative))
+
+		if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, content) {
+			return nil
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+
+		// Through a file of its own and a rename, so a host reading it at
+		// the same time never sees half of it.
+		temporary := target + ".new"
+
+		if err := os.WriteFile(temporary, content, 0o644); err != nil {
+			return err
+		}
+
+		return os.Rename(temporary, target)
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	entries, _ := os.ReadDir(place)
+
+	for _, entry := range entries {
+		if !brought[entry.Name()] {
+			_ = os.RemoveAll(filepath.Join(place, entry.Name()))
+		}
+	}
+
+	return place, nil
 }
 
 // addPlugin adds the plugin at source, a directory or the address of a Git

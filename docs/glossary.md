@@ -183,7 +183,8 @@ Described in [plugins.md](plugins.md).
 
 **rumbo's own plugin.** The plugin called `rumbo`, built into the
 executable with its programs: rumbo's providers, its terminal front end,
-and its extension for MCP servers. It is there before any the user adds,
+its extension for MCP servers, and the skill that points the model at
+rumbo's documentation. It is there before any the user adds,
 and cannot be taken out (`plugins/rumbo`).
 
 **Skill.** Instructions for one kind of task, kept by the user, a plugin of

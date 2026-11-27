@@ -36,7 +36,19 @@ func TestMain(m *testing.M) {
 		os.Exit(Main(os.Args[1:]))
 	}
 
-	os.Exit(m.Run())
+	// What a test writes without a directory of its own, such as rumbo's
+	// own skills, goes to one that is removed, never to the user's.
+	data, err := os.MkdirTemp("", "rumbo-test-data-")
+
+	if err != nil {
+		os.Exit(1)
+	}
+
+	os.Setenv("RUMBO_DATA", data)
+	code := m.Run()
+	os.RemoveAll(data)
+
+	os.Exit(code)
 }
 
 // twoOptions describes two options, so two changes can be told apart, and

@@ -252,6 +252,12 @@ any plugin you add, with nothing of it in `config.yaml`, and cannot be
 taken out or updated apart from rumbo. Its extension for MCP servers is in
 it too, but not in its manifest, since it would start with no server: you
 add it once for each server, as `{self} extend mcp <the server's command>`.
+Its skill `rumbo` tells the model where rumbo's documentation is, as links
+to this repository the model fetches when a user asks about rumbo or wants
+to write something for it; the skill itself holds no documentation. Since
+the plugin has no directory, the host writes its skills to
+`~/.rumbo/builtin/skills/`, the same as this release's every time, and a
+skill of yours of the same name replaces it.
 
 ## What to keep in mind
 

@@ -1,6 +1,7 @@
 // Package rumbo is the plugin that comes with rumbo: the providers
 // anthropic, openai, and chatgpt, the terminal front end tui, and the
-// extension for the servers of the Model Context Protocol. plugin.yaml says
+// extension for the servers of the Model Context Protocol, and the skill that
+// says where rumbo's documentation is. plugin.yaml says
 // what it brings, and the host reads it as it reads the manifest of any
 // plugin a person adds. Its code is built into the same executable, which
 // serves each of its programs through a command of its own: rumbo provide,
@@ -12,7 +13,7 @@ package rumbo
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +31,13 @@ import (
 //
 //go:embed plugin.yaml
 var Manifest []byte
+
+// Skills are the plugin's skills, each in skills/<name>/SKILL.md. The host
+// writes them where the model can read them, since the plugin has no
+// directory of its own.
+//
+//go:embed skills
+var Skills embed.FS
 
 // Provide serves the provider called name on stdin and stdout.
 func Provide(name string) error {

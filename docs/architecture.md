@@ -133,9 +133,11 @@ configuration file keeps only where a plugin comes from, and which tools of
 the host's own the user agreed its extensions replace.
 rumbo's own plugin (`plugins/rumbo`) is one more, there before any the
 user adds: what comes with rumbo beyond the host, its providers, its
-terminal front end, and its extension for MCP servers. Its manifest and its
-code are built into the executable, which serves its programs, so it has
-no directory, no entry in the configuration file, and no way to be taken
+terminal front end, its extension for MCP servers, and a skill that points
+the model at rumbo's documentation in the repository, as links it fetches.
+Its manifest, its code, and its skills are built into the executable, which
+serves its programs and writes its skills to `builtin/skills` in rumbo's
+directory, so it has no directory of its own, no entry in the configuration file, and no way to be taken
 out or updated apart from rumbo. The host reaches its code only through
 the package at its root, which starts its programs; everything else of it
 is internal to it. What the host keeps of its own is its tools and `plain`,

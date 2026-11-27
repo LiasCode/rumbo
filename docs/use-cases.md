@@ -106,7 +106,9 @@ knows no model API.
   working directory, and the user's own in `~/.rumbo/`. A long one
   is cut, saying where the rest is.
 - The user's skills: the name, the description, and the path of each
-  `SKILL.md` in the `skills/<name>/` of each plugin the user added, in
+  `SKILL.md` of rumbo's own plugin, written to `~/.rumbo/builtin/skills/`,
+  which points the model at rumbo's documentation in its repository; in
+  the `skills/<name>/` of each plugin the user added, in
   `~/.rumbo/skills/<name>/`, where one of the same name replaces a
   plugin's, and in `.agents/skills/<name>/` of the working directory, where
   one of the same name replaces the user's. The model reads

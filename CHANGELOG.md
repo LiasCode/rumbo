@@ -5,6 +5,14 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+### Features
+
+- rumbo comes with a skill, `rumbo`, that tells the model where rumbo's
+  documentation is in its repository, so it can answer questions about
+  rumbo and help write plugins, providers, front ends, and extensions. It
+  is written to `~/.rumbo/builtin/skills/`; a skill of yours called
+  `rumbo` replaces it.
+
 ### Fixes
 
 - With `anthropic`, the model is given a tool's whole schema, as with
