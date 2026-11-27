@@ -36,7 +36,7 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Build
-        run: go build -o rumbo ./cmd/rumbo
+        run: go build -o bin/rumbo ./cmd/rumbo
       # The tasks are bash scripts that use Unix tools.
       - name: Evaluation tasks are sound
         if: runner.os != 'Windows'

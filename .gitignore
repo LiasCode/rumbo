@@ -1,4 +1,5 @@
 /rumbo
+/bin
 /baseline.jsonl
 /results*.jsonl
 /dist
