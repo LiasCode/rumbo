@@ -3,3 +3,4 @@
 /baseline.jsonl
 /results*.jsonl
 /dist
+__pycache__/
