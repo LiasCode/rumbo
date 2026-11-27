@@ -5,6 +5,8 @@ it. The commits hold the reasons.
 
 ## Unreleased
 
+## 0.13.1 (2026-11-27)
+
 ### Fixes
 
 - The example front end, `examples/frontend.py`, answers that it speaks
